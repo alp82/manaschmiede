@@ -1,0 +1,54 @@
+@import 'tailwindcss' source('../');
+
+@theme {
+  /* Mana colors */
+  --color-mana-white: oklch(0.92 0.04 90);
+  --color-mana-blue: oklch(0.55 0.18 250);
+  --color-mana-black: oklch(0.30 0.02 285);
+  --color-mana-red: oklch(0.58 0.22 25);
+  --color-mana-green: oklch(0.60 0.18 145);
+  --color-mana-colorless: oklch(0.65 0.01 250);
+  --color-mana-multi: oklch(0.72 0.12 85);
+
+  /* Surface palette (dark-first) */
+  --color-surface-900: oklch(0.13 0.01 260);
+  --color-surface-800: oklch(0.18 0.01 260);
+  --color-surface-700: oklch(0.25 0.01 260);
+  --color-surface-600: oklch(0.35 0.01 260);
+  --color-surface-500: oklch(0.45 0.01 260);
+  --color-surface-400: oklch(0.55 0.01 260);
+  --color-surface-300: oklch(0.65 0.01 260);
+  --color-surface-200: oklch(0.80 0.01 260);
+  --color-surface-100: oklch(0.92 0.01 260);
+
+  /* Accent */
+  --color-accent: oklch(0.65 0.18 250);
+  --color-accent-hover: oklch(0.72 0.18 250);
+
+  /* Card frame */
+  --color-card-border: oklch(0.45 0.04 55);
+
+  /* Fonts */
+  --font-display: 'Cinzel', serif;
+  --font-body: 'Inter', system-ui, sans-serif;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--color-surface-800);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-surface-600);
+    border-radius: 4px;
+  }
+}

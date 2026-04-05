@@ -1,0 +1,194 @@
+export type Locale = 'de' | 'en'
+
+export interface Translations {
+  // Nav / Layout
+  'nav.cards': string
+  'nav.newDeck': string
+
+  // Search
+  'search.placeholder': string
+  'search.noResults': string
+  'search.tryDifferent': string
+  'search.error': string
+  'search.results': string
+  'search.welcome': string
+  'search.welcomeSub': string
+  'search.cardSearch': string
+  'search.searching': string
+
+  // Filters
+  'filter.allTypes': string
+  'filter.creature': string
+  'filter.instant': string
+  'filter.sorcery': string
+  'filter.enchantment': string
+  'filter.artifact': string
+  'filter.planeswalker': string
+  'filter.land': string
+  'filter.allCmc': string
+  'filter.format': string
+  'filter.allFormats': string
+  'filter.budget': string
+  'filter.budgetMax': string
+  'filter.noBudget': string
+  'filter.rarity': string
+  'filter.keyword': string
+  'filter.allKeywords': string
+  'filter.clearAll': string
+
+  // Mana colors
+  'color.white': string
+  'color.blue': string
+  'color.black': string
+  'color.red': string
+  'color.green': string
+
+  // Deck management
+  'deck.yourDecks': string
+  'deck.createFirst': string
+  'deck.loadSamples': string
+  'deck.deleteConfirm': string
+  'deck.delete': string
+  'deck.cards': string
+  'deck.deckNotFound': string
+  'deck.emptyDeck': string
+  'deck.emptyDeckSub': string
+  'deck.namePlaceholder': string
+  'deck.descriptionPlaceholder': string
+  'deck.noResults': string
+  'deck.pdf': string
+  'deck.pdfGenerating': string
+
+  // Wizard shared
+  'wizard.colors': string
+  'wizard.strategy': string
+  'wizard.coreCards': string
+  'wizard.buildDeck': string
+  'wizard.reset': string
+  'wizard.back': string
+  'wizard.skip': string
+  'wizard.next': string
+
+  // Step 1: Colors
+  'colors.title': string
+  'colors.subtitle': string
+  'colors.splashQuestion': string
+  'colors.maybe': string
+  'colors.aiDecide': string
+  'colors.format': string
+  'colors.formatCasual': string
+  'colors.formatModern': string
+  'colors.formatStandard': string
+  'colors.descCasual': string
+  'colors.descModern': string
+  'colors.descStandard': string
+  'colors.nextStrategy': string
+
+  // Step 2: Strategy
+  'strategy.title': string
+  'strategy.subtitle': string
+  'strategy.archetypes': string
+  'strategy.pickUpTo2': string
+  'strategy.traitsThemes': string
+  'strategy.filterPlaceholder': string
+  'strategy.combatKeywords': string
+  'strategy.mechanics': string
+  'strategy.creatureTypes': string
+  'strategy.describeStrategy': string
+  'strategy.strategyPlaceholder': string
+  'strategy.budgetPerCard': string
+  'strategy.unlimited': string
+  'strategy.noLimit': string
+  'strategy.rarity': string
+  'strategy.common': string
+  'strategy.uncommon': string
+  'strategy.rare': string
+  'strategy.mythic': string
+  'strategy.skipLong': string
+  'strategy.nextCoreCards': string
+  'strategy.showAllTraits': string
+
+  // Step 3: Core Cards
+  'core.title': string
+  'core.subtitle': string
+  'core.analyzing': string
+  'core.noValidCombos': string
+  'core.tryAgain': string
+  'core.suggestDifferent': string
+  'core.orSearch': string
+  'core.searchPlaceholder': string
+  'core.skipLong': string
+  'core.nextBuildDeck': string
+
+  // Step 4: Deck Fill
+  'fill.yourDeck': string
+  'fill.cardsCount': string
+  'fill.candidates': string
+  'fill.addToDeck': string
+  'fill.inYourDeck': string
+  'fill.building': string
+  'fill.searchPlaceholder': string
+  'fill.clearFilters': string
+  'fill.finishOpen': string
+
+  // AI Chat
+  'chat.emptyPrompt': string
+  'chat.inputPlaceholder': string
+  'chat.inputPending': string
+  'chat.send': string
+  'chat.noChanges': string
+  'chat.apply': string
+  'chat.discard': string
+
+  // Balance Advisor
+  'balance.lands': string
+  'balance.spells': string
+  'balance.avgCmc': string
+  'balance.manaCurve': string
+  'balance.colorDist': string
+  'balance.cardTypes': string
+  'balance.landColors': string
+  'balance.suggestions': string
+
+  // Card Lightbox
+  'lightbox.manaCost': string
+
+  // DeckCardList
+  'cardlist.noCards': string
+  'cardlist.removeConfirm': string
+  'cardlist.unlock': string
+  'cardlist.lock': string
+
+  // Print
+  'print.backToDeck': string
+  'print.preview': string
+  'print.pageInfo': string
+  'print.includeBasicLands': string
+  'print.downloadPdf': string
+  'print.generatingPdf': string
+  'print.pdfFailed': string
+  'print.page': string
+
+  // Page title
+  'meta.title': string
+
+  // Scryfall search cards placeholder
+  'deckPage.searchPlaceholder': string
+  'deckPage.addOverlay': string
+
+  // Trait descriptions (keyed by trait id)
+  [key: `trait.${string}`]: string
+  [key: `trait.desc.${string}`]: string
+
+  // Balance warnings (dynamic, handled separately)
+  'balance.warning.tooFewCards': string
+  'balance.warning.tooFewLands': string
+  'balance.warning.tooManyLands': string
+  'balance.warning.highCmc': string
+  'balance.warning.tooManyCopies': string
+  'balance.warning.sideboardTooLarge': string
+  'balance.warning.colorLandMismatch': string
+  'balance.suggestion.addRemoval': string
+  'balance.suggestion.addCardDraw': string
+  'balance.suggestion.tribalSynergy': string
+}
