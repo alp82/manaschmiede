@@ -2,6 +2,11 @@ import { useState, useRef, useEffect } from 'react'
 import type { ChatMessage, PendingChanges } from '../lib/useDeckChat'
 import { useT } from '../lib/i18n'
 
+export interface QuickAction {
+  label: string
+  message: string
+}
+
 interface AiChatProps {
   messages: ChatMessage[]
   pending: PendingChanges | null
@@ -9,9 +14,10 @@ interface AiChatProps {
   onApply: () => void
   onDiscard: () => void
   isLoading: boolean
+  quickActions?: QuickAction[]
 }
 
-export function AiChat({ messages, pending, onSend, onApply, onDiscard, isLoading }: AiChatProps) {
+export function AiChat({ messages, pending, onSend, onApply, onDiscard, isLoading, quickActions }: AiChatProps) {
   const t = useT()
   const [input, setInput] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -165,8 +171,22 @@ export function AiChat({ messages, pending, onSend, onApply, onDiscard, isLoadin
         )}
       </div>
 
-      {/* Input */}
+      {/* Quick action chips + Input */}
       <div className="flex-shrink-0 border-t border-surface-700 p-2">
+        {quickActions && quickActions.length > 0 && !isLoading && !pending && (
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {quickActions.map((action) => (
+              <button
+                key={action.label}
+                type="button"
+                onClick={() => onSend(action.message)}
+                className="rounded-full border border-surface-600 bg-surface-800 px-3 py-1 text-xs text-surface-400 transition-colors hover:border-accent hover:text-accent"
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="flex gap-2">
           <input
             type="text"

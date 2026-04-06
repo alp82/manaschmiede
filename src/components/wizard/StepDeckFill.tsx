@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { AiChat } from '../AiChat'
 import { BalanceAdvisor } from '../BalanceAdvisor'
 import { CardLightbox } from '../CardLightbox'
@@ -32,6 +33,7 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
   const [lightboxCards, setLightboxCards] = useState<ScryfallCard[]>([])
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
   const [mobileTab, setMobileTab] = useState<MobileTab>('cards')
+  const [chatSheetOpen, setChatSheetOpen] = useState(false)
 
   // Search & filter
   const [search, setSearch] = useState('')
@@ -145,7 +147,7 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
   useEffect(() => {
     for (const dc of state.deckCards) {
       if (!cardDataMap.has(dc.scryfallId)) {
-        fetch('https://api.scryfall.com/cards/' + dc.scryfallId + '?lang=de', {
+        fetch('https://api.scryfall.com/cards/' + dc.scryfallId, {
           headers: { 'User-Agent': 'Manaschmiede/0.1', Accept: 'application/json' },
         })
           .then((r) => r.json())
@@ -218,12 +220,71 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
     .filter((c) => c.zone === 'main')
     .reduce((s, c) => s + c.quantity, 0)
 
+  // Classify deck cards into lanes
+  type DeckDisplayCard = (typeof deckDisplay)[number]
+  const lanes = useMemo(() => {
+    const coreIds = new Set(state.lockedCardIds)
+    const core: DeckDisplayCard[] = []
+    const creatures: DeckDisplayCard[] = []
+    const spells: DeckDisplayCard[] = []
+    const support: DeckDisplayCard[] = []
+    const lands: DeckDisplayCard[] = []
+
+    for (const d of deckDisplay) {
+      if (coreIds.has(d.scryfallId)) {
+        core.push(d)
+        continue
+      }
+      const type = d.card.type_line.toLowerCase()
+      if (type.includes('land')) lands.push(d)
+      else if (type.includes('creature')) creatures.push(d)
+      else if (type.includes('instant') || type.includes('sorcery')) spells.push(d)
+      else support.push(d)
+    }
+    return { core, creatures, spells, support, lands }
+  }, [deckDisplay, state.lockedCardIds])
+
+  const laneCount = (items: DeckDisplayCard[]) => items.reduce((s, d) => s + d.quantity, 0)
+
+  // Ambient mana tint gradient based on deck colors
+  const TINT_MAP: Record<string, string> = {
+    W: 'oklch(0.92 0.04 90 / 0.05)',
+    U: 'oklch(0.55 0.18 250 / 0.05)',
+    B: 'oklch(0.30 0.02 285 / 0.08)',
+    R: 'oklch(0.58 0.22 25 / 0.05)',
+    G: 'oklch(0.60 0.18 145 / 0.05)',
+  }
+  const ambientGradient = useMemo(() => {
+    const colors = getActiveColors(state.colors)
+    if (colors.length === 0) return undefined
+    const primary = TINT_MAP[colors[0]] ?? 'transparent'
+    const secondary = colors.length > 1 ? (TINT_MAP[colors[1]] ?? 'transparent') : primary
+    return `radial-gradient(ellipse at 50% 0%, ${primary} 0%, ${secondary} 40%, transparent 80%)`
+  }, [state.colors])
+
   function openLightbox(card: ScryfallCard) {
     const idx = allScryfallCards.findIndex((c) => c.id === card.id)
     if (idx >= 0) {
       setLightboxCards(allScryfallCards)
       setLightboxIndex(idx)
     }
+  }
+
+  // Card context menu handlers
+  function handleToggleLock(scryfallId: string) {
+    dispatch({ type: 'TOGGLE_LOCK', scryfallId })
+  }
+
+  function handleChangeQuantity(scryfallId: string, qty: number) {
+    const updated = state.deckCards.map((c) =>
+      c.scryfallId === scryfallId ? { ...c, quantity: qty } : c,
+    )
+    dispatch({ type: 'SET_DECK', cards: updated })
+  }
+
+  function handleRemoveCard(scryfallId: string) {
+    const updated = state.deckCards.filter((c) => c.scryfallId !== scryfallId)
+    dispatch({ type: 'SET_DECK', cards: updated })
   }
 
   function addCandidate(card: ScryfallCard) {
@@ -245,6 +306,24 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
 
   const hasActiveFilter = typeFilter !== null || colorFilter !== null || cmcFilter !== null
 
+  // Quick action chips for AI chat
+  const quickActions = useMemo(() => {
+    const actions: { label: string; message: string }[] = []
+    if (mainCount > 0 && mainCount < 60) {
+      actions.push({ label: t('chat.quickFill'), message: 'Fill the remaining slots to reach 60 cards while maintaining good balance and synergy.' })
+    }
+    if (analysis?.warnings.some((w) => w.message.toLowerCase().includes('land'))) {
+      actions.push({ label: t('chat.quickFixMana'), message: 'Fix the mana base — adjust the land count and color distribution to match the spells.' })
+    }
+    if (analysis && analysis.cardTypeBreakdown.find((ct) => ct.type === 'Creature')?.count === 0 && mainCount > 10) {
+      actions.push({ label: t('chat.quickAddCreatures'), message: 'Add creatures to the deck — it currently has none.' })
+    }
+    if (analysis?.suggestions.some((s) => s.toLowerCase().includes('removal'))) {
+      actions.push({ label: t('chat.quickAddRemoval'), message: 'Add some removal spells to deal with opponent threats.' })
+    }
+    return actions.slice(0, 3)
+  }, [mainCount, analysis, t])
+
   // --- Shared sub-components ---
 
   const candidatesBar = candidates.length > 0 && (
@@ -265,6 +344,74 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
       </button>
     </div>
   )
+
+  // Track which cards have already animated in (prevent re-animation on updates)
+  const animatedCards = useRef(new Set<string>())
+  const workspaceMounted = useRef(false)
+  useEffect(() => { workspaceMounted.current = true }, [])
+
+  // Collapsible lane component
+  function DeckLane({ label, items, gridCols, heroSize, target }: {
+    label: string
+    items: DeckDisplayCard[]
+    gridCols?: string
+    heroSize?: boolean
+    target?: number
+  }) {
+    const [collapsed, setCollapsed] = useState(false)
+    const count = laneCount(items)
+    if (items.length === 0) return null
+    const fillPct = target ? Math.min(100, (count / target) * 100) : undefined
+    return (
+      <div>
+        <button
+          type="button"
+          onClick={() => setCollapsed(!collapsed)}
+          className="mb-1 flex w-full items-center justify-between"
+        >
+          <span className="font-display text-sm font-bold text-surface-200">{label}</span>
+          <span className="flex items-center gap-2">
+            <span className={`rounded-full bg-surface-700 px-2 py-0.5 text-xs font-medium ${
+              target && count > target ? 'text-mana-multi' : 'text-surface-400'
+            }`}>
+              {target ? `${count}/${target}` : count}
+            </span>
+            <span className={`text-xs text-surface-500 transition-transform duration-[--duration-quick] ${collapsed ? '' : 'rotate-90'}`}>▸</span>
+          </span>
+        </button>
+        {fillPct !== undefined && (
+          <div className="mb-2 h-0.5 rounded-full bg-accent/20">
+            <div
+              className="h-full rounded-full bg-accent transition-all duration-[--duration-smooth]"
+              style={{ width: `${fillPct}%` }}
+            />
+          </div>
+        )}
+        {!collapsed && (
+          <div className={gridCols ?? 'grid grid-cols-3 gap-2 sm:grid-cols-3 md:grid-cols-4'}>
+            {items.map(({ card, quantity, locked, scryfallId }, i) => {
+              const shouldAnimate = !animatedCards.current.has(scryfallId)
+              if (shouldAnimate) animatedCards.current.add(scryfallId)
+              return (
+                <div
+                  key={scryfallId}
+                  style={shouldAnimate ? { animation: `card-enter 300ms cubic-bezier(0.22, 1.2, 0.36, 1) both`, animationDelay: `${i * 60}ms` } : undefined}
+                >
+                  {heroSize ? (
+                    <div className="ring-2 ring-mana-multi/50 rounded-lg">
+                      <CardStack card={card} quantity={quantity} locked={locked} isNew={newCardIds.has(scryfallId)} onClick={() => openLightbox(card)} onToggleLock={() => handleToggleLock(scryfallId)} onChangeQuantity={(qty) => handleChangeQuantity(scryfallId, qty)} onRemove={() => handleRemoveCard(scryfallId)} />
+                    </div>
+                  ) : (
+                    <CardStack card={card} quantity={quantity} locked={locked} isNew={newCardIds.has(scryfallId)} onClick={() => openLightbox(card)} onToggleLock={() => handleToggleLock(scryfallId)} onChangeQuantity={(qty) => handleChangeQuantity(scryfallId, qty)} onRemove={() => handleRemoveCard(scryfallId)} />
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   const cardGridContent = (
     <>
@@ -296,25 +443,26 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
 
       {searching && <p className="py-4 text-center text-xs text-surface-500">{t('search.searching')}</p>}
 
-      {/* Deck cards */}
+      {/* Deck cards — categorized lanes */}
       {deckDisplay.length > 0 ? (
-        <>
-          {newSearchResults.length > 0 && (
-            <h4 className="mb-2 text-xs font-medium text-surface-400">{t('fill.inYourDeck')}</h4>
+        <div className="space-y-6">
+          {hasActiveFilter ? (
+            // When filters active, show flat grid (filtering breaks lane classification)
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-3 md:grid-cols-4">
+              {deckDisplay.map(({ card, quantity, locked, scryfallId }) => (
+                <CardStack key={scryfallId} card={card} quantity={quantity} locked={locked} isNew={newCardIds.has(scryfallId)} onClick={() => openLightbox(card)} onToggleLock={() => handleToggleLock(scryfallId)} onChangeQuantity={(qty) => handleChangeQuantity(scryfallId, qty)} onRemove={() => handleRemoveCard(scryfallId)} />
+              ))}
+            </div>
+          ) : (
+            <>
+              <DeckLane label={t('fill.laneCore')} items={lanes.core} heroSize />
+              <DeckLane label={t('fill.laneCreatures')} items={lanes.creatures} target={16} />
+              <DeckLane label={t('fill.laneSpells')} items={lanes.spells} target={10} />
+              <DeckLane label={t('fill.laneSupport')} items={lanes.support} target={6} />
+              <DeckLane label={t('fill.laneLands')} items={lanes.lands} target={24} gridCols="grid grid-cols-4 gap-1.5 sm:grid-cols-5 md:grid-cols-6" />
+            </>
           )}
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-3 md:grid-cols-4">
-            {deckDisplay.map(({ card, quantity, locked, scryfallId }) => (
-              <CardStack
-                key={scryfallId}
-                card={card}
-                quantity={quantity}
-                locked={locked}
-                isNew={newCardIds.has(scryfallId)}
-                onClick={() => openLightbox(card)}
-              />
-            ))}
-          </div>
-        </>
+        </div>
       ) : (
         <div className="flex h-full min-h-[200px] flex-col items-center justify-center gap-2 text-surface-500">
           <div className="flex gap-1">
@@ -329,7 +477,14 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
   )
 
   return (
-    <div>
+    <div className="relative">
+      {/* Ambient mana tint overlay */}
+      {ambientGradient && (
+        <div
+          className="pointer-events-none absolute inset-0 -z-10 transition-opacity duration-[600ms]"
+          style={{ background: ambientGradient }}
+        />
+      )}
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <div>
@@ -340,18 +495,20 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
             <p className="text-xs text-surface-400">{state.deckDescription}</p>
           )}
         </div>
-        <span className={`text-sm font-medium ${mainCount === 60 ? 'text-mana-green' : 'text-mana-red'}`}>
+        <span
+          className={`text-sm font-medium transition-colors duration-[--duration-smooth] ${mainCount === 60 ? 'text-mana-green' : 'text-mana-red'}`}
+          style={mainCount === 60 ? { animation: 'celebrate 500ms cubic-bezier(0.34, 1.56, 0.64, 1)' } : undefined}
+        >
           {t('fill.cardsCount', { count: mainCount })}
         </span>
       </div>
 
       {/* ========== MOBILE LAYOUT (< lg) ========== */}
-      <div className="lg:hidden">
-        {/* Mobile tab bar */}
+      <div className="lg:hidden pb-28">
+        {/* Mobile tab bar — Cards / Stats only (chat is bottom sheet) */}
         <div className="mb-3 flex rounded-lg border border-surface-600 p-0.5">
           {([
             { id: 'cards' as MobileTab, label: t('nav.cards') },
-            { id: 'chat' as MobileTab, label: 'KI Chat' },
             { id: 'stats' as MobileTab, label: t('balance.cardTypes').split(' ')[0] || 'Stats' },
           ]).map((tab) => (
             <button
@@ -395,19 +552,6 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
           </div>
         )}
 
-        {mobileTab === 'chat' && (
-          <div style={{ height: 'calc(100dvh - 280px)' }}>
-            <AiChat
-              messages={messages}
-              pending={pending}
-              onSend={sendMessage}
-              onApply={applyChanges}
-              onDiscard={discardChanges}
-              isLoading={chatLoading || isGenerating}
-            />
-          </div>
-        )}
-
         {mobileTab === 'stats' && (
           <div>
             <BalanceAdvisor
@@ -423,10 +567,71 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
         )}
       </div>
 
+      {/* ========== MOBILE CHAT BOTTOM SHEET (< lg) — portaled to escape transforms ========== */}
+      {createPortal(<div className="fixed bottom-[60px] left-0 right-0 z-10 lg:hidden">
+        {/* Collapsed: just the input bar */}
+        {!chatSheetOpen && (
+          <div className="border-t border-surface-700 bg-surface-900/95 px-3 py-2 backdrop-blur-sm">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                readOnly
+                onFocus={() => setChatSheetOpen(true)}
+                placeholder={chatLoading ? '...' : t('chat.inputPlaceholder')}
+                className="flex-1 rounded-lg border border-surface-600 bg-surface-800 px-3 py-1.5 text-sm text-surface-100 placeholder-surface-500 focus:border-accent focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => setChatSheetOpen(true)}
+                className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white"
+              >
+                {t('chat.send')}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Expanded: half-sheet with full chat */}
+        {chatSheetOpen && (
+          <>
+            <div className="fixed inset-0 z-[9] bg-black/40" onClick={() => setChatSheetOpen(false)} />
+            <div
+              className="relative z-[10] flex flex-col border-t border-surface-700 bg-surface-900"
+              style={{ height: '50dvh', animation: 'card-enter 200ms cubic-bezier(0.16, 1, 0.3, 1) both' }}
+            >
+              <div className="flex items-center justify-between border-b border-surface-700 px-3 py-2">
+                <span className="text-xs font-medium text-surface-300">AI Chat</span>
+                <button
+                  type="button"
+                  onClick={() => setChatSheetOpen(false)}
+                  className="text-xs text-surface-500 hover:text-surface-300"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="min-h-0 flex-1">
+                <AiChat
+                  messages={messages}
+                  pending={pending}
+                  onSend={sendMessage}
+                  onApply={applyChanges}
+                  onDiscard={discardChanges}
+                  isLoading={chatLoading || isGenerating}
+                  quickActions={quickActions}
+                />
+              </div>
+            </div>
+          </>
+        )}
+      </div>, document.body)}
+
       {/* ========== DESKTOP LAYOUT (>= lg) ========== */}
       <div className="hidden lg:grid lg:grid-cols-12 lg:gap-3" style={{ height: 'calc(100dvh - 240px)' }}>
         {/* Left: AI Chat */}
-        <div className="min-h-0 flex flex-col lg:col-span-3">
+        <div
+          className="min-h-0 flex flex-col lg:col-span-3"
+          style={!workspaceMounted.current ? { animation: 'card-enter 400ms cubic-bezier(0.16, 1, 0.3, 1) both', animationDelay: '100ms' } : undefined}
+        >
           {candidatesBar && <div className="mb-2">{candidatesBar}</div>}
           <div className="min-h-0 flex-1">
             <AiChat
@@ -436,12 +641,16 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
               onApply={applyChanges}
               onDiscard={discardChanges}
               isLoading={chatLoading || isGenerating}
+              quickActions={quickActions}
             />
           </div>
         </div>
 
         {/* Center: Card grid with search */}
-        <div className="flex min-h-0 flex-col gap-2 lg:col-span-6">
+        <div
+          className="flex min-h-0 flex-col gap-2 lg:col-span-6"
+          style={!workspaceMounted.current ? { animation: 'card-enter 400ms cubic-bezier(0.16, 1, 0.3, 1) both', animationDelay: '200ms' } : undefined}
+        >
           <div className="flex gap-2">
             <div className="flex-1">
               <SearchInput value={search} onChange={setSearch} placeholder={t('fill.searchPlaceholder')} />
@@ -462,7 +671,10 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
         </div>
 
         {/* Right: Balance advisor */}
-        <div className="min-h-0 overflow-y-auto lg:col-span-3">
+        <div
+          className="min-h-0 overflow-y-auto lg:col-span-3"
+          style={!workspaceMounted.current ? { animation: 'card-enter 400ms cubic-bezier(0.16, 1, 0.3, 1) both', animationDelay: '300ms' } : undefined}
+        >
           <BalanceAdvisor
             analysis={analysis}
             activeTypeFilter={typeFilter}
@@ -475,26 +687,29 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
         </div>
       </div>
 
-      {/* Fixed bottom nav */}
-      <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-surface-700 bg-surface-900/95 px-4 py-3 backdrop-blur-sm">
-        <div className="mx-auto flex max-w-7xl items-center justify-between">
-          <button
-            type="button"
-            onClick={onBack}
-            className="rounded-lg border border-surface-600 px-6 py-2.5 text-sm text-surface-300 hover:border-surface-500 hover:text-surface-100"
-          >
-            {t('wizard.back')}
-          </button>
-          <button
-            type="button"
-            onClick={onFinish}
-            disabled={mainCount === 0}
-            className="rounded-lg bg-mana-green px-8 py-2.5 font-medium text-white hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed"
-          >
-            {t('fill.finishOpen')}
-          </button>
-        </div>
-      </div>
+      {/* Fixed bottom nav — portaled to escape transforms */}
+      {createPortal(
+        <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-surface-700 bg-surface-900/95 px-4 py-3 backdrop-blur-sm">
+          <div className="mx-auto flex max-w-7xl items-center justify-between">
+            <button
+              type="button"
+              onClick={onBack}
+              className="rounded-lg border border-surface-600 px-6 py-2.5 text-sm text-surface-300 hover:border-surface-500 hover:text-surface-100"
+            >
+              {t('wizard.back')}
+            </button>
+            <button
+              type="button"
+              onClick={onFinish}
+              disabled={mainCount === 0}
+              className="rounded-lg bg-mana-green px-8 py-2.5 font-medium text-white hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              {t('fill.finishOpen')}
+            </button>
+          </div>
+        </div>,
+        document.body,
+      )}
 
       {/* Lightbox */}
       {lightboxIndex !== null && lightboxCards.length > 0 && (

@@ -12,7 +12,6 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DeckNewRouteImport } from './routes/deck/new'
 import { Route as DeckIdRouteImport } from './routes/deck/$id'
-import { Route as DeckIdPrintRouteImport } from './routes/deck/$id/print'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -29,42 +28,34 @@ const DeckIdRoute = DeckIdRouteImport.update({
   path: '/deck/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DeckIdPrintRoute = DeckIdPrintRouteImport.update({
-  id: '/print',
-  path: '/print',
-  getParentRoute: () => DeckIdRoute,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/deck/$id': typeof DeckIdRouteWithChildren
+  '/deck/$id': typeof DeckIdRoute
   '/deck/new': typeof DeckNewRoute
-  '/deck/$id/print': typeof DeckIdPrintRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/deck/$id': typeof DeckIdRouteWithChildren
+  '/deck/$id': typeof DeckIdRoute
   '/deck/new': typeof DeckNewRoute
-  '/deck/$id/print': typeof DeckIdPrintRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/deck/$id': typeof DeckIdRouteWithChildren
+  '/deck/$id': typeof DeckIdRoute
   '/deck/new': typeof DeckNewRoute
-  '/deck/$id/print': typeof DeckIdPrintRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/deck/$id' | '/deck/new' | '/deck/$id/print'
+  fullPaths: '/' | '/deck/$id' | '/deck/new'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/deck/$id' | '/deck/new' | '/deck/$id/print'
-  id: '__root__' | '/' | '/deck/$id' | '/deck/new' | '/deck/$id/print'
+  to: '/' | '/deck/$id' | '/deck/new'
+  id: '__root__' | '/' | '/deck/$id' | '/deck/new'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  DeckIdRoute: typeof DeckIdRouteWithChildren
+  DeckIdRoute: typeof DeckIdRoute
   DeckNewRoute: typeof DeckNewRoute
 }
 
@@ -91,30 +82,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DeckIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/deck/$id/print': {
-      id: '/deck/$id/print'
-      path: '/print'
-      fullPath: '/deck/$id/print'
-      preLoaderRoute: typeof DeckIdPrintRouteImport
-      parentRoute: typeof DeckIdRoute
-    }
   }
 }
 
-interface DeckIdRouteChildren {
-  DeckIdPrintRoute: typeof DeckIdPrintRoute
-}
-
-const DeckIdRouteChildren: DeckIdRouteChildren = {
-  DeckIdPrintRoute: DeckIdPrintRoute,
-}
-
-const DeckIdRouteWithChildren =
-  DeckIdRoute._addFileChildren(DeckIdRouteChildren)
-
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  DeckIdRoute: DeckIdRouteWithChildren,
+  DeckIdRoute: DeckIdRoute,
   DeckNewRoute: DeckNewRoute,
 }
 export const routeTree = rootRouteImport

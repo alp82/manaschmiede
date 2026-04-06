@@ -12,13 +12,14 @@ import { DeckCardList } from '../../components/DeckCardList'
 import { BalanceAdvisor } from '../../components/BalanceAdvisor'
 import { AiChat } from '../../components/AiChat'
 import { cardSearchOptions } from '../../lib/scryfall/queries'
+import { getCardById, getCardInLang } from '../../lib/scryfall/client'
 import { analyzeDeck } from '../../lib/balance'
 import { useDeckChat } from '../../lib/useDeckChat'
 import type { ScryfallCard } from '../../lib/scryfall/types'
 import { getCardName } from '../../lib/scryfall/types'
 import type { DeckCard, DeckZone } from '../../lib/deck-utils'
 import { getTotalCards } from '../../lib/deck-utils'
-import { useT } from '../../lib/i18n'
+import { useT, useI18n } from '../../lib/i18n'
 import type { ManaColor } from '../../components/ManaSymbol'
 
 export const Route = createFileRoute('/deck/$id')({
@@ -81,6 +82,7 @@ type MobileTab = 'cards' | 'chat' | 'list'
 
 function DeckBuilderPage() {
   const t = useT()
+  const { scryfallLang } = useI18n()
   const { id } = Route.useParams()
   const [deck, setDeck] = useState<LocalDeck | null>(null)
   const [deckName, setDeckName] = useState('')
@@ -121,22 +123,22 @@ function DeckBuilderPage() {
     return () => clearTimeout(timer)
   }, [deck])
 
-  // Fetch card data for deck cards
+  // Fetch card data for deck cards (refetch when language changes)
   useEffect(() => {
     if (!deck) return
     for (const dc of deck.cards) {
-      if (!cardDataMap.has(dc.scryfallId)) {
-        fetch('https://api.scryfall.com/cards/' + dc.scryfallId + '?lang=de', {
-          headers: { 'User-Agent': 'Manaschmiede/0.1', Accept: 'application/json' },
+      const existing = cardDataMap.get(dc.scryfallId)
+      if (existing && existing.lang === scryfallLang) continue
+      const fetchCard = existing
+        ? getCardInLang(existing.set, existing.collector_number, scryfallLang)
+        : getCardById(dc.scryfallId)
+      fetchCard
+        .then((card: ScryfallCard) => {
+          setCardDataMap((prev) => new Map(prev).set(dc.scryfallId, card))
         })
-          .then((r) => r.json())
-          .then((card: ScryfallCard) => {
-            setCardDataMap((prev) => new Map(prev).set(card.id, card))
-          })
-          .catch(() => {})
-      }
+        .catch(() => {})
     }
-  }, [deck?.cards.length])
+  }, [deck?.cards.length, scryfallLang])
 
   // Search query
   const searchQuery = useMemo(

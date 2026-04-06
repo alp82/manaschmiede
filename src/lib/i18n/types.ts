@@ -82,7 +82,8 @@ export interface Translations {
   'colors.descCasual': string
   'colors.descModern': string
   'colors.descStandard': string
-  'colors.nextStrategy': string
+  'colors.nextCoreCards': string
+  'colors.recommended': string
 
   // Step 2: Strategy
   'strategy.title': string
@@ -105,8 +106,9 @@ export interface Translations {
   'strategy.rare': string
   'strategy.mythic': string
   'strategy.skipLong': string
-  'strategy.nextCoreCards': string
+  'strategy.nextColors': string
   'strategy.showAllTraits': string
+  'strategy.advanced': string
 
   // Step 3: Core Cards
   'core.title': string
@@ -114,6 +116,8 @@ export interface Translations {
   'core.analyzing': string
   'core.noValidCombos': string
   'core.tryAgain': string
+  'core.strategyChanged': string
+  'core.refreshCombos': string
   'core.suggestDifferent': string
   'core.orSearch': string
   'core.searchPlaceholder': string
@@ -130,6 +134,11 @@ export interface Translations {
   'fill.searchPlaceholder': string
   'fill.clearFilters': string
   'fill.finishOpen': string
+  'fill.laneCore': string
+  'fill.laneCreatures': string
+  'fill.laneSpells': string
+  'fill.laneSupport': string
+  'fill.laneLands': string
 
   // AI Chat
   'chat.emptyPrompt': string
@@ -139,6 +148,10 @@ export interface Translations {
   'chat.noChanges': string
   'chat.apply': string
   'chat.discard': string
+  'chat.quickFill': string
+  'chat.quickFixMana': string
+  'chat.quickAddCreatures': string
+  'chat.quickAddRemoval': string
 
   // Balance Advisor
   'balance.lands': string
@@ -158,16 +171,6 @@ export interface Translations {
   'cardlist.removeConfirm': string
   'cardlist.unlock': string
   'cardlist.lock': string
-
-  // Print
-  'print.backToDeck': string
-  'print.preview': string
-  'print.pageInfo': string
-  'print.includeBasicLands': string
-  'print.downloadPdf': string
-  'print.generatingPdf': string
-  'print.pdfFailed': string
-  'print.page': string
 
   // Page title
   'meta.title': string

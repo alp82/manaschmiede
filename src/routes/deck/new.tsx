@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useReducer, useCallback, useEffect } from 'react'
+import { useReducer, useCallback, useEffect, useState, useRef } from 'react'
 import { useQueryState, parseAsInteger } from 'nuqs'
 import { Layout } from '../../components/Layout'
 import { StepIndicator } from '../../components/wizard/StepIndicator'
@@ -58,6 +58,14 @@ function NewDeckWizard() {
     dispatch({ type: 'PREV_STEP' })
   }, [])
 
+  const handleSkipToDeck = useCallback(() => {
+    // Advance maxStepReached so GO_TO_STEP works
+    dispatch({ type: 'NEXT_STEP' })
+    dispatch({ type: 'NEXT_STEP' })
+    dispatch({ type: 'NEXT_STEP' })
+    dispatch({ type: 'GO_TO_STEP', step: 4 })
+  }, [])
+
   const handleFinish = useCallback(() => {
     const deckId = crypto.randomUUID()
     const deck = {
@@ -82,6 +90,37 @@ function NewDeckWizard() {
     setUrlStep(1)
   }, [setUrlStep])
 
+  // Step transition animation
+  const [transitioning, setTransitioning] = useState(false)
+  const [displayStep, setDisplayStep] = useState(state.step)
+  const prevStepRef = useRef(state.step)
+  const directionRef = useRef<'forward' | 'backward'>('forward')
+  const hasTransitioned = useRef(false)
+
+  useEffect(() => {
+    if (state.step !== prevStepRef.current) {
+      directionRef.current = state.step > prevStepRef.current ? 'forward' : 'backward'
+      hasTransitioned.current = true
+      setTransitioning(true)
+      const timer = setTimeout(() => {
+        setDisplayStep(state.step)
+        setTransitioning(false)
+      }, 200)
+      prevStepRef.current = state.step
+      return () => clearTimeout(timer)
+    }
+  }, [state.step])
+
+  const stepAnimClass = !hasTransitioned.current
+    ? '' // no animation on initial mount
+    : transitioning
+      ? directionRef.current === 'forward'
+        ? 'animate-[step-out-forward_200ms_ease-in_both]'
+        : 'animate-[step-out-backward_200ms_ease-in_both]'
+      : directionRef.current === 'forward'
+        ? 'animate-[step-in-forward_300ms_cubic-bezier(0.16,1,0.3,1)_both]'
+        : 'animate-[step-in-backward_300ms_cubic-bezier(0.16,1,0.3,1)_both]'
+
   return (
     <Layout>
       <div className="space-y-6">
@@ -102,47 +141,51 @@ function NewDeckWizard() {
           </button>
         </div>
 
-        {/* Step content */}
-        {state.step === 1 && (
-          <StepColors
-            colors={state.colors}
-            format={state.format}
-            dispatch={dispatch}
-            onNext={handleNext}
-          />
-        )}
+        {/* Step content with transition animation */}
+        <div key={displayStep} className={stepAnimClass}>
+          {displayStep === 1 && (
+            <StepTraits
+              colors={state.colors}
+              selectedArchetypes={state.selectedArchetypes}
+              selectedTraits={state.selectedTraits}
+              customStrategy={state.customStrategy}
+              budgetLimit={state.budgetLimit}
+              rarityFilter={state.rarityFilter}
+              dispatch={dispatch}
+              onNext={handleNext}
+              onSkipToDeck={handleSkipToDeck}
+            />
+          )}
 
-        {state.step === 2 && (
-          <StepTraits
-            colors={state.colors}
-            selectedArchetypes={state.selectedArchetypes}
-            selectedTraits={state.selectedTraits}
-            customStrategy={state.customStrategy}
-            budgetLimit={state.budgetLimit}
-            rarityFilter={state.rarityFilter}
-            dispatch={dispatch}
-            onNext={handleNext}
-            onBack={handleBack}
-          />
-        )}
+          {displayStep === 2 && (
+            <StepColors
+              colors={state.colors}
+              format={state.format}
+              selectedArchetypes={state.selectedArchetypes}
+              dispatch={dispatch}
+              onNext={handleNext}
+              onBack={handleBack}
+            />
+          )}
 
-        {state.step === 3 && (
-          <StepCoreCards
-            state={state}
-            dispatch={dispatch}
-            onNext={handleNext}
-            onBack={handleBack}
-          />
-        )}
+          {displayStep === 3 && (
+            <StepCoreCards
+              state={state}
+              dispatch={dispatch}
+              onNext={handleNext}
+              onBack={handleBack}
+            />
+          )}
 
-        {state.step === 4 && (
-          <StepDeckFill
-            state={state}
-            dispatch={dispatch}
-            onBack={handleBack}
-            onFinish={handleFinish}
-          />
-        )}
+          {displayStep === 4 && (
+            <StepDeckFill
+              state={state}
+              dispatch={dispatch}
+              onBack={handleBack}
+              onFinish={handleFinish}
+            />
+          )}
+        </div>
       </div>
     </Layout>
   )

@@ -82,9 +82,10 @@ export const en: Translations = {
   'colors.descCasual': 'No restrictions — play any card',
   'colors.descModern': 'Cards from 2003+ with ban list',
   'colors.descStandard': 'Only recent sets (rotating)',
-  'colors.nextStrategy': 'Next: Strategy',
+  'colors.nextCoreCards': 'Next: Core Cards',
+  'colors.recommended': 'Recommended',
 
-  // Step 2: Strategy
+  // Step 1: Strategy
   'strategy.title': 'Choose Your Strategy',
   'strategy.subtitle': 'Pick archetypes and traits that match your playstyle',
   'strategy.archetypes': 'Archetypes',
@@ -105,8 +106,9 @@ export const en: Translations = {
   'strategy.rare': 'Rare',
   'strategy.mythic': 'Mythic',
   'strategy.skipLong': 'Skip to deck building',
-  'strategy.nextCoreCards': 'Next: Core Cards',
+  'strategy.nextColors': 'Next: Colors',
   'strategy.showAllTraits': 'Show all traits ({count} total)',
+  'strategy.advanced': 'Advanced options',
 
   // Step 3: Core Cards
   'core.title': 'Core Card Combos',
@@ -114,6 +116,8 @@ export const en: Translations = {
   'core.analyzing': 'Analyzing cards and finding synergies...',
   'core.noValidCombos': 'Could not find valid card combinations. Some suggested cards were commander-exclusive and had to be filtered out. Try adjusting your colors or strategy, or search for specific cards below.',
   'core.tryAgain': 'Try Again',
+  'core.strategyChanged': 'Your strategy or colors changed since these were generated.',
+  'core.refreshCombos': 'Refresh Combos',
   'core.suggestDifferent': 'Suggest different combos',
   'core.orSearch': 'Or search for specific cards',
   'core.searchPlaceholder': 'Search by card name...',
@@ -130,6 +134,11 @@ export const en: Translations = {
   'fill.searchPlaceholder': 'Search to filter or add cards...',
   'fill.clearFilters': 'Clear filters',
   'fill.finishOpen': 'Finish & Open Deck',
+  'fill.laneCore': 'Core Combo',
+  'fill.laneCreatures': 'Creatures',
+  'fill.laneSpells': 'Spells',
+  'fill.laneSupport': 'Support',
+  'fill.laneLands': 'Lands',
 
   // AI Chat
   'chat.emptyPrompt': 'Describe your desired deck or ask questions...',
@@ -139,6 +148,10 @@ export const en: Translations = {
   'chat.noChanges': 'No changes',
   'chat.apply': 'Apply',
   'chat.discard': 'Discard',
+  'chat.quickFill': 'Fill remaining slots',
+  'chat.quickFixMana': 'Fix mana base',
+  'chat.quickAddCreatures': 'Add creatures',
+  'chat.quickAddRemoval': 'Add removal',
 
   // Balance Advisor
   'balance.lands': 'Lands',
@@ -159,22 +172,26 @@ export const en: Translations = {
   'cardlist.unlock': 'Unlock card',
   'cardlist.lock': 'Lock card',
 
-  // Print
-  'print.backToDeck': 'Back to Deck',
-  'print.preview': 'Print Preview: {name}',
-  'print.pageInfo': '{cards} cards on {pages} pages (A4, 3x3 grid)',
-  'print.includeBasicLands': 'Include basic lands',
-  'print.downloadPdf': 'Download PDF',
-  'print.generatingPdf': 'Generating PDF...',
-  'print.pdfFailed': 'PDF generation failed. Please try again.',
-  'print.page': 'Page {num}',
-
   // Page title
   'meta.title': 'Manaschmiede — MTG Deck Builder',
 
   // Deck page
   'deckPage.searchPlaceholder': 'Search cards (Scryfall)...',
   'deckPage.addOverlay': '+ Add',
+
+  // Archetype casual names (for hero cards)
+  'trait.casual.aggro': 'Blitz',
+  'trait.casual.midrange': 'Powerhouse',
+  'trait.casual.control': 'Puppetmaster',
+  'trait.casual.combo': 'Grand Plan',
+  'trait.casual.tribal': 'The Pack',
+  'trait.casual.ramp': 'Big Mana',
+  'trait.casual.tokens': 'The Swarm',
+  'trait.casual.voltron': 'Lone Hero',
+  'trait.casual.mill': 'Mind Eraser',
+  'trait.casual.lifegain': 'The Tank',
+  'trait.casual.reanimator': 'Second Chance',
+  'trait.casual.burn': 'Firestarter',
 
   // Trait labels — keep English game terms
   'trait.aggro': 'Aggro',

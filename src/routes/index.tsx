@@ -9,7 +9,7 @@ import { CardLightbox } from '../components/CardLightbox'
 import { cardSearchOptions } from '../lib/scryfall/queries'
 import { FORMAT_LABELS, type DeckFormat } from '../lib/deck-utils'
 import { useSampleDecks } from '../lib/useSampleDecks'
-import { useT, useI18n } from '../lib/i18n'
+import { useT } from '../lib/i18n'
 import type { ManaColor } from '../components/ManaSymbol'
 import type { ScryfallCard } from '../lib/scryfall/types'
 
@@ -30,7 +30,6 @@ function buildScryfallQuery(
   colors: Set<ManaColor>,
   cardType: string,
   cmc: string,
-  scryfallLang: string,
   format: string,
   budget: string,
   rarities: Set<string>,
@@ -42,7 +41,6 @@ function buildScryfallQuery(
     const escaped = search.replace(/[()]/g, '')
     parts.push(`(${escaped} or o:${escaped})`)
   }
-  if (scryfallLang !== 'en') parts.push(`lang:${scryfallLang}`)
   if (colors.size > 0) {
     const colorStr = Array.from(colors).join('').toLowerCase()
     parts.push('c>=' + colorStr)
@@ -63,7 +61,6 @@ function buildScryfallQuery(
 
 function HomePage() {
   const t = useT()
-  const { scryfallLang } = useI18n()
   const [search, setSearch] = useState('')
   const [selectedColors, setSelectedColors] = useState<Set<ManaColor>>(new Set())
   const [cardType, setCardType] = useState('')
@@ -87,8 +84,8 @@ function HomePage() {
   const { importAll: importSampleDecks } = useSampleDecks(reloadDecks)
 
   const query = useMemo(
-    () => buildScryfallQuery(search, selectedColors, cardType, cmc, scryfallLang, format, budget, selectedRarities, keyword),
-    [search, selectedColors, cardType, cmc, scryfallLang, format, budget, selectedRarities, keyword],
+    () => buildScryfallQuery(search, selectedColors, cardType, cmc, format, budget, selectedRarities, keyword),
+    [search, selectedColors, cardType, cmc, format, budget, selectedRarities, keyword],
   )
 
   const hasFilters = selectedColors.size > 0 || cardType !== '' || cmc !== '' || format !== '' || budget !== '' || selectedRarities.size > 0 || keyword !== ''

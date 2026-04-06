@@ -18,10 +18,10 @@ export interface ChatMessage {
 export interface WizardState {
   step: 1 | 2 | 3 | 4
   maxStepReached: 1 | 2 | 3 | 4
-  // Step 1: Colors
+  // Step 1: Traits & Strategy
   colors: Record<ManaColor, ManaColorState>
   format: DeckFormat
-  // Step 2: Traits & Strategy
+  // Step 2: Colors
   selectedArchetypes: string[]
   selectedTraits: string[]
   customStrategy: string

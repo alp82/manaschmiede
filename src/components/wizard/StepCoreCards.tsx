@@ -129,6 +129,14 @@ export function StepCoreCards({ state, dispatch, onNext, onBack }: StepCoreCards
   const [manualSearch, setManualSearch] = useState('')
   const [manualResults, setManualResults] = useState<ScryfallCard[]>([])
   const [manualSearching, setManualSearching] = useState(false)
+  const [comboFingerprint, setComboFingerprint] = useState('')
+
+  // Fingerprint of strategy inputs that affect combo generation
+  const currentFingerprint = useMemo(() =>
+    JSON.stringify([state.selectedArchetypes, state.selectedTraits, state.customStrategy, state.colors, state.format]),
+    [state.selectedArchetypes, state.selectedTraits, state.customStrategy, state.colors, state.format],
+  )
+  const combosAreStale = comboFingerprint !== '' && comboFingerprint !== currentFingerprint && state.coreCombos.length > 0
 
   const fetchCombos = useCallback(async () => {
     setIsLoading(true)
@@ -139,6 +147,7 @@ export function StepCoreCards({ state, dispatch, onNext, onBack }: StepCoreCards
 
       if (first.combos.length > 0) {
         dispatch({ type: 'SET_CORE_COMBOS', combos: first.combos })
+        setComboFingerprint(currentFingerprint)
         setIsLoading(false)
         return
       }
@@ -148,6 +157,7 @@ export function StepCoreCards({ state, dispatch, onNext, onBack }: StepCoreCards
 
         if (second.combos.length > 0) {
           dispatch({ type: 'SET_CORE_COMBOS', combos: second.combos })
+          setComboFingerprint(currentFingerprint)
           setIsLoading(false)
           return
         }
@@ -159,7 +169,7 @@ export function StepCoreCards({ state, dispatch, onNext, onBack }: StepCoreCards
     } finally {
       setIsLoading(false)
     }
-  }, [state.colors, state.selectedArchetypes, state.selectedTraits, state.customStrategy, state.format, state.budgetLimit, state.rarityFilter, locale, dispatch, t])
+  }, [state.colors, state.selectedArchetypes, state.selectedTraits, state.customStrategy, state.format, state.budgetLimit, state.rarityFilter, locale, dispatch, t, currentFingerprint])
 
   useEffect(() => {
     if (state.coreCombos.length === 0 && !isLoading) {
@@ -201,7 +211,7 @@ export function StepCoreCards({ state, dispatch, onNext, onBack }: StepCoreCards
   }, [manualSearch, searchSuffix])
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 py-6">
+    <div className="mx-auto max-w-3xl space-y-6 py-6 pb-20">
       <div className="text-center">
         <h2 className="font-display text-2xl font-bold text-surface-100">{t('core.title')}</h2>
         <p className="mt-2 text-sm text-surface-400">
@@ -231,6 +241,20 @@ export function StepCoreCards({ state, dispatch, onNext, onBack }: StepCoreCards
             className="mt-3 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover"
           >
             {t('core.tryAgain')}
+          </button>
+        </div>
+      )}
+
+      {/* Stale combos banner */}
+      {combosAreStale && !isLoading && (
+        <div className="flex items-center justify-between rounded-lg border border-mana-multi/30 bg-mana-multi/5 px-4 py-3">
+          <p className="text-sm text-mana-multi">{t('core.strategyChanged')}</p>
+          <button
+            type="button"
+            onClick={fetchCombos}
+            className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:bg-accent-hover"
+          >
+            {t('core.refreshCombos')}
           </button>
         </div>
       )}

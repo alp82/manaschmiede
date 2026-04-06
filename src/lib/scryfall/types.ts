@@ -38,6 +38,7 @@ export interface ScryfallCard {
   set: string
   set_name: string
   rarity: string
+  collector_number: string
   legalities: Record<string, string>
   prices?: Record<string, string | null>
 }

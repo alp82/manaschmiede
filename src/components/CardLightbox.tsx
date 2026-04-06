@@ -1,4 +1,5 @@
 import { useEffect, useCallback, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { ScryfallCard } from '../lib/scryfall/types'
 import { getCardName, getCardImageUri, getCardTypeLine } from '../lib/scryfall/types'
 import { ManaCost } from './ManaCost'
@@ -126,7 +127,7 @@ export function CardLightbox({ cards, currentIndex, searchTerm = '', onClose, on
   const showPeekPrev = swipeX > 0 && prevImage
   const showPeekNext = swipeX < 0 && nextImage
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm"
       onClick={handleBackdropClick}
@@ -162,7 +163,7 @@ export function CardLightbox({ cards, currentIndex, searchTerm = '', onClose, on
 
       {/* Main content */}
       <div
-        className="flex h-full flex-col items-center justify-start gap-4 overflow-y-auto px-4 py-8 md:flex-row md:justify-center md:gap-6 md:overflow-visible md:px-[20vw] md:py-4"
+        className="flex h-full flex-col items-center justify-center gap-4 overflow-y-auto px-4 py-8 md:flex-row md:gap-6 md:overflow-y-auto md:px-[max(20vw,80px)] md:py-8"
         onClick={handleBackdropClick}
         style={{
           transform: swipeX ? `translateX(${swipeX}px)` : undefined,
@@ -237,8 +238,7 @@ export function CardLightbox({ cards, currentIndex, searchTerm = '', onClose, on
         <button
           type="button"
           onClick={() => onNavigate(currentIndex - 1)}
-          className="absolute left-0 top-0 hidden h-full items-center justify-center text-4xl text-surface-400 transition-colors hover:bg-white/5 hover:text-white md:flex"
-          style={{ width: '20vw' }}
+          className="absolute left-0 top-0 hidden h-full w-16 items-center justify-center text-4xl text-surface-400 transition-colors hover:bg-white/5 hover:text-white md:flex"
         >
           &lsaquo;
         </button>
@@ -249,8 +249,7 @@ export function CardLightbox({ cards, currentIndex, searchTerm = '', onClose, on
         <button
           type="button"
           onClick={() => onNavigate(currentIndex + 1)}
-          className="absolute right-0 top-0 hidden h-full items-center justify-center text-4xl text-surface-400 transition-colors hover:bg-white/5 hover:text-white md:flex"
-          style={{ width: '20vw' }}
+          className="absolute right-0 top-0 hidden h-full w-16 items-center justify-center text-4xl text-surface-400 transition-colors hover:bg-white/5 hover:text-white md:flex"
         >
           &rsaquo;
         </button>
@@ -268,6 +267,7 @@ export function CardLightbox({ cards, currentIndex, searchTerm = '', onClose, on
       {/* Preload adjacent images */}
       {prevImage && <link rel="preload" as="image" href={prevImage} />}
       {nextImage && <link rel="preload" as="image" href={nextImage} />}
-    </div>
+    </div>,
+    document.body,
   )
 }

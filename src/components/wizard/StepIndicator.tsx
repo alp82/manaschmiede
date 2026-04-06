@@ -1,8 +1,8 @@
 import { useT } from '../../lib/i18n'
 
 const STEPS = [
-  { num: 1, key: 'wizard.colors' },
-  { num: 2, key: 'wizard.strategy' },
+  { num: 1, key: 'wizard.strategy' },
+  { num: 2, key: 'wizard.colors' },
   { num: 3, key: 'wizard.coreCards' },
   { num: 4, key: 'wizard.buildDeck' },
 ] as const

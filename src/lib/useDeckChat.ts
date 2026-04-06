@@ -6,13 +6,13 @@ import type { DeckCard } from './deck-utils'
 
 const TARGET_DECK_SIZE = 60
 
-// Basic land Scryfall IDs (one representative printing each)
+// Basic land Scryfall IDs — Core Set 2021 (clean classic art, no promos)
 const BASIC_LANDS: Record<string, string> = {
-  W: '42232ea6-e31d-46a6-9f94-b2ad2416d79b', // Plains
-  U: '36fe6951-d372-4069-b542-84b8df7aefdc', // Island
-  B: '3a027e0d-f95d-4942-b70f-312ca5c5a95d', // Swamp
-  R: '4f0993bf-ed8b-4597-84e9-5173483c8e58', // Mountain
-  G: 'f169dfb2-e4c8-46e9-8591-e51bb82da082', // Forest
+  W: '4be96696-aff8-4ef9-97dc-8221ef745de9', // Plains (M21)
+  U: 'fc9a66a1-367c-4035-a22e-00fab55be5a0', // Island (M21)
+  B: '30b3d647-3546-4ade-b395-f2370750a7a6', // Swamp (M21)
+  R: 'b92c8925-ecfc-4ece-b83a-f12e98a938ab', // Mountain (M21)
+  G: '3279314f-d639-4489-b2ab-3621bb3ca64b', // Forest (M21)
 }
 
 function getColorIdentity(resolvedMap: Map<string, { card: ScryfallCard; quantity: number }>): string[] {
@@ -63,9 +63,10 @@ async function fillLands(
 
     // Resolve the land card data
     try {
-      const landCard = await getCardByName(
-        color === 'W' ? 'Plains' : color === 'U' ? 'Island' : color === 'B' ? 'Swamp' : color === 'R' ? 'Mountain' : 'Forest',
-      )
+      // Fetch card data directly by ID (not by name) to avoid promo printings
+      const landCard = await fetch(`https://api.scryfall.com/cards/${landId}`, {
+        headers: { 'User-Agent': 'Manaschmiede/0.1', Accept: 'application/json' },
+      }).then((r) => r.json()) as ScryfallCard
       onCardDataUpdate(landCard)
       addedLands.push({
         name: getCardName(landCard),

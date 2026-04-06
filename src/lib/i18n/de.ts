@@ -82,9 +82,10 @@ export const de: Translations = {
   'colors.descCasual': 'Keine Einschränkungen — spiele jede Karte',
   'colors.descModern': 'Karten ab 2003 mit Bannliste',
   'colors.descStandard': 'Nur aktuelle Sets (rotierend)',
-  'colors.nextStrategy': 'Weiter: Strategie',
+  'colors.nextCoreCards': 'Weiter: Kernkarten',
+  'colors.recommended': 'Empfohlen',
 
-  // Step 2: Strategy
+  // Step 1: Strategy
   'strategy.title': 'Wähle deine Strategie',
   'strategy.subtitle': 'Wähle Archetypen und Eigenschaften, die zu deinem Spielstil passen',
   'strategy.archetypes': 'Archetypen',
@@ -105,8 +106,9 @@ export const de: Translations = {
   'strategy.rare': 'Selten',
   'strategy.mythic': 'Sagenhaft Selten',
   'strategy.skipLong': 'Zum Deckbau springen',
-  'strategy.nextCoreCards': 'Weiter: Kernkarten',
+  'strategy.nextColors': 'Weiter: Farben',
   'strategy.showAllTraits': 'Alle Eigenschaften anzeigen ({count} gesamt)',
+  'strategy.advanced': 'Erweiterte Optionen',
 
   // Step 3: Core Cards
   'core.title': 'Kernkarten-Kombos',
@@ -114,6 +116,8 @@ export const de: Translations = {
   'core.analyzing': 'Karten werden analysiert und Synergien gesucht...',
   'core.noValidCombos': 'Es konnten keine gültigen Kartenkombinationen gefunden werden. Einige vorgeschlagene Karten waren Commander-exklusiv und mussten herausgefiltert werden. Versuche, deine Farben oder Strategie anzupassen, oder suche unten nach bestimmten Karten.',
   'core.tryAgain': 'Erneut versuchen',
+  'core.strategyChanged': 'Deine Strategie oder Farben haben sich geändert.',
+  'core.refreshCombos': 'Kombos aktualisieren',
   'core.suggestDifferent': 'Andere Kombos vorschlagen',
   'core.orSearch': 'Oder nach bestimmten Karten suchen',
   'core.searchPlaceholder': 'Nach Kartenname suchen...',
@@ -130,6 +134,11 @@ export const de: Translations = {
   'fill.searchPlaceholder': 'Suchen, filtern oder Karten hinzufügen...',
   'fill.clearFilters': 'Filter zurücksetzen',
   'fill.finishOpen': 'Fertig & Deck öffnen',
+  'fill.laneCore': 'Kernkombo',
+  'fill.laneCreatures': 'Kreaturen',
+  'fill.laneSpells': 'Zauber',
+  'fill.laneSupport': 'Unterstützung',
+  'fill.laneLands': 'Länder',
 
   // AI Chat
   'chat.emptyPrompt': 'Beschreibe dein gewünschtes Deck oder stelle Fragen...',
@@ -139,6 +148,10 @@ export const de: Translations = {
   'chat.noChanges': 'Keine Änderungen',
   'chat.apply': 'Anwenden',
   'chat.discard': 'Verwerfen',
+  'chat.quickFill': 'Restliche Plätze füllen',
+  'chat.quickFixMana': 'Manabasis korrigieren',
+  'chat.quickAddCreatures': 'Kreaturen hinzufügen',
+  'chat.quickAddRemoval': 'Removal hinzufügen',
 
   // Balance Advisor
   'balance.lands': 'Länder',
@@ -159,22 +172,26 @@ export const de: Translations = {
   'cardlist.unlock': 'Karte entsperren',
   'cardlist.lock': 'Karte sperren',
 
-  // Print
-  'print.backToDeck': 'Zurück zum Deck',
-  'print.preview': 'Druckvorschau: {name}',
-  'print.pageInfo': '{cards} Karten auf {pages} Seiten (A4, 3x3 Raster)',
-  'print.includeBasicLands': 'Standardländer einschließen',
-  'print.downloadPdf': 'PDF herunterladen',
-  'print.generatingPdf': 'PDF wird erstellt...',
-  'print.pdfFailed': 'PDF-Erstellung fehlgeschlagen. Bitte erneut versuchen.',
-  'print.page': 'Seite {num}',
-
   // Page title
   'meta.title': 'Manaschmiede — MTG Deck Builder',
 
   // Deck page
   'deckPage.searchPlaceholder': 'Karten suchen (Scryfall)...',
   'deckPage.addOverlay': '+ Hinzufügen',
+
+  // Archetype casual names (for hero cards)
+  'trait.casual.aggro': 'Blitzangriff',
+  'trait.casual.midrange': 'Kraftpaket',
+  'trait.casual.control': 'Puppenspieler',
+  'trait.casual.combo': 'Der große Plan',
+  'trait.casual.tribal': 'Das Rudel',
+  'trait.casual.ramp': 'Großes Mana',
+  'trait.casual.tokens': 'Der Schwarm',
+  'trait.casual.voltron': 'Einsamer Held',
+  'trait.casual.mill': 'Gedankenlöscher',
+  'trait.casual.lifegain': 'Der Panzer',
+  'trait.casual.reanimator': 'Zweite Chance',
+  'trait.casual.burn': 'Feuerteufel',
 
   // Trait labels — keep MTG community terms (many are English even in German MTG)
   'trait.aggro': 'Aggro',

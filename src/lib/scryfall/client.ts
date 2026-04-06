@@ -55,8 +55,12 @@ export function autocompleteCards(
   })
 }
 
-export function getCardById(id: string): Promise<ScryfallCard> {
-  return scryfallFetch<ScryfallCard>(`/cards/${id}`, { lang: 'de' })
+export function getCardById(id: string, lang = 'en'): Promise<ScryfallCard> {
+  return scryfallFetch<ScryfallCard>(`/cards/${id}`, { lang })
+}
+
+export function getCardInLang(set: string, collectorNumber: string, lang: string): Promise<ScryfallCard> {
+  return scryfallFetch<ScryfallCard>(`/cards/${set}/${collectorNumber}/${lang}`)
 }
 
 export function getCardByName(name: string, lang?: string): Promise<ScryfallCard> {
