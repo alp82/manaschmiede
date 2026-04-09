@@ -1,5 +1,54 @@
 import type { ScryfallCard } from './scryfall/types'
 
+export interface DeckFilters {
+  colors: string[]
+  format?: string
+  budgetLimit?: number | null
+  rarities?: string[]
+}
+
+/**
+ * Check if a card violates the user's deck-building filters (colors, format, budget, rarity).
+ * Returns a rejection reason string, or null if the card passes all filters.
+ */
+export function getFilterRejectionReason(card: ScryfallCard, filters: DeckFilters): string | null {
+  // Color identity check - card must fit within the selected colors
+  if (filters.colors.length > 0) {
+    const allowed = new Set(filters.colors.map((c) => c.toUpperCase()))
+    const cardColors = card.color_identity.map((c) => c.toUpperCase())
+    for (const c of cardColors) {
+      if (!allowed.has(c)) {
+        return `Card color identity (${card.color_identity.join('')}) doesn't match selected colors (${filters.colors.join('')})`
+      }
+    }
+  }
+
+  // Format legality check
+  if (filters.format && filters.format !== 'casual') {
+    const legality = card.legalities[filters.format]
+    if (legality !== 'legal' && legality !== 'restricted') {
+      return `Card is not legal in ${filters.format}`
+    }
+  }
+
+  // Budget check
+  if (filters.budgetLimit != null && card.prices) {
+    const price = parseFloat(card.prices.usd ?? card.prices.usd_foil ?? '0')
+    if (price > filters.budgetLimit) {
+      return `Card price ($${price.toFixed(2)}) exceeds budget ($${filters.budgetLimit.toFixed(2)})`
+    }
+  }
+
+  // Rarity check
+  if (filters.rarities && filters.rarities.length > 0 && filters.rarities.length < 4) {
+    if (!filters.rarities.includes(card.rarity)) {
+      return `Card rarity (${card.rarity}) not in allowed rarities`
+    }
+  }
+
+  return null
+}
+
 /** Commander-specific set patterns */
 const COMMANDER_SET_PATTERNS = [
   /commander/i,

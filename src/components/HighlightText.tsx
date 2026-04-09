@@ -4,7 +4,7 @@ interface HighlightTextProps {
 }
 
 export function HighlightText({ text, term }: HighlightTextProps) {
-  if (!term || term.length < 2) return <>{text}</>
+  if (!term || term.length < 1) return <>{text}</>
 
   const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const regex = new RegExp(`(${escaped})`, 'gi')

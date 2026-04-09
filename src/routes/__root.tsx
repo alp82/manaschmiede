@@ -16,7 +16,7 @@ export const Route = createRootRouteWithContext<{
     meta: [
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-      { title: 'Manaschmiede — MTG Deck Builder' },
+      { title: 'Manaschmiede - MTG Deck Builder' },
     ],
     links: [
       { rel: 'stylesheet', href: appCss },
@@ -45,6 +45,11 @@ function RootComponent() {
     <html lang="de" className="dark">
       <head>
         <HeadContent />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var l=localStorage.getItem('manaschmiede-locale');if(l&&l!=='de'){var s=document.createElement('style');s.id='i18n-cloak';s.textContent='body{visibility:hidden}';document.head.appendChild(s)}}catch(e){}})()`,
+          }}
+        />
       </head>
       <body className="bg-surface-900 text-surface-100 font-body min-h-screen antialiased">
         <QueryClientProvider client={queryClient}>

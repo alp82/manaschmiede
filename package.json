@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "dev": "vite dev",
+    "dev:convex": "convex dev --local --local-cloud-port 3220 --local-site-port 3221",
     "build": "vite build",
     "start": "vite preview"
   },

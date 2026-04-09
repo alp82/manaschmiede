@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { TRAITS, getRelevantTraits, getTraitsByCategory, type TraitCategory } from '../../lib/trait-mappings'
+import { useDeckSounds } from '../../lib/sounds'
 import { WizardNav } from './WizardNav'
 import { useT } from '../../lib/i18n'
 import type { ManaColor } from '../ManaSymbol'
@@ -63,6 +64,7 @@ export function StepTraits({
 }: StepTraitsProps) {
   const t = useT()
   const [traitSearch, setTraitSearch] = useState('')
+  const sounds = useDeckSounds()
   const [showAdvanced, setShowAdvanced] = useState(false)
 
   const activeColors = (Object.entries(colors) as [ManaColor, ManaColorState][])
@@ -87,7 +89,7 @@ export function StepTraits({
   const hasSelections = selectedArchetypes.length > 0 || selectedTraits.length > 0 || customStrategy.trim().length > 0
 
   return (
-    <div className="mx-auto max-w-4xl space-y-8 py-6">
+    <div className="mx-auto max-w-4xl space-y-8 py-6 pb-20">
       <div className="text-center">
         <h2 className="font-display text-2xl font-bold text-surface-100">{t('strategy.title')}</h2>
         <p className="mt-2 text-sm text-surface-400">
@@ -108,7 +110,11 @@ export function StepTraits({
               <button
                 key={trait.id}
                 type="button"
-                onClick={() => dispatch({ type: 'TOGGLE_ARCHETYPE', traitId: trait.id })}
+                onClick={() => {
+                  const wouldBeNoOp = !isSelected && selectedArchetypes.length >= 2
+                  dispatch({ type: 'TOGGLE_ARCHETYPE', traitId: trait.id })
+                  if (!wouldBeNoOp) sounds.cardSlide()
+                }}
                 className={`group relative aspect-[3/2] overflow-hidden rounded-2xl border-2 transition-all ${
                   isSelected
                     ? 'border-accent ring-2 ring-accent ring-offset-2 ring-offset-surface-900'
@@ -128,12 +134,13 @@ export function StepTraits({
                 {/* Gradient scrim */}
                 <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/70 via-black/30 to-transparent" />
 
-                {/* Selected checkmark */}
-                {isSelected && (
-                  <div className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-full bg-accent text-xs font-bold text-white" style={{ animation: 'card-enter 150ms cubic-bezier(0.34, 1.56, 0.64, 1) both' }}>
-                    ✓
-                  </div>
-                )}
+                {/* Official name badge */}
+                <div className={`absolute right-3 top-3 flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium backdrop-blur-sm transition-colors ${
+                  isSelected ? 'bg-accent text-white' : 'bg-black/50 text-surface-300'
+                }`}>
+                  {isSelected && <span className="font-bold">✓</span>}
+                  {t(`trait.${trait.id}`)}
+                </div>
 
                 {/* Text area */}
                 <div className="absolute inset-x-0 bottom-0 p-4 text-left">
@@ -143,11 +150,6 @@ export function StepTraits({
                   <div className="mt-0.5 text-sm text-surface-300">
                     {t(`trait.desc.${trait.id}`)}
                   </div>
-                  {isSelected && (
-                    <div className="mt-1 text-xs italic text-surface-400" style={{ animation: 'card-enter 200ms ease-out both' }}>
-                      {t(`trait.${trait.id}`)}
-                    </div>
-                  )}
                 </div>
               </button>
             )
@@ -163,6 +165,7 @@ export function StepTraits({
             type="text"
             value={traitSearch}
             onChange={(e) => setTraitSearch(e.target.value)}
+            onKeyDown={(e) => e.key.length === 1 && sounds.typing()}
             placeholder={t('strategy.filterPlaceholder')}
             className="ml-auto rounded-lg border border-surface-600 bg-surface-800 px-2 py-1 text-xs text-surface-100 placeholder-surface-500 focus:border-accent focus:outline-none"
           />
@@ -181,7 +184,7 @@ export function StepTraits({
                     <button
                       key={trait.id}
                       type="button"
-                      onClick={() => dispatch({ type: 'TOGGLE_TRAIT', traitId: trait.id })}
+                      onClick={() => { dispatch({ type: 'TOGGLE_TRAIT', traitId: trait.id }); sounds.uiClick() }}
                       title={t(`trait.desc.${trait.id}`)}
                       className={`rounded-md px-3 py-2 text-xs transition-all ${
                         isSelected
@@ -206,6 +209,7 @@ export function StepTraits({
         <textarea
           value={customStrategy}
           onChange={(e) => dispatch({ type: 'SET_CUSTOM_STRATEGY', text: e.target.value })}
+          onKeyDown={(e) => e.key.length === 1 && sounds.typing()}
           placeholder={t('strategy.strategyPlaceholder')}
           rows={3}
           className="w-full rounded-lg border border-surface-600 bg-surface-800 px-3 py-2 text-sm text-surface-100 placeholder-surface-500 focus:border-accent focus:outline-none"

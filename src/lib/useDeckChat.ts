@@ -3,17 +3,14 @@ import { getCardByName } from './scryfall/client'
 import type { ScryfallCard } from './scryfall/types'
 import { getCardName } from './scryfall/types'
 import type { DeckCard } from './deck-utils'
+import { BASIC_LAND_IDS, BASIC_LAND_NAMES } from './basic-lands'
+import {
+  analyzeComposition,
+  findSynergyIssue,
+  summarizeComposition,
+} from './synergy-validation'
 
 const TARGET_DECK_SIZE = 60
-
-// Basic land Scryfall IDs — Core Set 2021 (clean classic art, no promos)
-const BASIC_LANDS: Record<string, string> = {
-  W: '4be96696-aff8-4ef9-97dc-8221ef745de9', // Plains (M21)
-  U: 'fc9a66a1-367c-4035-a22e-00fab55be5a0', // Island (M21)
-  B: '30b3d647-3546-4ade-b395-f2370750a7a6', // Swamp (M21)
-  R: 'b92c8925-ecfc-4ece-b83a-f12e98a938ab', // Mountain (M21)
-  G: '3279314f-d639-4489-b2ab-3621bb3ca64b', // Forest (M21)
-}
 
 function getColorIdentity(resolvedMap: Map<string, { card: ScryfallCard; quantity: number }>): string[] {
   const colors = new Set<string>()
@@ -44,7 +41,7 @@ async function fillLands(
 
   for (let i = 0; i < deckColors.length; i++) {
     const color = deckColors[i]
-    const landId = BASIC_LANDS[color]
+    const landId = BASIC_LAND_IDS[color]
     if (!landId) continue
 
     const qty = landsPerColor + (i < remainder ? 1 : 0)
@@ -101,8 +98,11 @@ export interface CardChange {
 export interface PendingChanges {
   deckName: string
   description: string
+  explanation?: string
   changes: CardChange[]
   resolvedCards: DeckCard[]
+  /** When set, newly added cards should be assigned to this section. */
+  targetSection?: string
 }
 
 interface UseDeckChatOptions {
@@ -112,15 +112,36 @@ interface UseDeckChatOptions {
   onDeckUpdate: (cards: DeckCard[], name?: string, description?: string) => void
   onCardDataUpdate: (card: ScryfallCard) => void
   lockedCardIds?: Set<string>
+  sectionAssignments?: Record<string, string[]>
+  sectionLabels?: Record<string, string>
   initialMessages?: ChatMessage[]
   onMessagesChange?: (messages: ChatMessage[]) => void
 }
 
-export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate, onCardDataUpdate, lockedCardIds, initialMessages, onMessagesChange }: UseDeckChatOptions) {
+export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate, onCardDataUpdate, lockedCardIds, sectionAssignments, sectionLabels, initialMessages, onMessagesChange }: UseDeckChatOptions) {
   const [messages, setMessagesInternal] = useState<ChatMessage[]>(initialMessages ?? [])
   const [isLoading, setIsLoading] = useState(false)
   const [pending, setPending] = useState<PendingChanges | null>(null)
   const abortRef = useRef(false)
+
+  // Refs for values read inside the async sendMessage flow. Using refs over
+  // useCallback deps means we always see the latest deck state even if React
+  // re-renders during the Convex + Scryfall round-trip, and it keeps
+  // sendMessage stable across typing in the chat input.
+  const cardsRef = useRef(cards)
+  cardsRef.current = cards
+  const cardDataMapRef = useRef(cardDataMap)
+  cardDataMapRef.current = cardDataMap
+  const deckDescriptionRef = useRef(deckDescription)
+  deckDescriptionRef.current = deckDescription
+  const sectionAssignmentsRef = useRef(sectionAssignments)
+  sectionAssignmentsRef.current = sectionAssignments
+  const sectionLabelsRef = useRef(sectionLabels)
+  sectionLabelsRef.current = sectionLabels
+  const lockedCardIdsRef = useRef(lockedCardIds)
+  lockedCardIdsRef.current = lockedCardIds
+  const messagesRef = useRef(messages)
+  messagesRef.current = messages
 
   // Wrap setMessages to also notify parent
   const setMessages = useCallback((updater: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
@@ -131,24 +152,45 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
     })
   }, [onMessagesChange])
 
+  const pendingTargetSection = useRef<string | undefined>()
+
   const sendMessage = useCallback(
-    async (text: string) => {
+    async (text: string, options?: { targetSection?: string }) => {
+      pendingTargetSection.current = options?.targetSection
       abortRef.current = false
       setPending(null)
 
+      // Snapshot the latest prop values for this single send operation. Refs
+      // protect against stale closures when re-renders happen during awaits.
+      const cards = cardsRef.current
+      const cardDataMap = cardDataMapRef.current
+      const deckDescription = deckDescriptionRef.current
+      const sectionAssignments = sectionAssignmentsRef.current
+      const sectionLabels = sectionLabelsRef.current
+      const lockedCardIds = lockedCardIdsRef.current
+
       const userMsg: ChatMessage = { role: 'user', content: text }
-      const newMessages = [...messages, userMsg]
+      const newMessages = [...messagesRef.current, userMsg]
       setMessages(newMessages)
       setIsLoading(true)
 
       try {
+        // Build reverse lookup: scryfallId → section label
+        const cardSectionLabel = new Map<string, string>()
+        if (sectionAssignments && sectionLabels) {
+          for (const [sectionId, ids] of Object.entries(sectionAssignments)) {
+            const label = sectionLabels[sectionId] ?? sectionId
+            for (const id of ids) cardSectionLabel.set(id, label)
+          }
+        }
+
         const currentCards = cards
           .filter((c) => c.zone === 'main')
           .map((c) => {
             const data = cardDataMap.get(c.scryfallId)
-            // Send English name to AI (card.name is always English on Scryfall)
             const name = data ? data.name : c.scryfallId
-            return { name, quantity: c.quantity }
+            const section = cardSectionLabel.get(c.scryfallId)
+            return { name, quantity: c.quantity, section }
           })
 
         const apiMessages = newMessages.map((m) => ({
@@ -172,46 +214,161 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
             })
           : undefined
 
-        const result = await client.action(api.generateDeck.chat, {
-          messages: apiMessages,
-          currentCards: currentCards.length > 0 ? currentCards : undefined,
-          deckDescription: deckDescription || undefined,
-          lockedCards,
-        })
+        // Snapshot the current deck composition so the AI sees what's in the deck
+        // (and the validator has something to check against on rejection retry).
+        const currentEntries: Array<{ card: ScryfallCard; quantity: number }> = []
+        for (const dc of cards.filter((c) => c.zone === 'main')) {
+          const data = cardDataMap.get(dc.scryfallId)
+          if (data) currentEntries.push({ card: data, quantity: dc.quantity })
+        }
+        const currentComposition = analyzeComposition(currentEntries)
+        const currentCompositionSummary = summarizeComposition(currentComposition)
+
+        type GeneratedDeckShape = {
+          name: string
+          description: string
+          explanation?: string
+          cards: Array<{ name: string; quantity: number }>
+        }
+        type ResolveOutcome =
+          | { intent: 'question'; answer: string }
+          | {
+              intent: 'change'
+              deckResult: GeneratedDeckShape
+              resolvedCards: DeckCard[]
+              resolvedMap: Map<string, { card: ScryfallCard; quantity: number }>
+              batchCardData: ScryfallCard[]
+            }
+
+        const callAndResolve = async (
+          rejectedCards?: Array<{ name: string; reason: string }>,
+        ): Promise<ResolveOutcome> => {
+          const result = await client.action(api.generateDeck.chat, {
+            messages: apiMessages,
+            currentCards: currentCards.length > 0 ? currentCards : undefined,
+            deckDescription: deckDescription || undefined,
+            deckComposition: currentCompositionSummary || undefined,
+            rejectedCards: rejectedCards && rejectedCards.length > 0 ? rejectedCards : undefined,
+            lockedCards,
+          })
+
+          if (result.intent === 'question' && result.answer) {
+            return { intent: 'question', answer: result.answer }
+          }
+
+          const deckResult = result.deck
+          if (!deckResult) throw new Error('No deck data in response')
+
+          const resolvedCards: DeckCard[] = []
+          const resolvedMap = new Map<string, { card: ScryfallCard; quantity: number }>()
+          const batchCardData: ScryfallCard[] = []
+
+          for (const card of deckResult.cards) {
+            // Use canonical IDs for basic lands to avoid printing mismatches in diff
+            const canonicalId = BASIC_LAND_NAMES[card.name]
+            if (canonicalId) {
+              const existing = resolvedMap.get(canonicalId)
+              if (existing) {
+                existing.quantity += card.quantity
+                const rc = resolvedCards.find((c) => c.scryfallId === canonicalId)
+                if (rc) rc.quantity += card.quantity
+              } else {
+                resolvedCards.push({ scryfallId: canonicalId, quantity: card.quantity, zone: 'main' })
+                try {
+                  const landCard = await fetch(`https://api.scryfall.com/cards/${canonicalId}`, {
+                    headers: { 'User-Agent': 'Manaschmiede/0.1', Accept: 'application/json' },
+                  }).then((r) => r.json()) as ScryfallCard
+                  batchCardData.push(landCard)
+                  resolvedMap.set(canonicalId, { card: landCard, quantity: card.quantity })
+                } catch { /* skip */ }
+              }
+              continue
+            }
+
+            try {
+              const scryfallCard = await getCardByName(card.name)
+              batchCardData.push(scryfallCard)
+              const isLocked = lockedCardIds?.has(scryfallCard.id) ?? false
+              resolvedCards.push({
+                scryfallId: scryfallCard.id,
+                quantity: card.quantity,
+                zone: 'main',
+                locked: isLocked || undefined,
+              })
+              resolvedMap.set(scryfallCard.id, { card: scryfallCard, quantity: card.quantity })
+            } catch {
+              // Skip unresolvable cards
+            }
+          }
+
+          return {
+            intent: 'change',
+            deckResult,
+            resolvedCards,
+            resolvedMap,
+            batchCardData,
+          }
+        }
+
+        // First attempt
+        let outcome = await callAndResolve()
 
         if (abortRef.current) return
 
         // Question intent: show answer as message, no deck changes
-        if (result.intent === 'question' && result.answer) {
-          const answerMsg: ChatMessage = { role: 'assistant', content: result.answer }
+        if (outcome.intent === 'question') {
+          const answerMsg: ChatMessage = { role: 'assistant', content: outcome.answer }
           setMessages((prev) => [...prev, answerMsg])
           setIsLoading(false)
           return
         }
 
-        const deckResult = result.deck
-        if (!deckResult) {
-          throw new Error('No deck data in response')
+        // Validate suggestions against the proposed deck composition. If the
+        // AI inserted dead cards (e.g. tribal payoffs without the tribe),
+        // re-prompt once with explicit rejection feedback.
+        const validateProposed = (
+          resolvedMap: Map<string, { card: ScryfallCard; quantity: number }>,
+        ) => {
+          const proposedEntries: Array<{ card: ScryfallCard; quantity: number }> = []
+          for (const [, { card, quantity }] of resolvedMap) {
+            proposedEntries.push({ card, quantity })
+          }
+          const proposedComposition = analyzeComposition(proposedEntries)
+          const rejected: Array<{ name: string; reason: string }> = []
+          for (const [, { card }] of resolvedMap) {
+            // Locked cards stay regardless - the user pinned them.
+            if (lockedCardIds?.has(card.id)) continue
+            const issue = findSynergyIssue(card, proposedComposition)
+            if (issue) rejected.push({ name: card.name, reason: issue.reason })
+          }
+          return rejected
         }
 
-        // Resolve all cards via Scryfall
-        const resolvedCards: DeckCard[] = []
-        const resolvedMap = new Map<string, { card: ScryfallCard; quantity: number }>()
-
-        for (const card of deckResult.cards) {
-          try {
-            const scryfallCard = await getCardByName(card.name)
-            onCardDataUpdate(scryfallCard)
-            resolvedCards.push({
-              scryfallId: scryfallCard.id,
-              quantity: card.quantity,
-              zone: 'main',
-            })
-            resolvedMap.set(scryfallCard.id, { card: scryfallCard, quantity: card.quantity })
-          } catch {
-            // Skip unresolvable cards
+        if (outcome.intent === 'change') {
+          const rejected = validateProposed(outcome.resolvedMap)
+          if (rejected.length > 0) {
+            const retry = await callAndResolve(rejected)
+            if (abortRef.current) return
+            if (retry.intent === 'change') {
+              outcome = retry
+            }
           }
         }
+
+        // After possible retry, outcome must be 'change' to continue.
+        if (outcome.intent !== 'change') {
+          // Defensive: classifier flipped between attempts. Fall back to a
+          // text answer instead of pretending we got a deck.
+          throw new Error('Chat returned an answer instead of a deck')
+        }
+
+        const deckResult = outcome.deckResult
+        const resolvedCards = outcome.resolvedCards
+        const resolvedMap = outcome.resolvedMap
+        const batchCardData = outcome.batchCardData
+
+        // Batch-update card data in one render pass
+        for (const card of batchCardData) onCardDataUpdate(card)
 
         if (abortRef.current) return
 
@@ -309,29 +466,21 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
           }
         }
 
-        // Add auto-filled lands to changes
-        for (const land of addedLands) {
-          const existingChange = changes.find((c) => c.scryfallId === land.scryfallId)
-          if (existingChange) {
-            existingChange.newQuantity += land.quantity
-          } else {
-            changes.push({
-              name: land.name,
-              scryfallId: land.scryfallId,
-              scryfallCard: land.scryfallCard,
-              type: 'added',
-              oldQuantity: currentMap.get(land.scryfallId) || 0,
-              newQuantity: (resolvedMap.get(land.scryfallId)?.quantity || 0),
-            })
-          }
-        }
+        // Lands are already in resolvedMap (updated at lines above) and
+        // thus already included in the diff from the main loop. No second pass needed.
+
+        // Filter out no-op changes (same quantity, same card)
+        const actualChanges = changes.filter((c) => c.oldQuantity !== c.newQuantity)
 
         setPending({
           deckName: deckResult.name,
-          description: deckResult.description + (addedLands.length > 0 ? ` (${addedLands.reduce((s, l) => s + l.quantity, 0)} lands auto-filled)` : ''),
-          changes,
+          description: deckResult.description,
+          explanation: deckResult.explanation,
+          changes: actualChanges,
           resolvedCards: filledCards,
+          targetSection: pendingTargetSection.current,
         })
+        pendingTargetSection.current = undefined
       } catch (err) {
         const errorMsg: ChatMessage = {
           role: 'assistant',
@@ -342,7 +491,9 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
         setIsLoading(false)
       }
     },
-    [messages, cards, cardDataMap, onDeckUpdate, onCardDataUpdate, lockedCardIds],
+    // Everything volatile is read via refs; only stable callbacks need to
+    // live in deps here.
+    [setMessages, onCardDataUpdate],
   )
 
   const applyChanges = useCallback(() => {
@@ -350,7 +501,7 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
     onDeckUpdate(pending.resolvedCards, pending.deckName, pending.description)
     const assistantMsg: ChatMessage = {
       role: 'assistant',
-      content: `${pending.deckName}: ${pending.description}`,
+      content: pending.explanation ?? `${pending.deckName}: ${pending.description}`,
       changes: pending.changes,
       changesApplied: true,
     }

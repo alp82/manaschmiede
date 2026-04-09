@@ -58,6 +58,8 @@ export const en: Translations = {
   'deck.noResults': 'No results',
   'deck.pdf': 'Print',
   'deck.pdfGenerating': 'Printing...',
+  'deck.editMode': 'Edit',
+  'deck.doneEditing': 'Done',
 
   // Wizard shared
   'wizard.colors': 'Colors',
@@ -74,12 +76,12 @@ export const en: Translations = {
   'colors.subtitle': 'Select the colors you want to play',
   'colors.splashQuestion': 'Open to splashing another color?',
   'colors.maybe': 'Maybe',
-  'colors.aiDecide': 'Not sure yet — let AI decide based on my strategy',
+  'colors.aiDecide': 'Not sure yet - let AI decide based on my strategy',
   'colors.format': 'Format',
   'colors.formatCasual': 'Casual',
   'colors.formatModern': 'Modern',
   'colors.formatStandard': 'Standard',
-  'colors.descCasual': 'No restrictions — play any card',
+  'colors.descCasual': 'No restrictions - play any card',
   'colors.descModern': 'Cards from 2003+ with ban list',
   'colors.descStandard': 'Only recent sets (rotating)',
   'colors.nextCoreCards': 'Next: Core Cards',
@@ -116,12 +118,14 @@ export const en: Translations = {
   'core.analyzing': 'Analyzing cards and finding synergies...',
   'core.noValidCombos': 'Could not find valid card combinations. Some suggested cards were commander-exclusive and had to be filtered out. Try adjusting your colors or strategy, or search for specific cards below.',
   'core.tryAgain': 'Try Again',
-  'core.strategyChanged': 'Your strategy or colors changed since these were generated.',
+  'core.strategyChanged': 'Your strategy or colors have changed',
+  'core.strategyChangedHint': 'These combos were generated for different settings. Refresh to get matching suggestions.',
   'core.refreshCombos': 'Refresh Combos',
   'core.suggestDifferent': 'Suggest different combos',
   'core.orSearch': 'Or search for specific cards',
-  'core.searchPlaceholder': 'Search by card name...',
-  'core.skipLong': "Skip — I'll choose cards manually",
+  'core.searchPlaceholder': 'Search by name, keywords, or abilities...',
+  'core.suggestWithCard': 'Suggest combos with this card',
+  'core.skipLong': "Skip - I'll choose cards manually",
   'core.nextBuildDeck': 'Next: Build Deck',
 
   // Step 4: Deck Fill
@@ -139,6 +143,18 @@ export const en: Translations = {
   'fill.laneSpells': 'Spells',
   'fill.laneSupport': 'Support',
   'fill.laneLands': 'Lands',
+  'fill.fillSection': 'Fill section',
+  'fill.fillAll': 'Fill all sections',
+  'fill.topUp': 'Top up',
+  'fill.autoFillLands': 'Auto-fill basic lands',
+  'fill.topUpLands': 'Adjust lands',
+  'fill.suggestReplacement': 'Suggest replacement',
+  'fill.qty': 'Qty',
+  'fill.remove': 'Remove',
+  'fill.fillingProgress': 'Filling {current}/{total}',
+  'fill.cancel': 'Cancel',
+  'fill.emptyPrompt': 'Click "Fill all sections" or fill each section individually',
+  'fill.unassigned': 'Other Cards',
 
   // AI Chat
   'chat.emptyPrompt': 'Describe your desired deck or ask questions...',
@@ -173,7 +189,7 @@ export const en: Translations = {
   'cardlist.lock': 'Lock card',
 
   // Page title
-  'meta.title': 'Manaschmiede — MTG Deck Builder',
+  'meta.title': 'Manaschmiede - MTG Deck Builder',
 
   // Deck page
   'deckPage.searchPlaceholder': 'Search cards (Scryfall)...',
@@ -193,7 +209,7 @@ export const en: Translations = {
   'trait.casual.reanimator': 'Second Chance',
   'trait.casual.burn': 'Firestarter',
 
-  // Trait labels — keep English game terms
+  // Trait labels - keep English game terms
   'trait.aggro': 'Aggro',
   'trait.midrange': 'Midrange',
   'trait.control': 'Control',
@@ -266,7 +282,7 @@ export const en: Translations = {
   'trait.desc.deathtouch': 'Any amount of damage from this creature is lethal',
   'trait.desc.lifelink': 'Damage dealt by this creature also gains you life',
   'trait.desc.first-strike': 'Deals combat damage before creatures without first strike',
-  'trait.desc.double-strike': 'Deals combat damage twice — first strike and regular',
+  'trait.desc.double-strike': 'Deals combat damage twice - first strike and regular',
   'trait.desc.vigilance': 'Attacking does not cause this creature to tap',
   'trait.desc.haste': 'Can attack and use tap abilities immediately',
   'trait.desc.hexproof': "Cannot be targeted by opponent's spells or abilities",
@@ -304,14 +320,14 @@ export const en: Translations = {
   'trait.desc.beasts': 'Large, efficient creatures with raw power',
 
   // Balance warnings
-  'balance.warning.tooFewCards': 'Your deck has only {count} cards — at least {min} are required.',
-  'balance.warning.tooFewLands': 'You have only {count} lands — recommended is {min}-{max}.',
-  'balance.warning.tooManyLands': 'You have {count} lands — recommended is {min}-{max}.',
-  'balance.warning.highCmc': 'Your average mana cost is {cmc} — consider adding cheaper cards.',
-  'balance.warning.tooManyCopies': '"{name}" appears {count}x — maximum {max} allowed.',
-  'balance.warning.sideboardTooLarge': 'Sideboard has {count} cards — maximum {max} allowed.',
+  'balance.warning.tooFewCards': 'Your deck has only {count} cards - at least {min} are required.',
+  'balance.warning.tooFewLands': 'You have only {count} lands - recommended is {min}-{max}.',
+  'balance.warning.tooManyLands': 'You have {count} lands - recommended is {min}-{max}.',
+  'balance.warning.highCmc': 'Your average mana cost is {cmc} - consider adding cheaper cards.',
+  'balance.warning.tooManyCopies': '"{name}" appears {count}x - maximum {max} allowed.',
+  'balance.warning.sideboardTooLarge': 'Sideboard has {count} cards - maximum {max} allowed.',
   'balance.warning.colorLandMismatch': 'You have {spells} {color} cards but only {lands} matching lands.',
   'balance.suggestion.addRemoval': 'Consider adding removal spells to handle opponent threats.',
   'balance.suggestion.addCardDraw': 'Consider adding card draw to maintain hand advantage.',
-  'balance.suggestion.tribalSynergy': 'You have {count} {type} — consider tribal synergy cards.',
+  'balance.suggestion.tribalSynergy': 'You have {count} {type} - consider tribal synergy cards.',
 }

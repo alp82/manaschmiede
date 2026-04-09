@@ -1,6 +1,7 @@
 import type { ManaColor } from '../components/ManaSymbol'
 import type { DeckCard, DeckFormat } from './deck-utils'
 import type { ScryfallCard } from './scryfall/types'
+import type { DeckSection } from './section-plan'
 
 export type ManaColorState = 'selected' | 'unselected' | 'maybe'
 
@@ -36,6 +37,8 @@ export interface WizardState {
   deckName: string
   deckDescription: string
   chatMessages: ChatMessage[]
+  sectionPlan: DeckSection[]
+  sectionAssignments: Record<string, string[]>  // sectionId → scryfallId[]
 }
 
 export type WizardAction =
@@ -52,6 +55,9 @@ export type WizardAction =
   | { type: 'SET_DECK'; cards: DeckCard[]; name?: string; description?: string }
   | { type: 'TOGGLE_LOCK'; scryfallId: string }
   | { type: 'SET_CHAT_MESSAGES'; messages: ChatMessage[] }
+  | { type: 'SET_SECTION_PLAN'; sections: DeckSection[] }
+  | { type: 'ASSIGN_SECTION'; sectionId: string; scryfallIds: string[] }
+  | { type: 'CLEAR_SECTION_ASSIGNMENTS' }
   | { type: 'NEXT_STEP' }
   | { type: 'PREV_STEP' }
   | { type: 'GO_TO_STEP'; step: 1 | 2 | 3 | 4 }
@@ -77,6 +83,8 @@ function defaultState(): WizardState {
     deckName: '',
     deckDescription: '',
     chatMessages: [],
+    sectionPlan: [],
+    sectionAssignments: {},
   }
 }
 
@@ -103,6 +111,50 @@ export function persistWizardState(state: WizardState): void {
 
 export function clearWizardState(): void {
   localStorage.removeItem(STORAGE_KEY)
+  localStorage.removeItem(AUX_STORAGE_KEY)
+}
+
+// ─── Auxiliary wizard state (combo history, undo/redo, fingerprints) ───
+
+const AUX_STORAGE_KEY = 'manaschmiede-wizard-aux'
+
+export interface WizardAuxState {
+  comboFingerprint: string
+  comboHistory: CoreCombo[][]
+  historyIndex: number
+  comboBuffer: CoreCombo[]
+  previouslyRejected: Array<{ name: string; reason: string }>
+  deckHistoryPast: DeckCard[][]
+  deckHistoryFuture: DeckCard[][]
+}
+
+const defaultAux: WizardAuxState = {
+  comboFingerprint: '',
+  comboHistory: [],
+  historyIndex: 0,
+  comboBuffer: [],
+  previouslyRejected: [],
+  deckHistoryPast: [],
+  deckHistoryFuture: [],
+}
+
+export function loadWizardAux(): WizardAuxState {
+  try {
+    const stored = localStorage.getItem(AUX_STORAGE_KEY)
+    if (stored) return { ...defaultAux, ...JSON.parse(stored) }
+  } catch { /* corrupted */ }
+  return { ...defaultAux }
+}
+
+export function persistWizardAux(aux: Partial<WizardAuxState>): void {
+  try {
+    const current = loadWizardAux()
+    localStorage.setItem(AUX_STORAGE_KEY, JSON.stringify({ ...current, ...aux }))
+  } catch { /* storage full */ }
+}
+
+export function clearWizardAux(): void {
+  localStorage.removeItem(AUX_STORAGE_KEY)
 }
 
 export function getSelectedColors(colors: Record<ManaColor, ManaColorState>): ManaColor[] {
@@ -192,6 +244,22 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
 
     case 'SET_CHAT_MESSAGES':
       return { ...state, chatMessages: action.messages }
+
+    case 'SET_SECTION_PLAN':
+      return { ...state, sectionPlan: action.sections }
+
+    case 'ASSIGN_SECTION': {
+      return {
+        ...state,
+        sectionAssignments: {
+          ...state.sectionAssignments,
+          [action.sectionId]: action.scryfallIds,
+        },
+      }
+    }
+
+    case 'CLEAR_SECTION_ASSIGNMENTS':
+      return { ...state, sectionAssignments: {} }
 
     case 'NEXT_STEP': {
       if (state.step >= 4) return state

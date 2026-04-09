@@ -58,6 +58,8 @@ export const de: Translations = {
   'deck.noResults': 'Keine Ergebnisse',
   'deck.pdf': 'Drucken',
   'deck.pdfGenerating': 'Drucken...',
+  'deck.editMode': 'Bearbeiten',
+  'deck.doneEditing': 'Fertig',
 
   // Wizard shared
   'wizard.colors': 'Farben',
@@ -74,12 +76,12 @@ export const de: Translations = {
   'colors.subtitle': 'Wähle die Farben, mit denen du spielen möchtest',
   'colors.splashQuestion': 'Offen für eine weitere Farbe?',
   'colors.maybe': 'Vielleicht',
-  'colors.aiDecide': 'Noch unsicher — KI anhand meiner Strategie entscheiden lassen',
+  'colors.aiDecide': 'Noch unsicher - KI anhand meiner Strategie entscheiden lassen',
   'colors.format': 'Format',
   'colors.formatCasual': 'Casual',
   'colors.formatModern': 'Modern',
   'colors.formatStandard': 'Standard',
-  'colors.descCasual': 'Keine Einschränkungen — spiele jede Karte',
+  'colors.descCasual': 'Keine Einschränkungen - spiele jede Karte',
   'colors.descModern': 'Karten ab 2003 mit Bannliste',
   'colors.descStandard': 'Nur aktuelle Sets (rotierend)',
   'colors.nextCoreCards': 'Weiter: Kernkarten',
@@ -116,12 +118,14 @@ export const de: Translations = {
   'core.analyzing': 'Karten werden analysiert und Synergien gesucht...',
   'core.noValidCombos': 'Es konnten keine gültigen Kartenkombinationen gefunden werden. Einige vorgeschlagene Karten waren Commander-exklusiv und mussten herausgefiltert werden. Versuche, deine Farben oder Strategie anzupassen, oder suche unten nach bestimmten Karten.',
   'core.tryAgain': 'Erneut versuchen',
-  'core.strategyChanged': 'Deine Strategie oder Farben haben sich geändert.',
+  'core.strategyChanged': 'Deine Strategie oder Farben haben sich geändert',
+  'core.strategyChangedHint': 'Diese Kombos wurden für andere Einstellungen erstellt. Aktualisiere, um passende Vorschläge zu erhalten.',
   'core.refreshCombos': 'Kombos aktualisieren',
   'core.suggestDifferent': 'Andere Kombos vorschlagen',
   'core.orSearch': 'Oder nach bestimmten Karten suchen',
-  'core.searchPlaceholder': 'Nach Kartenname suchen...',
-  'core.skipLong': 'Überspringen — Karten manuell wählen',
+  'core.searchPlaceholder': 'Nach Name, Keywords oder Fähigkeiten suchen...',
+  'core.suggestWithCard': 'Kombos mit dieser Karte vorschlagen',
+  'core.skipLong': 'Überspringen - Karten manuell wählen',
   'core.nextBuildDeck': 'Weiter: Deck bauen',
 
   // Step 4: Deck Fill
@@ -139,6 +143,18 @@ export const de: Translations = {
   'fill.laneSpells': 'Zauber',
   'fill.laneSupport': 'Unterstützung',
   'fill.laneLands': 'Länder',
+  'fill.fillSection': 'Sektion füllen',
+  'fill.fillAll': 'Alle Sektionen füllen',
+  'fill.topUp': 'Auffüllen',
+  'fill.autoFillLands': 'Länder automatisch füllen',
+  'fill.topUpLands': 'Länder anpassen',
+  'fill.suggestReplacement': 'Ersatz vorschlagen',
+  'fill.qty': 'Anz',
+  'fill.remove': 'Entfernen',
+  'fill.fillingProgress': 'Fülle {current}/{total}',
+  'fill.cancel': 'Abbrechen',
+  'fill.emptyPrompt': 'Klicke "Alle Sektionen füllen" oder fülle jede Sektion einzeln',
+  'fill.unassigned': 'Weitere Karten',
 
   // AI Chat
   'chat.emptyPrompt': 'Beschreibe dein gewünschtes Deck oder stelle Fragen...',
@@ -173,7 +189,7 @@ export const de: Translations = {
   'cardlist.lock': 'Karte sperren',
 
   // Page title
-  'meta.title': 'Manaschmiede — MTG Deck Builder',
+  'meta.title': 'Manaschmiede - MTG Deck Builder',
 
   // Deck page
   'deckPage.searchPlaceholder': 'Karten suchen (Scryfall)...',
@@ -193,7 +209,7 @@ export const de: Translations = {
   'trait.casual.reanimator': 'Zweite Chance',
   'trait.casual.burn': 'Feuerteufel',
 
-  // Trait labels — keep MTG community terms (many are English even in German MTG)
+  // Trait labels - keep MTG community terms (many are English even in German MTG)
   'trait.aggro': 'Aggro',
   'trait.midrange': 'Midrange',
   'trait.control': 'Kontrolle',
@@ -266,7 +282,7 @@ export const de: Translations = {
   'trait.desc.deathtouch': 'Jeder Schaden dieser Kreatur ist tödlich',
   'trait.desc.lifelink': 'Schaden dieser Kreatur gibt dir auch Lebenspunkte',
   'trait.desc.first-strike': 'Teilt Kampfschaden vor Kreaturen ohne Erstschlag aus',
-  'trait.desc.double-strike': 'Teilt Kampfschaden zweimal aus — Erstschlag und regulär',
+  'trait.desc.double-strike': 'Teilt Kampfschaden zweimal aus - Erstschlag und regulär',
   'trait.desc.vigilance': 'Angreifen führt nicht zum Tappen dieser Kreatur',
   'trait.desc.haste': 'Kann sofort angreifen und Tapp-Fähigkeiten nutzen',
   'trait.desc.hexproof': 'Kann nicht Ziel gegnerischer Zauber oder Fähigkeiten sein',
@@ -304,14 +320,14 @@ export const de: Translations = {
   'trait.desc.beasts': 'Große, effiziente Kreaturen mit roher Kraft',
 
   // Balance warnings
-  'balance.warning.tooFewCards': 'Dein Deck hat nur {count} Karten — mindestens {min} sind erforderlich.',
-  'balance.warning.tooFewLands': 'Du hast nur {count} Länder — empfohlen sind {min}-{max}.',
-  'balance.warning.tooManyLands': 'Du hast {count} Länder — empfohlen sind {min}-{max}.',
-  'balance.warning.highCmc': 'Deine durchschnittlichen Manakosten betragen {cmc} — erwäge günstigere Karten.',
-  'balance.warning.tooManyCopies': '„{name}" erscheint {count}x — maximal {max} erlaubt.',
-  'balance.warning.sideboardTooLarge': 'Sideboard hat {count} Karten — maximal {max} erlaubt.',
+  'balance.warning.tooFewCards': 'Dein Deck hat nur {count} Karten - mindestens {min} sind erforderlich.',
+  'balance.warning.tooFewLands': 'Du hast nur {count} Länder - empfohlen sind {min}-{max}.',
+  'balance.warning.tooManyLands': 'Du hast {count} Länder - empfohlen sind {min}-{max}.',
+  'balance.warning.highCmc': 'Deine durchschnittlichen Manakosten betragen {cmc} - erwäge günstigere Karten.',
+  'balance.warning.tooManyCopies': '„{name}" erscheint {count}x - maximal {max} erlaubt.',
+  'balance.warning.sideboardTooLarge': 'Sideboard hat {count} Karten - maximal {max} erlaubt.',
   'balance.warning.colorLandMismatch': 'Du hast {spells} {color}-Karten, aber nur {lands} passende Länder.',
   'balance.suggestion.addRemoval': 'Erwäge Entfernungszauber, um gegnerische Bedrohungen zu bewältigen.',
   'balance.suggestion.addCardDraw': 'Erwäge Kartenzieh-Effekte, um Handkartenvorteil zu behalten.',
-  'balance.suggestion.tribalSynergy': 'Du hast {count} {type} — erwäge Stammessynergie-Karten.',
+  'balance.suggestion.tribalSynergy': 'Du hast {count} {type} - erwäge Stammessynergie-Karten.',
 }

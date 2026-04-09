@@ -17,10 +17,17 @@ RULES:
 - Include removal (3-6 cards), card draw (3-5 cards), and synergy cards
 - Use ONLY real, existing Magic: The Gathering cards
 - Use ENGLISH card names (official Oracle names)
-- Make sure the land base supports all colors in the deck — each color needs proportional land support
-- Do NOT suggest planeswalker, conspiracy, vanguard, scheme, plane, phenomenon, dungeon, or attraction cards — they are excluded from this app
+- Make sure the land base supports all colors in the deck - each color needs proportional land support
+- Do NOT suggest planeswalker, conspiracy, vanguard, scheme, plane, phenomenon, dungeon, or attraction cards - they are excluded from this app
 - Do NOT suggest Un-set / silver-border / acorn cards
 - Do NOT suggest cards from Commander-specific sets or cards that reference "commander"
+
+HARD SYNERGY RULES (these are checked automatically - violations get rejected):
+- Do NOT suggest tribal payoff cards (e.g. "Dragon Tempest", "Goblin Chieftain", "Elvish Archdruid") unless the deck has at least 4 creatures of that tribe
+- Do NOT suggest cards whose triggered abilities reference a creature type that is not present in the deck (e.g. "whenever a Dragon enters" only belongs in a deck with Dragons)
+- Do NOT suggest "X matters" cards (artifact matters, enchantment matters, instant/sorcery matters) unless the deck has 4+ enablers of that type
+- Do NOT suggest cards that gate value on a keyword the deck lacks (e.g. "creatures you control with flying" only works if the deck has fliers)
+- Every card you suggest must have at least one ability that meaningfully triggers given the actual deck composition
 
 COUNTING:
 Before outputting, mentally sum all quantities. The total MUST be exactly 60.
@@ -30,6 +37,7 @@ OUTPUT FORMAT (JSON ONLY, no other text):
 {
   "name": "Deck name",
   "description": "Short strategy description (1-2 sentences)",
+  "explanation": "What changed and why (1-2 sentences) - only when modifying an existing deck",
   "total": 60,
   "cards": [
     { "name": "English Card Name", "quantity": 4 },
@@ -47,6 +55,7 @@ interface GeneratedCard {
 interface GeneratedDeck {
   name: string
   description: string
+  explanation?: string
   cards: GeneratedCard[]
 }
 
@@ -79,7 +88,7 @@ async function scryfallSearch(query: string): Promise<string[]> {
       if (c.mana_cost) parts.push(c.mana_cost)
       parts.push(`[${c.type_line}]`)
       if (c.oracle_text) parts.push(c.oracle_text.slice(0, 100))
-      return parts.join(' — ')
+      return parts.join(' - ')
     })
   } catch {
     return []
@@ -184,7 +193,7 @@ async function buildCardPool(prompt: string): Promise<string> {
   // Deduplicate
   const unique = [...new Set(allCards)]
 
-  return `\n\nCARD POOL (real cards that match the theme — prefer picking from these, but you can add others you know exist):
+  return `\n\nCARD POOL (real cards that match the theme - prefer picking from these, but you can add others you know exist):
 ${unique.join('\n')}`
 }
 
@@ -211,11 +220,18 @@ function parseResponse(text: string): GeneratedDeck {
   try {
     deck = JSON.parse(text)
   } catch {
-    const match = text.match(/```(?:json)?\s*([\s\S]*?)```/)
-    if (match) {
-      deck = JSON.parse(match[1].trim())
+    // Try code fence
+    const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/)
+    if (fenceMatch) {
+      deck = JSON.parse(fenceMatch[1].trim())
     } else {
-      throw new Error('Could not parse AI response as JSON')
+      // Try to find a JSON object anywhere in the response
+      const jsonMatch = text.match(/\{[\s\S]*"cards"\s*:\s*\[[\s\S]*\][\s\S]*\}/)
+      if (jsonMatch) {
+        deck = JSON.parse(jsonMatch[0])
+      } else {
+        throw new Error('Could not parse AI response as JSON')
+      }
     }
   }
 
@@ -234,6 +250,7 @@ function parseResponse(text: string): GeneratedDeck {
   return {
     name: deck.name,
     description: deck.description || '',
+    explanation: deck.explanation,
     cards: deck.cards,
   }
 }
@@ -243,7 +260,7 @@ const TARGET_SIZE = 60
 const MAX_COPIES = 4
 
 /**
- * Layer 2: Programmatic enforcement — force deck to exactly 60 cards.
+ * Layer 2: Programmatic enforcement - force deck to exactly 60 cards.
  * Respects locked cards and the 4-copy rule.
  */
 function enforceDeckSize(
@@ -308,7 +325,7 @@ function enforceDeckSize(
     total = deck.cards.reduce((s, c) => s + c.quantity, 0)
   }
 
-  // Step 4: Pad if under 60 — add basic lands proportionally
+  // Step 4: Pad if under 60 - add basic lands proportionally
   if (total < TARGET_SIZE) {
     const deficit = TARGET_SIZE - total
     // Detect deck colors from non-land card names (rough heuristic from existing lands)
@@ -339,7 +356,7 @@ function enforceDeckSize(
 }
 
 /**
- * Layer 3: Correction re-prompt — if wildly off, ask AI to fix it once.
+ * Layer 3: Correction re-prompt - if wildly off, ask AI to fix it once.
  */
 const CORRECTION_PROMPT = `The deck you generated has {total} cards instead of exactly 60. Fix this and return the corrected deck with EXACTLY 60 cards total.
 
@@ -382,20 +399,6 @@ async function generateWithEnforcement(
   return enforceDeckSize(deck, lockedCards)
 }
 
-export const generate = action({
-  args: {
-    prompt: v.string(),
-    format: v.string(),
-  },
-  handler: async (_ctx, args): Promise<GeneratedDeck> => {
-    const cardPool = await buildCardPool(args.prompt)
-    const system = SYSTEM_PROMPT + cardPool
-    return generateWithEnforcement(system, [
-      { role: 'user', content: `Build a casual 60-card deck with this theme: ${args.prompt}` },
-    ])
-  },
-})
-
 interface ChatResult {
   intent: ChatIntent
   // Present when intent === 'change'
@@ -422,7 +425,7 @@ async function classifyIntent(messages: Array<{ role: string; content: string }>
 }
 
 function buildDeckContext(
-  currentCards?: Array<{ name: string; quantity: number }>,
+  currentCards?: Array<{ name: string; quantity: number; section?: string }>,
   deckDescription?: string,
   lockedCards?: Array<{ name: string; quantity: number }>,
 ): string {
@@ -433,11 +436,32 @@ function buildDeckContext(
   }
 
   if (currentCards && currentCards.length > 0) {
-    const cardList = currentCards
-      .map((c) => `${c.quantity}x ${c.name}`)
-      .join('\n')
+    // Group cards by section for clearer context
+    const bySection = new Map<string, typeof currentCards>()
+    for (const c of currentCards) {
+      const key = c.section ?? 'Other'
+      const list = bySection.get(key) ?? []
+      list.push(c)
+      bySection.set(key, list)
+    }
+
     const totalCards = currentCards.reduce((s, c) => s + c.quantity, 0)
+    let cardList: string
+
+    if (bySection.size > 1 || (bySection.size === 1 && !bySection.has('Other'))) {
+      // Has section info - format grouped
+      const parts: string[] = []
+      for (const [section, cards] of bySection) {
+        parts.push(`[${section}]`)
+        for (const c of cards) parts.push(`  ${c.quantity}x ${c.name}`)
+      }
+      cardList = parts.join('\n')
+    } else {
+      cardList = currentCards.map((c) => `${c.quantity}x ${c.name}`).join('\n')
+    }
+
     context += `\n\nCURRENT DECK (${totalCards} cards):\n${cardList}`
+    context += `\n\nWhen replacing a card, the replacement should serve the same role and fit the same section.`
   }
 
   if (lockedCards && lockedCards.length > 0) {
@@ -463,10 +487,20 @@ export const chat = action({
         v.object({
           name: v.string(),
           quantity: v.number(),
+          section: v.optional(v.string()),
         }),
       ),
     ),
     deckDescription: v.optional(v.string()),
+    deckComposition: v.optional(v.string()),
+    rejectedCards: v.optional(
+      v.array(
+        v.object({
+          name: v.string(),
+          reason: v.string(),
+        }),
+      ),
+    ),
     lockedCards: v.optional(
       v.array(
         v.object({
@@ -501,11 +535,199 @@ export const chat = action({
 
     let systemPrompt = SYSTEM_PROMPT + cardPool + deckContext
 
+    if (args.deckComposition) {
+      systemPrompt += `\n\nDECK COMPOSITION (use this to avoid dead cards):\n${args.deckComposition}`
+    }
+
+    if (args.rejectedCards && args.rejectedCards.length > 0) {
+      systemPrompt += `\n\nPREVIOUSLY REJECTED CARDS - do not suggest these again:\n${args.rejectedCards.map((c) => `- ${c.name}: ${c.reason}`).join('\n')}`
+    }
+
     if (args.currentCards && args.currentCards.length > 0) {
       systemPrompt += `\n\nIMPORTANT: When the user requests changes, always return the COMPLETE updated card list, not just the changes. The deck must ALWAYS have exactly 60 cards. If you remove cards, add others to stay at 60. Maintain the deck's color identity and land base.`
     }
 
     const deck = await generateWithEnforcement(systemPrompt, args.messages, args.lockedCards)
     return { intent: 'change', deck }
+  },
+})
+
+// ─── Section Fill ───────────────────────────────────────────
+
+const SECTION_FILL_SYSTEM_PROMPT = `You are filling ONE SECTION of a Magic: The Gathering 60-card casual deck.
+
+RULES:
+- The sum of all card quantities MUST equal the target count specified
+- Maximum 4 copies of any card (except basic lands)
+- Use ONLY real, existing Magic: The Gathering cards
+- Use ENGLISH card names (official Oracle names)
+- Pick cards that fit the section description and work well with the existing deck cards
+- Do NOT suggest planeswalker, conspiracy, vanguard, scheme, plane, phenomenon, dungeon, or attraction cards
+- Do NOT suggest Un-set / silver-border / acorn cards
+- Do NOT suggest cards from Commander-specific sets or cards that reference "commander"
+- Do NOT duplicate cards already in the deck
+
+HARD SYNERGY RULES (these are checked automatically - violations get rejected):
+- Do NOT suggest tribal payoff cards (e.g. "Dragon Tempest", "Goblin Chieftain", "Elvish Archdruid") unless the deck has at least 4 creatures of that tribe
+- Do NOT suggest cards whose triggered abilities reference a creature type that is not present in the deck (e.g. "whenever a Dragon enters" only belongs in a deck with Dragons)
+- Do NOT suggest "X matters" cards (artifact matters, enchantment matters, instant/sorcery matters) unless the deck has 4+ enablers of that type
+- Do NOT suggest cards that gate value on a keyword the deck lacks (e.g. "creatures you control with flying" only works if the deck has fliers)
+- Every card you suggest must have at least one ability that meaningfully triggers given the actual deck composition
+
+OUTPUT FORMAT (JSON ONLY, no other text):
+{
+  "cards": [
+    { "name": "English Card Name", "quantity": 4 },
+    { "name": "English Card Name", "quantity": 2 }
+  ],
+  "explanation": "Brief explanation of the card choices (1-2 sentences)"
+}
+
+Respond ONLY with the JSON object. No explanatory text before or after.`
+
+interface SectionFillResult {
+  cards: GeneratedCard[]
+  explanation: string
+}
+
+function parseSectionResponse(text: string): SectionFillResult {
+  let result: SectionFillResult
+  try {
+    result = JSON.parse(text)
+  } catch {
+    const match = text.match(/```(?:json)?\s*([\s\S]*?)```/)
+    if (match) {
+      result = JSON.parse(match[1].trim())
+    } else {
+      throw new Error('Could not parse AI response as JSON')
+    }
+  }
+
+  if (!result.cards || !Array.isArray(result.cards)) {
+    throw new Error('AI response has an invalid format')
+  }
+
+  result.cards = result.cards.filter(
+    (c) =>
+      typeof c.name === 'string' &&
+      c.name.length > 0 &&
+      typeof c.quantity === 'number' &&
+      c.quantity > 0,
+  )
+
+  // Enforce 4-copy rule
+  for (const card of result.cards) {
+    if (!BASIC_LAND_NAMES.has(card.name)) {
+      card.quantity = Math.min(card.quantity, MAX_COPIES)
+    }
+  }
+
+  return {
+    cards: result.cards,
+    explanation: result.explanation || '',
+  }
+}
+
+async function buildSectionCardPool(
+  scryfallHints: string[],
+  colors: string[],
+  description: string,
+): Promise<string> {
+  const colorFilter = colors.length > 0 ? ` c:${colors.join('').toLowerCase()}` : ''
+  const allCards: string[] = []
+
+  // Use provided Scryfall hints
+  for (const hint of scryfallHints.slice(0, 3)) {
+    await new Promise((r) => setTimeout(r, 100))
+    const results = await scryfallSearch(`${hint}${colorFilter}`)
+    allCards.push(...results.slice(0, 50))
+  }
+
+  // Also search based on description keywords
+  const descQueries = extractSearchQueries(description, colors)
+  for (const query of descQueries.slice(0, 2)) {
+    await new Promise((r) => setTimeout(r, 100))
+    const results = await scryfallSearch(query)
+    allCards.push(...results.slice(0, 50))
+  }
+
+  if (allCards.length === 0) return ''
+
+  const unique = [...new Set(allCards)]
+  return `\n\nCARD POOL (real cards matching this section's theme - prefer picking from these):\n${unique.join('\n')}`
+}
+
+export const fillSection = action({
+  args: {
+    sectionName: v.string(),
+    sectionDescription: v.string(),
+    targetCount: v.number(),
+    scryfallHints: v.array(v.string()),
+    currentCards: v.optional(v.array(v.object({ name: v.string(), quantity: v.number() }))),
+    colors: v.array(v.string()),
+    archetypes: v.array(v.string()),
+    traits: v.array(v.string()),
+    customStrategy: v.optional(v.string()),
+    format: v.optional(v.string()),
+    budgetLimit: v.optional(v.number()),
+    deckComposition: v.optional(v.string()),
+    rejectedCards: v.optional(
+      v.array(v.object({ name: v.string(), reason: v.string() })),
+    ),
+  },
+  handler: async (_ctx, args): Promise<SectionFillResult> => {
+    const cardPool = await buildSectionCardPool(
+      args.scryfallHints,
+      args.colors,
+      args.sectionDescription,
+    )
+
+    let systemPrompt = SECTION_FILL_SYSTEM_PROMPT + cardPool
+
+    // Add deck context
+    const colorNames: Record<string, string> = {
+      W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green',
+    }
+    systemPrompt += `\n\nDECK CONTEXT:`
+    systemPrompt += `\nColors: ${args.colors.map((c) => colorNames[c] || c).join(', ')}`
+    if (args.archetypes.length > 0) systemPrompt += `\nArchetypes: ${args.archetypes.join(', ')}`
+    if (args.traits.length > 0) systemPrompt += `\nTraits: ${args.traits.join(', ')}`
+    if (args.customStrategy) systemPrompt += `\nStrategy: ${args.customStrategy}`
+    if (args.format && args.format !== 'casual') systemPrompt += `\nFormat: ${args.format}`
+    if (args.budgetLimit != null) systemPrompt += `\nBudget: max $${args.budgetLimit.toFixed(2)} per card`
+
+    if (args.deckComposition) {
+      systemPrompt += `\n\nDECK COMPOSITION (use this to avoid dead cards):\n${args.deckComposition}`
+    }
+
+    if (args.currentCards && args.currentCards.length > 0) {
+      const cardList = args.currentCards.map((c) => `${c.quantity}x ${c.name}`).join('\n')
+      systemPrompt += `\n\nCARDS ALREADY IN DECK (do NOT suggest these again):\n${cardList}`
+    }
+
+    if (args.rejectedCards && args.rejectedCards.length > 0) {
+      systemPrompt += `\n\nPREVIOUSLY REJECTED CARDS - do not suggest these again, the listed reasons are why:\n${args.rejectedCards.map((c) => `- ${c.name}: ${c.reason}`).join('\n')}`
+    }
+
+    const userMessage = `Fill the "${args.sectionName}" section with exactly ${args.targetCount} cards total (sum of quantities = ${args.targetCount}).\n\nSection description: ${args.sectionDescription}`
+
+    const text = await callAnthropic(systemPrompt, [
+      { role: 'user', content: userMessage },
+    ])
+
+    const result = parseSectionResponse(text)
+
+    // Enforce target count - trim excess from end
+    let total = result.cards.reduce((s, c) => s + c.quantity, 0)
+    if (total > args.targetCount) {
+      for (let i = result.cards.length - 1; i >= 0 && total > args.targetCount; i--) {
+        const reduce = Math.min(result.cards[i].quantity, total - args.targetCount)
+        result.cards[i].quantity -= reduce
+        total -= reduce
+      }
+      result.cards = result.cards.filter((c) => c.quantity > 0)
+    }
+
+    return result
   },
 })

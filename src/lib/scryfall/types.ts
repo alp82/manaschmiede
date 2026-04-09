@@ -41,6 +41,7 @@ export interface ScryfallCard {
   collector_number: string
   legalities: Record<string, string>
   prices?: Record<string, string | null>
+  keywords?: string[]
 }
 
 export interface ScryfallList {

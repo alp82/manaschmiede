@@ -7,8 +7,10 @@ import { FilterBar } from '../components/FilterBar'
 import { CardGrid, CardGridSkeleton } from '../components/CardGrid'
 import { CardLightbox } from '../components/CardLightbox'
 import { cardSearchOptions } from '../lib/scryfall/queries'
-import { FORMAT_LABELS, type DeckFormat } from '../lib/deck-utils'
+import { FORMAT_LABELS } from '../lib/deck-utils'
+import { loadDecks, deleteDeck as deleteStoredDeck, type LocalDeck } from '../lib/deck-storage'
 import { useSampleDecks } from '../lib/useSampleDecks'
+import { useDeckSounds } from '../lib/sounds'
 import { useT } from '../lib/i18n'
 import type { ManaColor } from '../components/ManaSymbol'
 import type { ScryfallCard } from '../lib/scryfall/types'
@@ -16,14 +18,6 @@ import type { ScryfallCard } from '../lib/scryfall/types'
 export const Route = createFileRoute('/')({
   component: HomePage,
 })
-
-interface LocalDeck {
-  id: string
-  name: string
-  format: DeckFormat
-  cards: { scryfallId: string; quantity: number; zone: string }[]
-  updatedAt: number
-}
 
 function buildScryfallQuery(
   search: string,
@@ -61,6 +55,7 @@ function buildScryfallQuery(
 
 function HomePage() {
   const t = useT()
+  const sounds = useDeckSounds()
   const [search, setSearch] = useState('')
   const [selectedColors, setSelectedColors] = useState<Set<ManaColor>>(new Set())
   const [cardType, setCardType] = useState('')
@@ -73,8 +68,7 @@ function HomePage() {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
 
   const reloadDecks = useCallback(() => {
-    const stored = JSON.parse(localStorage.getItem('manaschmiede-decks') || '[]')
-    setDecks(stored)
+    setDecks(loadDecks())
   }, [])
 
   useEffect(() => {
@@ -89,7 +83,7 @@ function HomePage() {
   )
 
   const hasFilters = selectedColors.size > 0 || cardType !== '' || cmc !== '' || format !== '' || budget !== '' || selectedRarities.size > 0 || keyword !== ''
-  const hasSearch = search.length >= 2 || hasFilters
+  const hasSearch = search.length >= 1 || hasFilters
 
   const { data, isLoading, isError, error } = useQuery({
     ...cardSearchOptions(query),
@@ -118,14 +112,13 @@ function HomePage() {
 
   function deleteDeck(deckId: string) {
     if (!confirm(t('deck.deleteConfirm'))) return
-    const updated = decks.filter((d) => d.id !== deckId)
-    setDecks(updated)
-    localStorage.setItem('manaschmiede-decks', JSON.stringify(updated))
+    deleteStoredDeck(deckId)
+    setDecks((prev) => prev.filter((d) => d.id !== deckId))
   }
 
   function handleCardClick(card: ScryfallCard) {
     const idx = cards.findIndex((c) => c.id === card.id)
-    if (idx >= 0) setLightboxIndex(idx)
+    if (idx >= 0) { setLightboxIndex(idx); sounds.cardOpen() }
   }
 
   return (

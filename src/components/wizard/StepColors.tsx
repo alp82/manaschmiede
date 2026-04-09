@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { ManaSymbol, type ManaColor } from '../ManaSymbol'
+import { useDeckSounds } from '../../lib/sounds'
 import { WizardNav } from './WizardNav'
 import { useT } from '../../lib/i18n'
 import type { ManaColorState, WizardAction } from '../../lib/wizard-state'
@@ -55,6 +56,8 @@ export function StepColors({ colors, format, selectedArchetypes, dispatch, onNex
     )
   }, [selectedArchetypes])
 
+  const sounds = useDeckSounds()
+
   function toggleSelected(color: ManaColor) {
     const current = colors[color]
     if (current === 'selected') {
@@ -62,6 +65,7 @@ export function StepColors({ colors, format, selectedArchetypes, dispatch, onNex
     } else {
       dispatch({ type: 'SET_COLOR', color, state: 'selected' })
     }
+    sounds.uiClick()
   }
 
   function toggleMaybe(color: ManaColor) {
@@ -71,10 +75,11 @@ export function StepColors({ colors, format, selectedArchetypes, dispatch, onNex
     } else {
       dispatch({ type: 'SET_COLOR', color, state: 'maybe' })
     }
+    sounds.uiClick()
   }
 
   return (
-    <div className="flex flex-col items-center gap-8 py-8">
+    <div className="flex flex-col items-center gap-8 py-8 pb-20">
       <div className="text-center">
         <h2 className="font-display text-2xl font-bold text-surface-100">{t('colors.title')}</h2>
         <p className="mt-2 text-sm text-surface-400">
@@ -111,7 +116,7 @@ export function StepColors({ colors, format, selectedArchetypes, dispatch, onNex
         })}
       </div>
 
-      {/* "Open to splashing?" — only show when 1+ colors are selected */}
+      {/* "Open to splashing?" - only show when 1+ colors are selected */}
       {selectedColors.length > 0 && unselectedColors.length > 0 && (
         <div className="flex flex-col items-center gap-3">
           <span className="text-xs text-surface-500">{t('colors.splashQuestion')}</span>

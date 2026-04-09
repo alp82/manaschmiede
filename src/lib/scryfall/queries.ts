@@ -17,7 +17,7 @@ export function cardSearchOptions(query: string, page = 1) {
     queryKey: scryfallKeys.search(query, page),
     queryFn: () => searchCards(query, page),
     staleTime: STALE_24H,
-    enabled: query.length >= 2,
+    enabled: query.length >= 1,
   })
 }
 
@@ -26,7 +26,7 @@ export function cardAutocompleteOptions(partial: string) {
     queryKey: scryfallKeys.autocomplete(partial),
     queryFn: () => autocompleteCards(partial),
     staleTime: STALE_24H,
-    enabled: partial.length >= 2,
+    enabled: partial.length >= 1,
   })
 }
 

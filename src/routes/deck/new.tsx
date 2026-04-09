@@ -12,7 +12,10 @@ import {
   initialWizardState,
   persistWizardState,
   clearWizardState,
+  clearWizardAux,
 } from '../../lib/wizard-state'
+import { persistDeck } from '../../lib/deck-storage'
+import { generateDeckName } from '../../lib/deck-naming'
 import { useT } from '../../lib/i18n'
 
 export const Route = createFileRoute('/deck/new')({
@@ -68,25 +71,25 @@ function NewDeckWizard() {
 
   const handleFinish = useCallback(() => {
     const deckId = crypto.randomUUID()
-    const deck = {
+    const name = state.deckName || generateDeckName(state.selectedArchetypes, state.selectedTraits)
+    persistDeck({
       id: deckId,
-      name: state.deckName || 'New Deck',
+      name,
       description: state.deckDescription || '',
       format: state.format,
       cards: state.deckCards,
+      sectionPlan: state.sectionPlan,
+      sectionAssignments: state.sectionAssignments,
       createdAt: Date.now(),
       updatedAt: Date.now(),
-    }
-    const decks = JSON.parse(localStorage.getItem('manaschmiede-decks') || '[]')
-    decks.push(deck)
-    localStorage.setItem('manaschmiede-decks', JSON.stringify(decks))
-    // Clean up wizard state
+    })
     clearWizardState()
     navigate({ to: '/deck/$id', params: { id: deckId } })
   }, [state, navigate])
 
   const handleStartOver = useCallback(() => {
     dispatch({ type: 'RESET' })
+    clearWizardAux()
     setUrlStep(1)
   }, [setUrlStep])
 
@@ -130,6 +133,7 @@ function NewDeckWizard() {
             currentStep={state.step}
             maxStepReached={state.maxStepReached}
             onStepClick={(step) => dispatch({ type: 'GO_TO_STEP', step })}
+            wizardState={state}
           />
           <button
             type="button"

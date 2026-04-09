@@ -7,6 +7,8 @@ export interface TraitMapping {
   scryfallQueries: string[]
   colorAffinity?: string[]
   description: string
+  /** Oracle text terms that can be verified on card data (lowercase). */
+  oracleTerms?: string[]
 }
 
 export const TRAITS: TraitMapping[] = [
@@ -15,7 +17,10 @@ export const TRAITS: TraitMapping[] = [
     id: 'aggro',
     label: 'Aggro',
     category: 'archetype',
-    scryfallQueries: ['cmc<=3 t:creature', 'keyword:haste t:creature'],
+    scryfallQueries: [
+      'pow>=2 cmc<=2 t:creature',
+      'keyword:haste pow>=3 t:creature',
+    ],
     colorAffinity: ['R', 'G', 'W'],
     description: 'Fast creatures that end the game quickly',
   },
@@ -23,7 +28,10 @@ export const TRAITS: TraitMapping[] = [
     id: 'midrange',
     label: 'Midrange',
     category: 'archetype',
-    scryfallQueries: ['cmc>=3 cmc<=5 t:creature', 'o:"enters the battlefield" t:creature'],
+    scryfallQueries: [
+      'pow>=4 cmc>=3 cmc<=5 t:creature r>=rare',
+      'o:"enters" t:creature cmc>=3 cmc<=5 r>=rare',
+    ],
     colorAffinity: ['G', 'B'],
     description: 'Powerful mid-game threats with value',
   },
@@ -31,7 +39,11 @@ export const TRAITS: TraitMapping[] = [
     id: 'control',
     label: 'Control',
     category: 'archetype',
-    scryfallQueries: ['t:instant o:counter', 'o:destroy (t:instant OR t:sorcery)'],
+    scryfallQueries: [
+      't:instant o:counter r>=uncommon',
+      'o:"destroy all" (t:instant OR t:sorcery)',
+      't:creature cmc>=4 (o:draw OR o:"each opponent") r>=rare',
+    ],
     colorAffinity: ['U', 'W', 'B'],
     description: 'Counter, remove, and outlast your opponent',
   },
@@ -39,7 +51,11 @@ export const TRAITS: TraitMapping[] = [
     id: 'combo',
     label: 'Combo',
     category: 'archetype',
-    scryfallQueries: ['o:"untap" o:"tap"', 'o:"whenever" o:"you cast"'],
+    scryfallQueries: [
+      'o:"untap" o:"tap" r>=uncommon',
+      'o:"whenever" o:"you cast" r>=rare',
+      'o:"infinite" OR o:"each time" OR o:"copy" r>=rare',
+    ],
     colorAffinity: ['U', 'R'],
     description: 'Assemble game-winning card combinations',
   },
@@ -47,7 +63,10 @@ export const TRAITS: TraitMapping[] = [
     id: 'tribal',
     label: 'Tribal',
     category: 'archetype',
-    scryfallQueries: ['o:"creatures you control"', 'o:"creature type"'],
+    scryfallQueries: [
+      'o:"creatures you control get" r>=uncommon',
+      'o:"creature type" r>=rare',
+    ],
     colorAffinity: undefined,
     description: 'Unite creatures of the same type',
   },
@@ -55,15 +74,22 @@ export const TRAITS: TraitMapping[] = [
     id: 'ramp',
     label: 'Ramp',
     category: 'archetype',
-    scryfallQueries: ['o:"search your library" o:land', 'o:"add" o:"mana" t:creature cmc<=2'],
+    scryfallQueries: [
+      'cmc>=6 pow>=6 t:creature r>=rare',
+      'cmc>=7 (t:creature OR t:sorcery) r>=rare',
+      'o:"search your library" o:land r>=uncommon',
+    ],
     colorAffinity: ['G'],
-    description: 'Accelerate your mana to cast big threats',
+    description: 'Accelerate your mana to cast game-ending threats',
   },
   {
     id: 'tokens',
     label: 'Tokens',
     category: 'archetype',
-    scryfallQueries: ['o:"create" o:"token"', 'o:"creatures you control get"'],
+    scryfallQueries: [
+      'o:"create" o:"token" r>=rare',
+      'o:"creatures you control get" r>=uncommon',
+    ],
     colorAffinity: ['W', 'G'],
     description: 'Flood the board with creature tokens',
   },
@@ -71,7 +97,10 @@ export const TRAITS: TraitMapping[] = [
     id: 'voltron',
     label: 'Voltron',
     category: 'archetype',
-    scryfallQueries: ['t:equipment', 't:aura t:enchantment'],
+    scryfallQueries: [
+      't:equipment r>=rare',
+      't:aura t:enchantment (o:"+2" OR o:"+3" OR o:"double strike")',
+    ],
     colorAffinity: ['W', 'R'],
     description: 'Suit up one creature with powerful equipment and auras',
   },
@@ -79,7 +108,10 @@ export const TRAITS: TraitMapping[] = [
     id: 'mill',
     label: 'Mill',
     category: 'archetype',
-    scryfallQueries: ['o:mill', 'o:"puts the top" o:"into their graveyard"'],
+    scryfallQueries: [
+      'o:mill r>=uncommon',
+      'o:"puts the top" o:"into their graveyard" r>=uncommon',
+    ],
     colorAffinity: ['U', 'B'],
     description: 'Win by depleting your opponent\'s library',
   },
@@ -87,7 +119,10 @@ export const TRAITS: TraitMapping[] = [
     id: 'lifegain',
     label: 'Lifegain',
     category: 'archetype',
-    scryfallQueries: ['o:"gain life"', 'o:"whenever you gain life"'],
+    scryfallQueries: [
+      'o:"whenever you gain life" r>=uncommon',
+      'o:"gain life" o:"draw" OR o:"gain life" o:"+1/+1"',
+    ],
     colorAffinity: ['W', 'B'],
     description: 'Gain life and turn it into a winning advantage',
   },
@@ -95,7 +130,11 @@ export const TRAITS: TraitMapping[] = [
     id: 'reanimator',
     label: 'Reanimator',
     category: 'archetype',
-    scryfallQueries: ['o:"return" o:"from your graveyard"', 'o:"put" o:"into your graveyard"'],
+    scryfallQueries: [
+      'o:"return" o:"from your graveyard to the battlefield" r>=uncommon',
+      'cmc>=6 pow>=6 t:creature r>=rare',
+      'o:"put" o:"into your graveyard" r>=uncommon',
+    ],
     colorAffinity: ['B', 'W'],
     description: 'Cheat powerful creatures from the graveyard',
   },
@@ -103,7 +142,10 @@ export const TRAITS: TraitMapping[] = [
     id: 'burn',
     label: 'Burn',
     category: 'archetype',
-    scryfallQueries: ['o:"deals" o:"damage" (t:instant OR t:sorcery)', 'o:"damage to any target"'],
+    scryfallQueries: [
+      'o:"damage to any target" (t:instant OR t:sorcery)',
+      'o:"deals" o:"damage to each" (t:instant OR t:sorcery OR t:creature)',
+    ],
     colorAffinity: ['R'],
     description: 'Deal direct damage to win the game',
   },
@@ -116,6 +158,7 @@ export const TRAITS: TraitMapping[] = [
     scryfallQueries: ['keyword:flying t:creature'],
     colorAffinity: ['W', 'U'],
     description: 'Creatures that can only be blocked by other flyers or reach',
+    oracleTerms: ['flying'],
   },
   {
     id: 'trample',
@@ -124,6 +167,7 @@ export const TRAITS: TraitMapping[] = [
     scryfallQueries: ['keyword:trample t:creature'],
     colorAffinity: ['G', 'R'],
     description: 'Excess combat damage carries over to the opponent',
+    oracleTerms: ['trample'],
   },
   {
     id: 'deathtouch',
@@ -132,6 +176,7 @@ export const TRAITS: TraitMapping[] = [
     scryfallQueries: ['keyword:deathtouch t:creature'],
     colorAffinity: ['B', 'G'],
     description: 'Any amount of damage from this creature is lethal',
+    oracleTerms: ['deathtouch'],
   },
   {
     id: 'lifelink',
@@ -140,6 +185,7 @@ export const TRAITS: TraitMapping[] = [
     scryfallQueries: ['keyword:lifelink t:creature'],
     colorAffinity: ['W', 'B'],
     description: 'Damage dealt by this creature also gains you life',
+    oracleTerms: ['lifelink'],
   },
   {
     id: 'first-strike',
@@ -148,6 +194,7 @@ export const TRAITS: TraitMapping[] = [
     scryfallQueries: ['keyword:first_strike t:creature'],
     colorAffinity: ['W', 'R'],
     description: 'Deals combat damage before creatures without first strike',
+    oracleTerms: ['first strike'],
   },
   {
     id: 'double-strike',
@@ -155,7 +202,8 @@ export const TRAITS: TraitMapping[] = [
     category: 'keyword',
     scryfallQueries: ['keyword:double_strike t:creature'],
     colorAffinity: ['R', 'W'],
-    description: 'Deals combat damage twice — first strike and regular',
+    description: 'Deals combat damage twice - first strike and regular',
+    oracleTerms: ['double strike'],
   },
   {
     id: 'vigilance',
@@ -164,6 +212,7 @@ export const TRAITS: TraitMapping[] = [
     scryfallQueries: ['keyword:vigilance t:creature'],
     colorAffinity: ['W', 'G'],
     description: 'Attacking does not cause this creature to tap',
+    oracleTerms: ['vigilance'],
   },
   {
     id: 'haste',
@@ -172,6 +221,7 @@ export const TRAITS: TraitMapping[] = [
     scryfallQueries: ['keyword:haste t:creature'],
     colorAffinity: ['R'],
     description: 'Can attack and use tap abilities immediately',
+    oracleTerms: ['haste'],
   },
   {
     id: 'hexproof',
@@ -180,6 +230,7 @@ export const TRAITS: TraitMapping[] = [
     scryfallQueries: ['keyword:hexproof t:creature'],
     colorAffinity: ['U', 'G'],
     description: 'Cannot be targeted by opponent\'s spells or abilities',
+    oracleTerms: ['hexproof'],
   },
   {
     id: 'menace',
@@ -188,6 +239,7 @@ export const TRAITS: TraitMapping[] = [
     scryfallQueries: ['keyword:menace t:creature'],
     colorAffinity: ['B', 'R'],
     description: 'Must be blocked by two or more creatures',
+    oracleTerms: ['menace'],
   },
   {
     id: 'reach',
@@ -196,6 +248,7 @@ export const TRAITS: TraitMapping[] = [
     scryfallQueries: ['keyword:reach t:creature'],
     colorAffinity: ['G'],
     description: 'Can block creatures with flying',
+    oracleTerms: ['reach'],
   },
   {
     id: 'indestructible',
@@ -204,6 +257,7 @@ export const TRAITS: TraitMapping[] = [
     scryfallQueries: ['keyword:indestructible'],
     colorAffinity: ['W'],
     description: 'Cannot be destroyed by damage or destroy effects',
+    oracleTerms: ['indestructible'],
   },
 
   // ─── Mechanics ────────────────────────────────────────────
@@ -214,6 +268,7 @@ export const TRAITS: TraitMapping[] = [
     scryfallQueries: ['keyword:flashback'],
     colorAffinity: ['U', 'R'],
     description: 'Cast spells again from your graveyard',
+    oracleTerms: ['flashback'],
   },
   {
     id: 'cascade',
@@ -222,6 +277,7 @@ export const TRAITS: TraitMapping[] = [
     scryfallQueries: ['keyword:cascade'],
     colorAffinity: ['R', 'G'],
     description: 'Casting reveals and casts a cheaper spell for free',
+    oracleTerms: ['cascade'],
   },
   {
     id: 'proliferate',
@@ -230,6 +286,7 @@ export const TRAITS: TraitMapping[] = [
     scryfallQueries: ['o:proliferate'],
     colorAffinity: ['U'],
     description: 'Add counters to any permanents that already have them',
+    oracleTerms: ['proliferate'],
   },
   {
     id: 'convoke',
@@ -238,6 +295,7 @@ export const TRAITS: TraitMapping[] = [
     scryfallQueries: ['keyword:convoke'],
     colorAffinity: ['W', 'G'],
     description: 'Tap creatures to help pay for spells',
+    oracleTerms: ['convoke'],
   },
   {
     id: 'kicker',
@@ -246,6 +304,7 @@ export const TRAITS: TraitMapping[] = [
     scryfallQueries: ['keyword:kicker'],
     colorAffinity: undefined,
     description: 'Pay extra for a more powerful effect',
+    oracleTerms: ['kicker'],
   },
   {
     id: 'ward',
@@ -254,6 +313,7 @@ export const TRAITS: TraitMapping[] = [
     scryfallQueries: ['keyword:ward'],
     colorAffinity: ['U'],
     description: 'Opponents must pay extra to target this permanent',
+    oracleTerms: ['ward'],
   },
   {
     id: 'flash',
@@ -262,6 +322,7 @@ export const TRAITS: TraitMapping[] = [
     scryfallQueries: ['keyword:flash t:creature'],
     colorAffinity: ['U'],
     description: 'Cast creatures at instant speed for surprise plays',
+    oracleTerms: ['flash'],
   },
   {
     id: 'landfall',
@@ -270,6 +331,7 @@ export const TRAITS: TraitMapping[] = [
     scryfallQueries: ['o:"whenever a land enters the battlefield under your control"'],
     colorAffinity: ['G'],
     description: 'Trigger abilities whenever you play a land',
+    oracleTerms: ['whenever a land enters'],
   },
   {
     id: 'madness',
@@ -278,6 +340,7 @@ export const TRAITS: TraitMapping[] = [
     scryfallQueries: ['keyword:madness'],
     colorAffinity: ['B', 'R'],
     description: 'Cast spells for a discount when you discard them',
+    oracleTerms: ['madness'],
   },
   {
     id: 'sagas',
@@ -294,6 +357,7 @@ export const TRAITS: TraitMapping[] = [
     scryfallQueries: ['o:"+1/+1 counter"'],
     colorAffinity: ['G', 'W'],
     description: 'Grow your creatures with +1/+1 counters',
+    oracleTerms: ['+1/+1 counter'],
   },
 
   // ─── Creature Types (Tribal) ──────────────────────────────
@@ -445,6 +509,16 @@ export const TRAITS: TraitMapping[] = [
 
 const traitMap = new Map(TRAITS.map((t) => [t.id, t]))
 
+/** Get verifiable oracle text terms for the given trait IDs. */
+export function getOracleTermsForTraits(traitIds: string[]): string[] {
+  const terms: string[] = []
+  for (const id of traitIds) {
+    const trait = traitMap.get(id)
+    if (trait?.oracleTerms) terms.push(...trait.oracleTerms)
+  }
+  return terms
+}
+
 export function getTraitById(id: string): TraitMapping | undefined {
   return traitMap.get(id)
 }
@@ -516,7 +590,7 @@ export function buildScryfallQueriesFromTraits(
   }
 
   // Deduplicate and limit
-  return [...new Set(queries)].slice(0, 6)
+  return [...new Set(queries)].slice(0, 8)
 }
 
 /**

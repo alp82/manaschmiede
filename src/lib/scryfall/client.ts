@@ -40,9 +40,12 @@ async function scryfallFetch<T>(
   return res.json() as Promise<T>
 }
 
+// Exclude non-playable card types from search results
+const EXCLUDE_TYPES = '-t:dungeon -t:emblem -t:token -t:scheme -t:vanguard -t:plane -t:phenomenon -t:conspiracy'
+
 export function searchCards(query: string, page = 1): Promise<ScryfallList> {
   return scryfallFetch<ScryfallList>('/cards/search', {
-    q: query,
+    q: `${query} ${EXCLUDE_TYPES}`,
     page: String(page),
   })
 }

@@ -58,6 +58,8 @@ export interface Translations {
   'deck.noResults': string
   'deck.pdf': string
   'deck.pdfGenerating': string
+  'deck.editMode': string
+  'deck.doneEditing': string
 
   // Wizard shared
   'wizard.colors': string
@@ -117,10 +119,12 @@ export interface Translations {
   'core.noValidCombos': string
   'core.tryAgain': string
   'core.strategyChanged': string
+  'core.strategyChangedHint': string
   'core.refreshCombos': string
   'core.suggestDifferent': string
   'core.orSearch': string
   'core.searchPlaceholder': string
+  'core.suggestWithCard': string
   'core.skipLong': string
   'core.nextBuildDeck': string
 
@@ -139,6 +143,18 @@ export interface Translations {
   'fill.laneSpells': string
   'fill.laneSupport': string
   'fill.laneLands': string
+  'fill.fillSection': string
+  'fill.fillAll': string
+  'fill.topUp': string
+  'fill.autoFillLands': string
+  'fill.topUpLands': string
+  'fill.suggestReplacement': string
+  'fill.qty': string
+  'fill.remove': string
+  'fill.fillingProgress': string
+  'fill.cancel': string
+  'fill.emptyPrompt': string
+  'fill.unassigned': string
 
   // AI Chat
   'chat.emptyPrompt': string

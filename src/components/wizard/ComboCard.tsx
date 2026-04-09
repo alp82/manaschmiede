@@ -11,6 +11,7 @@ interface ComboCardProps {
   combo: CoreCombo
   selected: boolean
   onSelect: () => void
+  renderLightboxActions?: (card: ScryfallCard) => React.ReactNode
 }
 
 const MANA_COLORS = new Set(['W', 'U', 'B', 'R', 'G'])
@@ -27,7 +28,7 @@ function getComboColors(combo: CoreCombo): ManaColor[] {
   return Array.from(colors) as ManaColor[]
 }
 
-export function ComboCard({ combo, selected, onSelect }: ComboCardProps) {
+export function ComboCard({ combo, selected, onSelect, renderLightboxActions }: ComboCardProps) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
   const { scryfallLang } = useI18n()
   const [localizedCards, setLocalizedCards] = useState<Map<string, ScryfallCard>>(new Map())
@@ -97,7 +98,7 @@ export function ComboCard({ combo, selected, onSelect }: ComboCardProps) {
           </div>
         </button>
 
-        {/* Card images — grid, no scrollbar */}
+        {/* Card images - grid, no scrollbar */}
         <div className="px-4 py-2">
           <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(resolvedCards.length, 4)}, 1fr)` }}>
             {resolvedCards.map((card, i) => (
@@ -146,6 +147,7 @@ export function ComboCard({ combo, selected, onSelect }: ComboCardProps) {
           currentIndex={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
           onNavigate={setLightboxIndex}
+          renderActions={renderLightboxActions}
         />
       )}
     </>

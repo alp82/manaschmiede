@@ -125,7 +125,7 @@ export function analyzeDeck(
   if (maindeckSize < rules.minDeckSize) {
     warnings.push({
       severity: 'error',
-      message: 'Your deck has only ' + maindeckSize + ' cards — at least ' + rules.minDeckSize + ' are required.',
+      message: 'Your deck has only ' + maindeckSize + ' cards - at least ' + rules.minDeckSize + ' are required.',
     })
   }
 
@@ -135,12 +135,12 @@ export function analyzeDeck(
     if (landCount < minLand) {
       warnings.push({
         severity: 'warning',
-        message: 'You have only ' + landCount + ' lands — recommended is ' + minLand + '-' + maxLand + '.',
+        message: 'You have only ' + landCount + ' lands - recommended is ' + minLand + '-' + maxLand + '.',
       })
     } else if (landCount > maxLand) {
       warnings.push({
         severity: 'warning',
-        message: 'You have ' + landCount + ' lands — recommended is ' + minLand + '-' + maxLand + '.',
+        message: 'You have ' + landCount + ' lands - recommended is ' + minLand + '-' + maxLand + '.',
       })
     }
   }
@@ -150,7 +150,7 @@ export function analyzeDeck(
   if (nonLandCount >= 10 && averageCmc > maxCmc) {
     warnings.push({
       severity: 'warning',
-      message: 'Your average mana cost is ' + averageCmc.toFixed(1) + ' — consider adding cheaper cards.',
+      message: 'Your average mana cost is ' + averageCmc.toFixed(1) + ' - consider adding cheaper cards.',
     })
   }
 
@@ -168,7 +168,7 @@ export function analyzeDeck(
       const name = card?.printed_name || card?.name || scryfallId
       warnings.push({
         severity: 'error',
-        message: '"' + name + '" appears ' + qty + 'x — maximum ' + rules.maxCopies + ' allowed.',
+        message: '"' + name + '" appears ' + qty + 'x - maximum ' + rules.maxCopies + ' allowed.',
       })
     }
   }
@@ -177,7 +177,7 @@ export function analyzeDeck(
   if (sideboardSize > rules.sideboardSize) {
     warnings.push({
       severity: 'error',
-      message: 'Sideboard has ' + sideboardSize + ' cards — maximum ' + rules.sideboardSize + ' allowed.',
+      message: 'Sideboard has ' + sideboardSize + ' cards - maximum ' + rules.sideboardSize + ' allowed.',
     })
   }
 
@@ -218,7 +218,7 @@ export function analyzeDeck(
     for (const dc of mainCards) {
       const card = cardData.get(dc.scryfallId)
       if (!card || !card.type_line.toLowerCase().includes('creature')) continue
-      const parts = card.type_line.split(' — ')
+      const parts = card.type_line.split(' - ')
       if (parts[1]) {
         for (const t of parts[1].split(' ')) {
           const trimmed = t.trim()
@@ -230,7 +230,7 @@ export function analyzeDeck(
     }
     for (const [type, typeCount] of creatureTypes) {
       if (typeCount >= 5) {
-        suggestions.push('You have ' + typeCount + ' ' + type + ' — consider tribal synergy cards.')
+        suggestions.push('You have ' + typeCount + ' ' + type + ' - consider tribal synergy cards.')
       }
     }
   }

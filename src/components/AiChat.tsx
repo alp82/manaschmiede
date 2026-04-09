@@ -1,6 +1,10 @@
-import { useState, useRef, useEffect } from 'react'
-import type { ChatMessage, PendingChanges } from '../lib/useDeckChat'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import type { ChatMessage, PendingChanges, CardChange } from '../lib/useDeckChat'
+import type { ScryfallCard } from '../lib/scryfall/types'
+import { getCardImageUri } from '../lib/scryfall/types'
+import { CardLightbox } from './CardLightbox'
 import { useT } from '../lib/i18n'
+import { useDeckSounds } from '../lib/sounds'
 
 export interface QuickAction {
   label: string
@@ -17,10 +21,54 @@ interface AiChatProps {
   quickActions?: QuickAction[]
 }
 
+function ChangeItem({ ch, onClick }: { ch: CardChange; onClick?: () => void }) {
+  const thumb = ch.scryfallCard ? getCardImageUri(ch.scryfallCard, 'small') : null
+  const content = (
+    <>
+      {ch.type === 'added' && (
+        <>
+          <span className="flex-shrink-0 font-bold text-mana-green">+</span>
+          <span className="text-surface-200">{ch.newQuantity}x {ch.name}</span>
+        </>
+      )}
+      {ch.type === 'removed' && (
+        <>
+          <span className="flex-shrink-0 font-bold text-mana-red">-</span>
+          <span className="text-surface-400 line-through">{ch.oldQuantity}x {ch.name}</span>
+        </>
+      )}
+      {ch.type === 'changed' && (
+        <>
+          <span className="flex-shrink-0 font-bold text-mana-multi">~</span>
+          <span className="text-surface-200">{ch.name}: {ch.oldQuantity} &#8594; {ch.newQuantity}</span>
+        </>
+      )}
+    </>
+  )
+  if (!thumb || !onClick) {
+    return <div className="flex items-center gap-2 text-xs">{content}</div>
+  }
+  return (
+    <button type="button" onClick={onClick} className="flex items-center gap-2 text-xs hover:bg-surface-700/50 -mx-1 px-1 rounded transition-colors w-full text-left">
+      <img src={thumb} alt="" className="h-7 w-5 flex-shrink-0 rounded-sm object-cover" />
+      {content}
+    </button>
+  )
+}
+
 export function AiChat({ messages, pending, onSend, onApply, onDiscard, isLoading, quickActions }: AiChatProps) {
   const t = useT()
+  const sounds = useDeckSounds()
   const [input, setInput] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
+  const [lightboxCards, setLightboxCards] = useState<ScryfallCard[]>([])
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
+
+  const openCardLightbox = useCallback((card: ScryfallCard, allCards: ScryfallCard[]) => {
+    setLightboxCards(allCards)
+    const idx = allCards.findIndex((c) => c.id === card.id)
+    setLightboxIndex(idx >= 0 ? idx : 0)
+  }, [])
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -64,30 +112,12 @@ export function AiChat({ messages, pending, onSend, onApply, onDiscard, isLoadin
                 }`}>
                   {msg.changesApplied ? '\u2713 Applied' : '\u2717 Discarded'}
                 </span>
-                {msg.changes.map((ch) => (
-                  <div key={ch.scryfallId} className="flex items-center gap-2 text-xs">
-                    {ch.type === 'added' && (
-                      <>
-                        <span className="font-bold text-mana-green">+</span>
-                        <span className="text-surface-300">{ch.newQuantity}x {ch.name}</span>
-                      </>
-                    )}
-                    {ch.type === 'removed' && (
-                      <>
-                        <span className="font-bold text-mana-red">-</span>
-                        <span className="text-surface-500 line-through">{ch.oldQuantity}x {ch.name}</span>
-                      </>
-                    )}
-                    {ch.type === 'changed' && (
-                      <>
-                        <span className="font-bold text-mana-multi">~</span>
-                        <span className="text-surface-300">
-                          {ch.name}: {ch.oldQuantity} &#8594; {ch.newQuantity}
-                        </span>
-                      </>
-                    )}
-                  </div>
-                ))}
+                {(() => {
+                  const allCards = msg.changes!.filter((c) => c.scryfallCard).map((c) => c.scryfallCard!)
+                  return msg.changes!.map((ch) => (
+                    <ChangeItem key={ch.scryfallId} ch={ch} onClick={ch.scryfallCard ? () => openCardLightbox(ch.scryfallCard!, allCards) : undefined} />
+                  ))
+                })()}
               </div>
             )}
           </div>
@@ -109,42 +139,31 @@ export function AiChat({ messages, pending, onSend, onApply, onDiscard, isLoadin
           <div className="mr-2 space-y-2 rounded-lg border border-accent/30 bg-accent/5 p-3">
             <div className="flex items-center justify-between">
               <p className="text-xs font-medium text-accent">{pending.deckName}</p>
-              <span className={`text-[10px] font-bold ${
-                pending.resolvedCards.reduce((s, c) => s + c.quantity, 0) === 60
-                  ? 'text-mana-green'
-                  : 'text-mana-red'
-              }`}>
-                {pending.resolvedCards.reduce((s, c) => s + c.quantity, 0)} cards
-              </span>
+              {(() => {
+                const added = pending.changes.filter((c) => c.type === 'added').reduce((s, c) => s + c.newQuantity, 0)
+                const removed = pending.changes.filter((c) => c.type === 'removed').reduce((s, c) => s + c.oldQuantity, 0)
+                const changed = pending.changes.filter((c) => c.type === 'changed').length
+                const parts: string[] = []
+                if (added > 0) parts.push(`+${added}`)
+                if (removed > 0) parts.push(`-${removed}`)
+                if (changed > 0) parts.push(`~${changed}`)
+                return parts.length > 0 ? (
+                  <span className="text-[10px] font-bold text-surface-400">{parts.join(' / ')}</span>
+                ) : (
+                  <span className="text-[10px] font-bold text-surface-500">no changes</span>
+                )
+              })()}
             </div>
-            <p className="text-xs text-surface-400">{pending.description}</p>
+            <p className="text-xs text-surface-400">{pending.explanation ?? pending.description}</p>
 
             {/* Change list */}
             <div className="space-y-0.5">
-              {pending.changes.map((ch) => (
-                <div key={ch.scryfallId} className="flex items-center gap-2 text-xs">
-                  {ch.type === 'added' && (
-                    <>
-                      <span className="font-bold text-mana-green">+</span>
-                      <span className="text-surface-200">{ch.newQuantity}x {ch.name}</span>
-                    </>
-                  )}
-                  {ch.type === 'removed' && (
-                    <>
-                      <span className="font-bold text-mana-red">-</span>
-                      <span className="text-surface-400 line-through">{ch.oldQuantity}x {ch.name}</span>
-                    </>
-                  )}
-                  {ch.type === 'changed' && (
-                    <>
-                      <span className="font-bold text-mana-multi">~</span>
-                      <span className="text-surface-200">
-                        {ch.name}: {ch.oldQuantity} &#8594; {ch.newQuantity}
-                      </span>
-                    </>
-                  )}
-                </div>
-              ))}
+              {(() => {
+                const allCards = pending.changes.filter((c) => c.scryfallCard).map((c) => c.scryfallCard!)
+                return pending.changes.map((ch) => (
+                  <ChangeItem key={ch.scryfallId} ch={ch} onClick={ch.scryfallCard ? () => openCardLightbox(ch.scryfallCard!, allCards) : undefined} />
+                ))
+              })()}
               {pending.changes.length === 0 && (
                 <p className="text-xs text-surface-500">{t('chat.noChanges')}</p>
               )}
@@ -196,6 +215,8 @@ export function AiChat({ messages, pending, onSend, onApply, onDiscard, isLoadin
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault()
                 handleSubmit()
+              } else if (e.key.length === 1) {
+                sounds.typing()
               }
             }}
             placeholder={pending ? t('chat.inputPending') : t('chat.inputPlaceholder')}
@@ -212,6 +233,15 @@ export function AiChat({ messages, pending, onSend, onApply, onDiscard, isLoadin
           </button>
         </div>
       </div>
+
+      {lightboxIndex !== null && lightboxCards.length > 0 && (
+        <CardLightbox
+          cards={lightboxCards}
+          currentIndex={lightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+          onNavigate={setLightboxIndex}
+        />
+      )}
     </div>
   )
 }

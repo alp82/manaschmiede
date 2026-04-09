@@ -5,6 +5,7 @@ import { getCardName, getCardImageUri, getCardTypeLine } from '../lib/scryfall/t
 import { ManaCost } from './ManaCost'
 import { HighlightText } from './HighlightText'
 import { useT } from '../lib/i18n'
+import { useDeckSounds } from '../lib/sounds'
 
 interface CardLightboxProps {
   cards: ScryfallCard[]
@@ -12,11 +13,13 @@ interface CardLightboxProps {
   searchTerm?: string
   onClose: () => void
   onNavigate: (index: number) => void
+  /** Render additional action buttons for the current card. */
+  renderActions?: (card: ScryfallCard) => React.ReactNode
 }
 
 const SWIPE_THRESHOLD = 50
 
-export function CardLightbox({ cards, currentIndex, searchTerm = '', onClose, onNavigate }: CardLightboxProps) {
+export function CardLightbox({ cards, currentIndex, searchTerm = '', onClose, onNavigate, renderActions }: CardLightboxProps) {
   const card = cards[currentIndex]
   if (!card) return null
 
@@ -24,6 +27,7 @@ export function CardLightbox({ cards, currentIndex, searchTerm = '', onClose, on
   const hasNext = currentIndex < cards.length - 1
 
   const t = useT()
+  const sounds = useDeckSounds()
   const name = getCardName(card)
   const imageUrl = getCardImageUri(card, 'large')
   const typeLine = getCardTypeLine(card)
@@ -68,6 +72,9 @@ export function CardLightbox({ cards, currentIndex, searchTerm = '', onClose, on
     }
   }, [hasPrev, hasNext, settling])
 
+  const closeWithSound = useCallback(() => { sounds.dismiss(); onClose() }, [sounds, onClose])
+  const navigateWithSound = useCallback((idx: number) => { sounds.cardSlide(); onNavigate(idx) }, [sounds, onNavigate])
+
   const handleTouchEnd = useCallback(() => {
     if (settling) return
     const dx = swipeX
@@ -80,27 +87,27 @@ export function CardLightbox({ cards, currentIndex, searchTerm = '', onClose, on
         // Animate off-screen left, then navigate
         setSettling(true)
         setSwipeX(-window.innerWidth)
-        setTimeout(() => { skipTransition.current = true; onNavigate(currentIndex + 1); setSwipeX(0); setSettling(false) }, 200)
+        setTimeout(() => { skipTransition.current = true; navigateWithSound(currentIndex + 1); setSwipeX(0); setSettling(false) }, 200)
         return
       }
       if (dx > 0 && hasPrev) {
         setSettling(true)
         setSwipeX(window.innerWidth)
-        setTimeout(() => { skipTransition.current = true; onNavigate(currentIndex - 1); setSwipeX(0); setSettling(false) }, 200)
+        setTimeout(() => { skipTransition.current = true; navigateWithSound(currentIndex - 1); setSwipeX(0); setSettling(false) }, 200)
         return
       }
     }
     setSwipeX(0)
-  }, [swipeX, currentIndex, hasNext, hasPrev, onNavigate, settling])
+  }, [swipeX, currentIndex, hasNext, hasPrev, navigateWithSound, settling])
 
   // Keyboard nav
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-      if (e.key === 'ArrowLeft' && hasPrev) onNavigate(currentIndex - 1)
-      if (e.key === 'ArrowRight' && hasNext) onNavigate(currentIndex + 1)
+      if (e.key === 'Escape') closeWithSound()
+      if (e.key === 'ArrowLeft' && hasPrev) navigateWithSound(currentIndex - 1)
+      if (e.key === 'ArrowRight' && hasNext) navigateWithSound(currentIndex + 1)
     },
-    [onClose, onNavigate, currentIndex, hasPrev, hasNext],
+    [closeWithSound, navigateWithSound, currentIndex, hasPrev, hasNext],
   )
 
   useEffect(() => {
@@ -120,7 +127,7 @@ export function CardLightbox({ cards, currentIndex, searchTerm = '', onClose, on
   }, [currentIndex])
 
   function handleBackdropClick(e: React.MouseEvent) {
-    if (e.target === e.currentTarget) onClose()
+    if (e.target === e.currentTarget) closeWithSound()
   }
 
   // The adjacent card peeking in from the side during swipe
@@ -208,11 +215,17 @@ export function CardLightbox({ cards, currentIndex, searchTerm = '', onClose, on
             <span className="capitalize">{card.rarity}</span>
           </div>
 
+          {renderActions && (
+            <div className="pt-1">
+              {renderActions(card)}
+            </div>
+          )}
+
           {/* Mobile nav + counter */}
           <div className="flex items-center justify-between md:block">
             <button
               type="button"
-              onClick={() => hasPrev && onNavigate(currentIndex - 1)}
+              onClick={() => hasPrev && navigateWithSound(currentIndex - 1)}
               disabled={!hasPrev}
               className="flex h-9 w-9 items-center justify-center rounded-full bg-surface-700/80 text-lg text-surface-300 disabled:opacity-20 md:hidden"
             >
@@ -223,7 +236,7 @@ export function CardLightbox({ cards, currentIndex, searchTerm = '', onClose, on
             </p>
             <button
               type="button"
-              onClick={() => hasNext && onNavigate(currentIndex + 1)}
+              onClick={() => hasNext && navigateWithSound(currentIndex + 1)}
               disabled={!hasNext}
               className="flex h-9 w-9 items-center justify-center rounded-full bg-surface-700/80 text-lg text-surface-300 disabled:opacity-20 md:hidden"
             >
@@ -233,23 +246,25 @@ export function CardLightbox({ cards, currentIndex, searchTerm = '', onClose, on
         </div>
       </div>
 
-      {/* Left nav — desktop only */}
+      {/* Left nav - desktop only */}
       {hasPrev && (
         <button
           type="button"
-          onClick={() => onNavigate(currentIndex - 1)}
-          className="absolute left-0 top-0 hidden h-full w-16 items-center justify-center text-4xl text-surface-400 transition-colors hover:bg-white/5 hover:text-white md:flex"
+          onClick={() => navigateWithSound(currentIndex - 1)}
+          className="absolute left-0 top-0 hidden h-full items-center justify-center text-4xl text-surface-400 transition-colors hover:bg-white/5 hover:text-white md:flex"
+          style={{ width: 'max(10vw, 60px)' }}
         >
           &lsaquo;
         </button>
       )}
 
-      {/* Right nav — desktop only */}
+      {/* Right nav - desktop only */}
       {hasNext && (
         <button
           type="button"
-          onClick={() => onNavigate(currentIndex + 1)}
-          className="absolute right-0 top-0 hidden h-full w-16 items-center justify-center text-4xl text-surface-400 transition-colors hover:bg-white/5 hover:text-white md:flex"
+          onClick={() => navigateWithSound(currentIndex + 1)}
+          className="absolute right-0 top-0 hidden h-full items-center justify-center text-4xl text-surface-400 transition-colors hover:bg-white/5 hover:text-white md:flex"
+          style={{ width: 'max(10vw, 60px)' }}
         >
           &rsaquo;
         </button>
@@ -258,7 +273,7 @@ export function CardLightbox({ cards, currentIndex, searchTerm = '', onClose, on
       {/* Close button */}
       <button
         type="button"
-        onClick={onClose}
+        onClick={closeWithSound}
         className="absolute right-4 top-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-surface-800/80 text-lg text-surface-300 hover:bg-surface-700 hover:text-white"
       >
         x

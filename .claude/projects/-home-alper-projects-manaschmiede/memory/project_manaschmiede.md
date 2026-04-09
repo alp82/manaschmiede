@@ -1,6 +1,6 @@
 ---
 name: Manaschmiede Project
-description: MTG deck builder with German localization, balance advisor, PDF export — TanStack Start + Convex
+description: MTG deck builder with German localization, balance advisor, PDF export - TanStack Start + Convex
 type: project
 ---
 

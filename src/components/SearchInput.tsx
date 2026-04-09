@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useDeckSounds } from '../lib/sounds'
 
 interface SearchInputProps {
   value: string
@@ -11,6 +12,7 @@ export function SearchInput({
   onChange,
   placeholder,
 }: SearchInputProps) {
+  const sounds = useDeckSounds()
   const [localValue, setLocalValue] = useState(value)
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
 
@@ -28,6 +30,8 @@ export function SearchInput({
     if (e.key === 'Escape') {
       setLocalValue('')
       onChange('')
+    } else if (e.key.length === 1) {
+      sounds.typing()
     }
   }
 
