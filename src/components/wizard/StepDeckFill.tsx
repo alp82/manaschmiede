@@ -6,17 +6,25 @@ import { CardLightbox } from '../CardLightbox'
 import { CardStack } from '../CardStack'
 import { CardImage } from '../CardImage'
 import { SearchInput } from '../SearchInput'
+import { Button } from '../ui/Button'
+import { Pill } from '../ui/Pill'
+import { Kbd } from '../ui/Kbd'
+import { LoadingDots } from '../ui/LoadingDots'
+import { ErrorBox } from '../ui/ErrorBox'
+import { Tabs } from '../ui/Tabs'
+import { SectionLaneHeader } from '../ui/SectionLaneHeader'
+import { cn } from '../../lib/utils'
 import { analyzeDeck } from '../../lib/balance'
 import { useDeckChat, type ChatMessage as DeckChatMessage } from '../../lib/useDeckChat'
 import { useSectionFill } from '../../lib/useSectionFill'
 import { BASIC_LAND_ID_SET } from '../../lib/basic-lands'
-import { deriveSectionPlan, pickSectionForCard } from '../../lib/section-plan'
+import { deriveSectionPlan, localizeDeckSection, pickSectionForCard } from '../../lib/section-plan'
 import { searchCards } from '../../lib/scryfall/client'
 import { buildSearchFilterSuffix } from '../../lib/trait-mappings'
 import { useT } from '../../lib/i18n'
 import type { ScryfallCard } from '../../lib/scryfall/types'
 import type { DeckCard } from '../../lib/deck-utils'
-import { copyDecklistToClipboard, isBasicLand } from '../../lib/deck-utils'
+import { isBasicLand } from '../../lib/deck-utils'
 import { getCardName } from '../../lib/scryfall/types'
 import type { DeckSection } from '../../lib/section-plan'
 import type { WizardState, WizardAction } from '../../lib/wizard-state'
@@ -29,11 +37,12 @@ interface StepDeckFillProps {
   dispatch: React.Dispatch<WizardAction>
   onBack: () => void
   onFinish: () => void
+  onReset: () => void
 }
 
 type MobileTab = 'cards' | 'chat' | 'stats'
 
-export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFillProps) {
+export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: StepDeckFillProps) {
   const t = useT()
   const [cardDataMap, setCardDataMap] = useState<Map<string, ScryfallCard>>(new Map())
   const [lightboxCards, setLightboxCards] = useState<ScryfallCard[]>([])
@@ -67,8 +76,6 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
 
   // Candidates: cards the user wants to propose adding
   const [candidates, setCandidates] = useState<ScryfallCard[]>([])
-  const [copied, setCopied] = useState(false)
-  useEffect(() => { if (copied) { const t = setTimeout(() => setCopied(false), 2000); return () => clearTimeout(t) } }, [copied])
   const sounds = useDeckSounds()
   const history = useDeckHistory(state.deckCards, dispatch)
 
@@ -126,11 +133,16 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
     return selectedCombo.cards.filter((c) => c.scryfallId).length * 4
   }, [selectedCombo])
 
-  // Derive section plan on mount (or use persisted one)
+  // Derive section plan on mount (or use persisted one).
+  // Persisted plans are re-localized against the current locale so labels
+  // and descriptions follow language switches after the plan was stored.
   const sections = useMemo(() => {
-    if (state.sectionPlan.length > 0) return state.sectionPlan
-    return deriveSectionPlan(state.selectedArchetypes, state.selectedTraits, coreCardCount)
-  }, [state.sectionPlan, state.selectedArchetypes, state.selectedTraits, coreCardCount])
+    if (state.sectionPlan.length > 0) {
+      return state.sectionPlan.map((s) => localizeDeckSection(s, t))
+    }
+    const activeColors = getActiveColors(state.colors)
+    return deriveSectionPlan(state.selectedArchetypes, state.selectedTraits, coreCardCount, activeColors, t)
+  }, [state.sectionPlan, state.selectedArchetypes, state.selectedTraits, state.colors, coreCardCount, t])
 
   // Persist section plan
   useEffect(() => {
@@ -138,6 +150,20 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
       dispatch({ type: 'SET_SECTION_PLAN', sections })
     }
   }, [sections, state.sectionPlan.length, dispatch])
+
+  // Backfill deck metadata from the selected combo for wizards that were
+  // persisted before the combo→metadata wiring landed. New wizards get
+  // metadata populated on SELECT_COMBO, so this only fires for resumed
+  // sessions where deckName ended up empty.
+  useEffect(() => {
+    if (!selectedCombo) return
+    if (state.deckName || state.deckDescription) return
+    dispatch({
+      type: 'SET_DECK_METADATA',
+      name: selectedCombo.name,
+      description: selectedCombo.explanation,
+    })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Seed core cards on mount
   const seeded = useRef(false)
@@ -371,10 +397,11 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
     const activeColors = getActiveColors(state.colors)
     return buildSearchFilterSuffix(activeColors, {
       format: state.format,
-      budgetLimit: state.budgetLimit,
+      budgetMin: state.budgetMin,
+      budgetMax: state.budgetMax,
       rarities: state.rarityFilter,
     })
-  }, [state.colors, state.format, state.budgetLimit, state.rarityFilter])
+  }, [state.colors, state.format, state.budgetMin, state.budgetMax, state.rarityFilter])
 
   useEffect(() => {
     if (search.length < 1) { setSearchResults([]); return }
@@ -393,8 +420,8 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
 
   const analysis = useMemo(() => {
     if (state.deckCards.length === 0) return null
-    return analyzeDeck(state.deckCards, cardDataMap, state.format)
-  }, [state.deckCards, cardDataMap, state.format])
+    return analyzeDeck(state.deckCards, cardDataMap, state.format, t)
+  }, [state.deckCards, cardDataMap, state.format, t])
 
   const deckDisplay = useMemo(() => {
     return state.deckCards
@@ -504,9 +531,6 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
   // Quick action chips for AI chat
   const quickActions = useMemo(() => {
     const actions: { label: string; message: string }[] = []
-    if (mainCount > 0 && mainCount < 60) {
-      actions.push({ label: t('chat.quickFill'), message: 'Fill the remaining slots to reach 60 cards while maintaining good balance and synergy.' })
-    }
     if (analysis?.warnings.some((w) => w.message.toLowerCase().includes('land'))) {
       actions.push({ label: t('chat.quickFixMana'), message: 'Fix the mana base - adjust the land count and color distribution to match the spells.' })
     }
@@ -514,7 +538,7 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
       actions.push({ label: t('chat.quickAddRemoval'), message: 'Add some removal spells to deal with opponent threats.' })
     }
     return actions.slice(0, 3)
-  }, [mainCount, analysis, t])
+  }, [analysis, t])
 
   // Count how many sections still need filling
   const unfilledCount = sections.filter((s) => {
@@ -615,44 +639,47 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
     const locked = lockedCardIds.has(card.id)
 
     return (
-      <div className="space-y-2">
+      <div className="space-y-3">
         {/* Quantity + Remove */}
         <div className="flex items-center gap-2">
-          <span className="text-xs text-surface-400">{t('fill.qty')}</span>
+          <span className="font-mono text-mono-marginal uppercase tracking-mono-marginal text-cream-500">
+            {t('fill.qty')}
+          </span>
           <div className="flex items-center gap-1">
             {(isLand ? [1, 2, 3, 4, 6, 8, 10, 12] : [1, 2, 3, 4]).map((n) => (
-              <button
+              <Pill
                 key={n}
-                type="button"
+                size="sm"
+                selected={n === deckCard.quantity}
                 onClick={() => { handleChangeQuantity(card.id, n); sounds.uiClick() }}
-                className={`flex h-7 w-7 items-center justify-center rounded text-xs font-medium transition-colors ${
-                  n === deckCard.quantity ? 'bg-accent text-white' : 'bg-surface-700 text-surface-300 hover:bg-surface-600'
-                }`}
+                className="h-8 w-8 p-0 tabular-nums"
               >
                 {n}
-              </button>
+              </Pill>
             ))}
           </div>
           {!locked && !isLand && (
-            <button
-              type="button"
+            <Button
+              variant="destructive"
+              size="sm"
               onClick={() => { handleRemoveCard(card.id); setLightboxIndex(null); sounds.uiClick() }}
-              className="ml-auto rounded-lg px-3 py-1.5 text-xs text-mana-red hover:bg-mana-red/10 transition-colors"
+              className="ml-auto"
             >
               {t('fill.remove')}
-            </button>
+            </Button>
           )}
         </div>
 
         {/* Suggest replacement */}
         {!isLand && (
-          <button
-            type="button"
+          <Button
+            variant="primary"
+            size="sm"
             onClick={() => suggestReplacement(card)}
-            className="w-full rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover"
+            className="w-full"
           >
             {t('fill.suggestReplacement')}
-          </button>
+          </Button>
         )}
       </div>
     )
@@ -688,10 +715,11 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
 
   const laneCount = (items: DeckDisplayCard[]) => items.reduce((s, d) => s + d.quantity, 0)
 
-  function SectionLane({ section, items, isCore }: {
+  function SectionLane({ section, items, isCore, sectionLetter }: {
     section: DeckSection
     items: DeckDisplayCard[]
     isCore?: boolean
+    sectionLetter?: string
   }) {
     const [collapsed, setCollapsed] = useState(false)
     const count = laneCount(items)
@@ -701,39 +729,42 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
     const hasPreview = sState.status === 'preview'
     const isFilled = sState.status === 'applied' || items.length > 0
     const fillPct = Math.min(100, (count / section.targetCount) * 100)
+    const overFilled = count > section.targetCount
+    const underFilled = count < section.targetCount
 
     return (
-      <div>
-        <button
-          type="button"
-          onClick={() => setCollapsed(!collapsed)}
-          className="mb-1 flex w-full items-center justify-between"
-        >
-          <span className="flex items-center gap-2">
-            <span className="font-display text-sm font-bold text-surface-200">{section.label}</span>
-            {section.description && !isCore && (
-              <span className="hidden text-[10px] text-surface-500 sm:inline">{section.description}</span>
-            )}
-          </span>
-          <span className="flex items-center gap-2">
-            <span className={`rounded-full bg-surface-700 px-2 py-0.5 text-xs font-medium ${
-              count > section.targetCount ? 'text-mana-multi' : count === section.targetCount ? 'text-mana-green' : 'text-surface-400'
-            }`}>
-              {count}/{section.targetCount}
-            </span>
-            <span className={`text-xs text-surface-500 transition-transform duration-[--duration-quick] ${collapsed ? '' : 'rotate-90'}`}>▸</span>
-          </span>
-        </button>
-
-        {/* Progress bar */}
-        <div className="mb-2 h-0.5 rounded-full bg-accent/20">
-          <div
-            className={`h-full rounded-full transition-all duration-[--duration-smooth] ${
-              fillPct >= 100 ? 'bg-mana-green' : 'bg-accent'
-            }`}
-            style={{ width: `${fillPct}%` }}
+      <div className={cn('relative', isCore && 'pl-3')}>
+        {/* Core section marker — ink-red slab on left edge */}
+        {isCore && (
+          <span
+            aria-hidden="true"
+            className="absolute bottom-2 left-0 top-2 w-[3px] bg-ink-red"
           />
-        </div>
+        )}
+
+        <SectionLaneHeader
+          letter={sectionLetter}
+          label={section.label}
+          description={!isCore ? section.description : undefined}
+          collapsed={collapsed}
+          onToggle={() => setCollapsed(!collapsed)}
+          progressPct={fillPct}
+          progressOver={overFilled}
+          count={
+            <span
+              className={cn(
+                'tabular-nums',
+                overFilled
+                  ? 'text-ink-red-bright'
+                  : underFilled
+                    ? 'text-cream-400'
+                    : 'text-cream-100',
+              )}
+            >
+              {count} / {section.targetCount}
+            </span>
+          }
+        />
 
         {!collapsed && (
           <>
@@ -753,84 +784,80 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
                       key={scryfallId}
                       style={shouldAnimate ? { animation: `card-enter 300ms cubic-bezier(0.22, 1.2, 0.36, 1) both`, animationDelay: `${i * 60}ms` } : undefined}
                     >
-                      {isCore ? (
-                        <div className="ring-2 ring-mana-multi/50 rounded-lg">
-                          <CardStack card={card} quantity={quantity} locked={locked} isNew={newCardIds.has(scryfallId)} onClick={() => openLightbox(card)} onToggleLock={() => handleToggleLock(scryfallId)} onChangeQuantity={(qty) => handleChangeQuantity(scryfallId, qty)} onRemove={() => handleRemoveCard(scryfallId)} />
-                        </div>
-                      ) : (
-                        <CardStack card={card} quantity={quantity} locked={locked} isNew={newCardIds.has(scryfallId)} onClick={() => openLightbox(card)} onToggleLock={() => handleToggleLock(scryfallId)} onChangeQuantity={(qty) => handleChangeQuantity(scryfallId, qty)} onRemove={() => handleRemoveCard(scryfallId)} />
-                      )}
+                      <CardStack
+                        card={card}
+                        quantity={quantity}
+                        locked={locked}
+                        isNew={newCardIds.has(scryfallId)}
+                        onClick={() => openLightbox(card)}
+                        onToggleLock={() => handleToggleLock(scryfallId)}
+                        onChangeQuantity={(qty) => handleChangeQuantity(scryfallId, qty)}
+                        onRemove={() => handleRemoveCard(scryfallId)}
+                      />
                     </div>
                   )
                 })}
               </div>
             )}
 
-            {/* Preview cards */}
+            {/* Preview cards — hairline-framed ink-red preview state */}
             {hasPreview && sState.previewCards && (
-              <div className="mt-2 space-y-2">
-                <div className="grid grid-cols-3 gap-2 opacity-70 sm:grid-cols-3 md:grid-cols-4">
+              <div className="mt-4 border border-ink-red bg-ash-800/40 p-4">
+                <div className="mb-3 flex items-baseline justify-between">
+                  <span className="font-mono text-mono-marginal uppercase tracking-mono-marginal text-ink-red-bright">
+                    {t('deck.previewLabel')}
+                  </span>
+                  <span className="font-mono text-mono-tag tabular-nums tracking-mono-tag text-cream-400">
+                    {t('fill.suggestionCount', { count: sState.previewCards.length })}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 opacity-90 sm:grid-cols-3 md:grid-cols-4">
                   {sState.previewCards.map((pc) => (
                     pc.scryfallCard && (
-                      <div key={pc.scryfallId} className="ring-1 ring-accent/40 rounded-lg">
-                        <CardStack card={pc.scryfallCard} quantity={pc.quantity} onClick={() => pc.scryfallCard && openLightbox(pc.scryfallCard)} />
-                      </div>
+                      <CardStack
+                        key={pc.scryfallId}
+                        card={pc.scryfallCard}
+                        quantity={pc.quantity}
+                        onClick={() => pc.scryfallCard && openLightbox(pc.scryfallCard)}
+                      />
                     )
                   ))}
                 </div>
                 {sState.explanation && (
-                  <p className="text-xs text-surface-400 italic">{sState.explanation}</p>
+                  <p className="mt-3 font-body text-sm italic text-cream-300">{sState.explanation}</p>
                 )}
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleApplySection(section.id)}
-                    className="rounded bg-mana-green/20 px-3 py-1 text-xs font-medium text-mana-green transition-colors hover:bg-mana-green/30"
-                  >
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Button variant="primary" size="sm" onClick={() => handleApplySection(section.id)}>
                     {t('chat.apply')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleFillSection(section.id)}
-                    className="rounded bg-surface-700 px-3 py-1 text-xs text-surface-400 transition-colors hover:bg-surface-600"
-                  >
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={() => handleFillSection(section.id)}>
                     {t('core.suggestDifferent')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => discardSection(section.id)}
-                    className="rounded bg-surface-700 px-3 py-1 text-xs text-surface-400 transition-colors hover:bg-surface-600"
-                  >
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => discardSection(section.id)}>
                     {t('chat.discard')}
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
 
             {/* Loading state */}
             {isFilling && (
-              <div className="flex items-center gap-2 py-4">
-                <div className="flex gap-1">
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent" style={{ animationDelay: '0ms' }} />
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent" style={{ animationDelay: '150ms' }} />
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent" style={{ animationDelay: '300ms' }} />
-                </div>
-                <span className="text-xs text-surface-500">{t('fill.building')}</span>
+              <div className="mt-3 flex items-center gap-3 py-3">
+                <LoadingDots size="md" tone="bright" />
+                <span className="font-mono text-mono-tag uppercase tracking-mono-tag text-cream-400">
+                  {t('fill.building')}
+                </span>
               </div>
             )}
 
             {/* Error state */}
             {sState.status === 'error' && (
-              <div className="rounded-lg bg-mana-red/10 p-3">
-                <p className="text-xs text-mana-red">{sState.error}</p>
-                <button
-                  type="button"
-                  onClick={() => handleFillSection(section.id)}
-                  className="mt-2 rounded bg-accent px-3 py-1 text-xs font-medium text-white hover:bg-accent-hover"
-                >
-                  {t('core.tryAgain')}
-                </button>
-              </div>
+              <ErrorBox
+                className="mt-3"
+                message={sState.error ?? ''}
+                onRetry={() => handleFillSection(section.id)}
+                retryLabel={t('core.tryAgain')}
+              />
             )}
 
             {/* Fill button */}
@@ -841,7 +868,7 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
                     type="button"
                     onClick={handleFillLands}
                     disabled={!!fillProgress}
-                    className="mt-2 w-full rounded-lg border border-dashed border-surface-600 py-3 text-sm text-surface-400 transition-colors hover:border-accent hover:text-accent disabled:opacity-30"
+                    className="mt-3 w-full border border-dashed border-hairline-strong py-3 font-mono text-mono-label uppercase tracking-mono-label text-cream-400 transition-colors hover:border-ink-red hover:text-cream-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ink-red focus-visible:ring-offset-2 focus-visible:ring-offset-ash-900 disabled:cursor-not-allowed disabled:opacity-40 disabled:pointer-events-none"
                   >
                     {isFilled ? t('fill.topUpLands') : t('fill.autoFillLands')}
                   </button>
@@ -858,7 +885,7 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
                         setChatSheetOpen(true)
                       }}
                       disabled={chatLoading}
-                      className="mt-2 w-full rounded-lg border border-dashed border-surface-600 py-3 text-sm text-surface-400 transition-colors hover:border-accent hover:text-accent disabled:opacity-30"
+                      className="mt-3 w-full border border-dashed border-hairline-strong py-3 font-mono text-mono-label uppercase tracking-mono-label text-cream-400 transition-colors hover:border-ink-red hover:text-cream-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ink-red focus-visible:ring-offset-2 focus-visible:ring-offset-ash-900 disabled:cursor-not-allowed disabled:opacity-40 disabled:pointer-events-none"
                     >
                       {`${t('fill.topUp')} (+${section.targetCount - count})`}
                     </button>
@@ -867,9 +894,9 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
                       type="button"
                       onClick={() => handleFillSection(section.id)}
                       disabled={!!fillProgress}
-                      className="mt-2 w-full rounded-lg border border-dashed border-surface-600 py-3 text-sm text-surface-400 transition-colors hover:border-accent hover:text-accent disabled:opacity-30"
+                      className="mt-3 w-full border border-dashed border-hairline-strong py-3 font-mono text-mono-label uppercase tracking-mono-label text-cream-400 transition-colors hover:border-ink-red hover:text-cream-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ink-red focus-visible:ring-offset-2 focus-visible:ring-offset-ash-900 disabled:cursor-not-allowed disabled:opacity-40 disabled:pointer-events-none"
                     >
-                      {`${t('fill.fillSection')} (${section.targetCount} cards)`}
+                      {`${t('fill.fillSection')} (${t('fill.cardsCountShort', { count: section.targetCount })})`}
                     </button>
                   )
                 )}
@@ -882,21 +909,31 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
   }
 
   const candidatesBar = candidates.length > 0 && (
-    <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-accent/30 bg-accent/5 p-2">
-      <span className="text-[10px] text-accent font-medium">{t('fill.candidates')}</span>
+    <div className="flex flex-wrap items-center gap-2 border border-ink-red bg-ash-800/40 p-3">
+      <span className="font-mono text-mono-marginal uppercase tracking-mono-marginal text-ink-red-bright">
+        {t('fill.candidates')}
+      </span>
       {candidates.map((c) => (
-        <span key={c.id} className="inline-flex items-center gap-1 rounded bg-accent/20 px-1.5 py-0.5 text-[10px] text-accent">
+        <span
+          key={c.id}
+          className="inline-flex items-center gap-1.5 border border-hairline-strong bg-ash-900 px-2 py-1 font-mono text-mono-tag uppercase tracking-mono-tag text-cream-100"
+        >
           {c.name}
-          <button type="button" onClick={() => removeCandidate(c.id)} className="hover:text-white">x</button>
+          <button
+            type="button"
+            onClick={() => removeCandidate(c.id)}
+            className="text-cream-500 transition-colors hover:text-ink-red-bright focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ink-red focus-visible:ring-offset-2 focus-visible:ring-offset-ash-900"
+            aria-label="Remove"
+          >
+            {'\u00D7'}
+          </button>
         </span>
       ))}
-      <button
-        type="button"
-        onClick={sendCandidates}
-        className="ml-auto rounded bg-accent px-2 py-0.5 text-[10px] font-medium text-white hover:bg-accent-hover"
-      >
-        {t('fill.addToDeck')}
-      </button>
+      <div className="ml-auto">
+        <Button variant="primary" size="sm" onClick={sendCandidates}>
+          {t('fill.addToDeck')}
+        </Button>
+      </div>
     </div>
   )
 
@@ -909,63 +946,74 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
     <>
       {/* Search results: new cards to add */}
       {newSearchResults.length > 0 && (
-        <div className="mb-4">
-          <h4 className="mb-2 text-xs font-medium text-surface-400">{t('fill.addToDeck')}</h4>
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">
-            {newSearchResults.map((card) => (
-              <button
-                key={card.id}
-                type="button"
-                onClick={() => addCandidate(card)}
-                className={`group relative rounded-lg transition-all ${
-                  candidates.find((c) => c.id === card.id)
-                    ? 'ring-2 ring-accent'
-                    : 'opacity-70 hover:opacity-100'
-                }`}
-              >
-                <CardImage card={card} size="normal" />
-                <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
-                  <span className="rounded bg-accent px-2 py-1 text-xs font-bold text-white">{t('deckPage.addOverlay')}</span>
-                </div>
-              </button>
-            ))}
+        <div className="mb-6">
+          <h4 className="mb-3 font-mono text-mono-label uppercase tracking-mono-label text-cream-300">
+            {t('fill.addToDeck')}
+          </h4>
+          <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5">
+            {newSearchResults.map((card) => {
+              const isCandidate = !!candidates.find((c) => c.id === card.id)
+              return (
+                <button
+                  key={card.id}
+                  type="button"
+                  onClick={() => addCandidate(card)}
+                  className={cn(
+                    'group relative overflow-hidden border transition-all hover:-translate-y-1',
+                    isCandidate
+                      ? 'border-ink-red'
+                      : 'border-hairline opacity-80 hover:border-hairline-strong hover:opacity-100',
+                  )}
+                >
+                  <CardImage card={card} size="normal" />
+                  <span
+                    className={cn(
+                      'absolute inset-x-0 bottom-0 bg-ink-red py-1.5 text-center font-mono text-mono-tag uppercase tracking-mono-tag text-cream-100 transition-transform duration-150',
+                      isCandidate ? 'translate-y-0' : 'translate-y-full group-hover:translate-y-0',
+                    )}
+                  >
+                    {isCandidate ? `\u2713 ${t('deck.queued')}` : `+ ${t('deckPage.addOverlay')}`}
+                  </span>
+                </button>
+              )
+            })}
           </div>
         </div>
       )}
 
-      {searching && <p className="py-4 text-center text-xs text-surface-500">{t('search.searching')}</p>}
+      {searching && (
+        <p className="py-4 text-center font-mono text-mono-tag uppercase tracking-mono-tag text-cream-500">
+          {t('search.searching')}
+        </p>
+      )}
 
       {/* Fill All button */}
       {unfilledCount > 0 && !fillProgress && (
-        <button
-          type="button"
-          onClick={handleFillAllRemaining}
-          className="mb-4 w-full rounded-lg bg-accent py-3 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
-        >
-          {t('fill.fillAll')} ({unfilledCount} {unfilledCount === 1 ? 'section' : 'sections'})
-        </button>
+        <div className="mb-6">
+          <Button
+            variant="primary"
+            size="lg"
+            onClick={handleFillAllRemaining}
+            className="w-full"
+          >
+            {t('fill.fillAll')} ({t('fill.sectionCount', { count: unfilledCount })})
+          </Button>
+        </div>
       )}
 
       {/* Fill All progress */}
       {fillProgress && (
-        <div className="mb-4 flex items-center justify-between rounded-lg border border-accent/30 bg-accent/5 px-4 py-3">
-          <div className="flex items-center gap-2">
-            <div className="flex gap-1">
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent" style={{ animationDelay: '0ms' }} />
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent" style={{ animationDelay: '150ms' }} />
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent" style={{ animationDelay: '300ms' }} />
-            </div>
-            <span className="text-sm text-accent">
-              {t('fill.fillingProgress', { current: fillProgress.current, total: fillProgress.total })} - {fillProgress.currentSection}
+        <div className="mb-6 flex items-center justify-between border border-ink-red bg-ash-800/40 px-4 py-3">
+          <div className="flex items-center gap-3">
+            <LoadingDots size="md" tone="bright" />
+            <span className="font-mono text-mono-label uppercase tabular-nums tracking-mono-label text-cream-100">
+              {t('fill.fillingProgress', { current: fillProgress.current, total: fillProgress.total })}
+              <span className="ml-2 text-cream-400">&mdash; {fillProgress.currentSection}</span>
             </span>
           </div>
-          <button
-            type="button"
-            onClick={cancelFillAll}
-            className="text-xs text-surface-400 hover:text-surface-200"
-          >
+          <Button variant="ghost" size="sm" onClick={cancelFillAll}>
             {t('fill.cancel')}
-          </button>
+          </Button>
         </div>
       )}
 
@@ -978,39 +1026,66 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
           ))}
         </div>
       ) : (
-        <div className="space-y-6">
+        <div className="[&>*+*]:mt-16 [&>*+*]:border-t-2 [&>*+*]:border-cream-500 [&>*+*]:pt-16">
           {/* Core section */}
           {sectionCards['core']?.length > 0 && selectedCombo && (
-            <>
-              <div className="rounded-lg border border-mana-multi/20 bg-mana-multi/5 px-3 py-2">
-                <p className="font-display text-sm font-bold text-mana-multi">{selectedCombo.name}</p>
-                <p className="mt-0.5 text-xs text-surface-400">{selectedCombo.explanation}</p>
+            <div>
+              <div className="mb-6 border border-hairline bg-ash-800/40 px-4 py-3">
+                <p className="font-display text-display-eyebrow uppercase tracking-eyebrow text-cream-100">
+                  {selectedCombo.name}
+                </p>
+                <p className="mt-1 font-body text-sm italic text-cream-400">
+                  {selectedCombo.explanation}
+                </p>
               </div>
               <SectionLane
                 section={{ id: 'core', label: t('fill.laneCore'), description: '', targetCount: coreCardCount, role: 'creatures', scryfallHints: [] }}
                 items={sectionCards['core']}
                 isCore
+                sectionLetter="A"
               />
-            </>
+            </div>
           )}
 
           {/* Dynamic sections */}
-          {nonLandSections.map((section) => (
+          {nonLandSections.map((section, i) => (
             <SectionLane
               key={section.id}
               section={section}
               items={sectionCards[section.id] ?? []}
+              sectionLetter={String.fromCharCode(66 + i)}
             />
           ))}
 
-          {/* Unassigned cards - shown above lands so they're visible and not
-              buried at the bottom of the deck view. */}
+          {/* Unassigned cards — shown above lands so they're visible */}
           {(sectionCards['unassigned']?.length ?? 0) > 0 && (
             <div>
-              <h4 className="mb-1 font-display text-sm font-bold text-surface-200">{t('fill.unassigned')}</h4>
-              <div className="grid grid-cols-3 gap-2 sm:grid-cols-3 md:grid-cols-4">
+              <div className="mb-3 flex items-baseline justify-between border-b border-hairline pb-2">
+                <span className="flex items-baseline gap-3">
+                  <span className="font-mono text-mono-marginal uppercase leading-none tracking-mono-marginal text-cream-400">
+                    U
+                  </span>
+                  <span className="font-display text-display-eyebrow uppercase leading-none tracking-eyebrow text-cream-100">
+                    {t('fill.unassigned')}
+                  </span>
+                </span>
+                <span className="whitespace-nowrap font-mono text-mono-label tabular-nums tracking-mono-label text-cream-300">
+                  {sectionCards['unassigned']!.reduce((s, d) => s + d.quantity, 0)}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-3 sm:grid-cols-3 md:grid-cols-4">
                 {sectionCards['unassigned']!.map(({ card, quantity, locked, scryfallId }) => (
-                  <CardStack key={scryfallId} card={card} quantity={quantity} locked={locked} isNew={newCardIds.has(scryfallId)} onClick={() => openLightbox(card)} onToggleLock={() => handleToggleLock(scryfallId)} onChangeQuantity={(qty) => handleChangeQuantity(scryfallId, qty)} onRemove={() => handleRemoveCard(scryfallId)} />
+                  <CardStack
+                    key={scryfallId}
+                    card={card}
+                    quantity={quantity}
+                    locked={locked}
+                    isNew={newCardIds.has(scryfallId)}
+                    onClick={() => openLightbox(card)}
+                    onToggleLock={() => handleToggleLock(scryfallId)}
+                    onChangeQuantity={(qty) => handleChangeQuantity(scryfallId, qty)}
+                    onRemove={() => handleRemoveCard(scryfallId)}
+                  />
                 ))}
               </div>
             </div>
@@ -1021,15 +1096,18 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
             <SectionLane
               section={landsSection}
               items={sectionCards['lands'] ?? []}
+              sectionLetter="L"
             />
           )}
         </div>
       )}
 
       {/* Empty state */}
+      {/* TODO: migrate to <EmptyState> once an i18n title key exists — current
+          prompt is description-only and the primitive requires a title. */}
       {deckDisplay.length === 0 && !selectedCombo && unfilledCount > 0 && (
-        <div className="flex h-full min-h-[200px] flex-col items-center justify-center gap-3 text-surface-500">
-          <p className="text-sm">{t('fill.emptyPrompt')}</p>
+        <div className="flex h-full min-h-[200px] flex-col items-center justify-center gap-3 py-12 text-center">
+          <p className="font-body text-sm italic text-cream-400">{t('fill.emptyPrompt')}</p>
         </div>
       )}
     </>
@@ -1047,105 +1125,104 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
       )}
 
       {/* Header */}
-      <div className="flex items-center justify-between mb-3">
-        <div>
-          <h2 className="font-display text-xl font-bold text-surface-100">
-            {state.deckName || t('fill.yourDeck')}
-          </h2>
-          {state.deckDescription && (
-            <p className="text-xs text-surface-400">{state.deckDescription}</p>
-          )}
+      <header className="mb-6 flex flex-col gap-4 border-b border-hairline pb-5 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0 flex-1">
+          <span className="font-mono text-mono-marginal uppercase leading-none tracking-mono-marginal text-ink-red-bright">
+            {state.format.toUpperCase()}
+          </span>
+          <input
+            type="text"
+            value={state.deckName}
+            onChange={(e) => dispatch({ type: 'SET_DECK_METADATA', name: e.target.value })}
+            onKeyDown={(e) => { if (e.key.length === 1) sounds.typing() }}
+            placeholder={t('deck.namePlaceholder')}
+            aria-label={t('deck.namePlaceholder')}
+            className="mt-2 w-full border-0 border-b border-hairline bg-transparent font-display text-2xl uppercase leading-tight tracking-display text-cream-100 placeholder-cream-500 focus:border-cream-200 focus:outline-none sm:text-display-section"
+          />
+          <input
+            type="text"
+            value={state.deckDescription}
+            onChange={(e) => dispatch({ type: 'SET_DECK_METADATA', description: e.target.value })}
+            onKeyDown={(e) => { if (e.key.length === 1) sounds.typing() }}
+            placeholder={t('deck.descriptionPlaceholder')}
+            aria-label={t('deck.descriptionPlaceholder')}
+            className="mt-3 w-full border-0 border-b border-hairline bg-transparent font-body text-sm italic text-cream-400 placeholder-cream-500 focus:border-cream-200 focus:outline-none"
+          />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
           {mainCount > 0 && (
             <>
-              <button
-                type="button"
-                onClick={() => { history.undo(); sounds.uiClick() }}
-                disabled={!history.canUndo}
-                className="rounded-lg border border-surface-600 px-2 py-1 text-xs text-surface-400 hover:border-surface-500 hover:text-surface-200 disabled:opacity-20 disabled:cursor-default transition-colors"
-                title="Undo (Ctrl+Z)"
-              >
-                ↩
-              </button>
-              <button
-                type="button"
-                onClick={() => { history.redo(); sounds.uiClick() }}
-                disabled={!history.canRedo}
-                className="rounded-lg border border-surface-600 px-2 py-1 text-xs text-surface-400 hover:border-surface-500 hover:text-surface-200 disabled:opacity-20 disabled:cursor-default transition-colors"
-                title="Redo (Ctrl+Shift+Z)"
-              >
-                ↪
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  const ok = await copyDecklistToClipboard(state.deckCards, cardDataMap)
-                  if (ok) { setCopied(true); sounds.uiClick() }
-                }}
-                className="rounded-lg border border-surface-600 px-2.5 py-1 text-xs text-surface-400 hover:border-surface-500 hover:text-surface-200 transition-colors"
-              >
-                {copied ? '\u2713 Copied' : '\u{1F4CB} Copy'}
-              </button>
+              <div className="group relative">
+                <button
+                  type="button"
+                  onClick={() => { history.undo(); sounds.uiClick() }}
+                  disabled={!history.canUndo}
+                  className="flex h-8 items-center gap-2 border border-hairline px-3 font-mono text-mono-label uppercase tracking-mono-label text-cream-300 transition-colors hover:border-hairline-strong hover:text-cream-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ink-red focus-visible:ring-offset-2 focus-visible:ring-offset-ash-900 disabled:cursor-not-allowed disabled:opacity-40 disabled:pointer-events-none"
+                  title={t('action.undo')}
+                >
+                  <span aria-hidden="true" className="text-base leading-none">{'\u21A9'}</span>
+                  {t('action.undo')}
+                </button>
+                <div className="pointer-events-none absolute left-1/2 top-full z-20 mt-1 -translate-x-1/2 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+                  <Kbd>{'\u2318Z'}</Kbd>
+                </div>
+              </div>
+              <div className="group relative">
+                <button
+                  type="button"
+                  onClick={() => { history.redo(); sounds.uiClick() }}
+                  disabled={!history.canRedo}
+                  className="flex h-8 items-center gap-2 border border-hairline px-3 font-mono text-mono-label uppercase tracking-mono-label text-cream-300 transition-colors hover:border-hairline-strong hover:text-cream-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ink-red focus-visible:ring-offset-2 focus-visible:ring-offset-ash-900 disabled:cursor-not-allowed disabled:opacity-40 disabled:pointer-events-none"
+                  title={t('action.redo')}
+                >
+                  <span aria-hidden="true" className="text-base leading-none">{'\u21AA'}</span>
+                  {t('action.redo')}
+                </button>
+                <div className="pointer-events-none absolute left-1/2 top-full z-20 mt-1 -translate-x-1/2 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+                  <Kbd>{'\u2318\u21E7Z'}</Kbd>
+                </div>
+              </div>
             </>
           )}
-          <span
-            className={`text-sm font-medium transition-colors duration-[--duration-smooth] ${mainCount === 60 ? 'text-mana-green' : 'text-mana-red'}`}
-            style={mainCount === 60 ? { animation: 'celebrate 500ms cubic-bezier(0.34, 1.56, 0.64, 1)' } : undefined}
-          >
-            {t('fill.cardsCount', { count: mainCount })}
-          </span>
         </div>
-      </div>
+      </header>
 
       {/* ========== MOBILE LAYOUT (< lg) ========== */}
       <div className="lg:hidden pb-28">
-        <div className="mb-3 flex rounded-lg border border-surface-600 p-0.5">
-          {([
-            { id: 'cards' as MobileTab, label: t('nav.cards') },
-            { id: 'stats' as MobileTab, label: t('balance.cardTypes').split(' ')[0] || 'Stats' },
-          ]).map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setMobileTab(tab.id)}
-              className={`flex-1 rounded-md px-3 py-2 text-xs font-medium transition-colors ${
-                mobileTab === tab.id
-                  ? 'bg-accent text-white'
-                  : 'text-surface-400 hover:text-surface-200'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          className="mb-6"
+          value={mobileTab}
+          onChange={(id) => setMobileTab(id as MobileTab)}
+          items={[
+            { id: 'cards', label: t('deck.paneCards'), panelId: 'fill-tabpanel-cards' },
+            { id: 'stats', label: t('deck.paneStats'), panelId: 'fill-tabpanel-stats' },
+          ]}
+        />
 
-        {candidatesBar && <div className="mb-3">{candidatesBar}</div>}
+        {candidatesBar && <div className="mb-4">{candidatesBar}</div>}
 
         {mobileTab === 'cards' && (
-          <div>
-            <div className="mb-2 flex gap-2">
+          <div id="fill-tabpanel-cards" role="tabpanel" aria-labelledby="tab-cards" className="space-y-4">
+            <div className="flex gap-2">
               <div className="flex-1">
                 <SearchInput value={search} onChange={setSearch} placeholder={t('fill.searchPlaceholder')} />
               </div>
               {hasActiveFilter && (
-                <button
-                  type="button"
+                <Button
+                  variant="secondary"
+                  size="sm"
                   onClick={() => { setTypeFilter(null); setColorFilter(null); setCmcFilter(null) }}
-                  className="rounded-lg border border-surface-600 px-3 text-xs text-surface-400 hover:text-surface-200"
                 >
                   {t('fill.clearFilters')}
-                </button>
+                </Button>
               )}
             </div>
-            <div className="rounded-xl border border-surface-700 bg-surface-800/50 p-3">
-              {cardGridContent}
-            </div>
+            {cardGridContent}
           </div>
         )}
 
         {mobileTab === 'stats' && (
-          <div>
+          <div id="fill-tabpanel-stats" role="tabpanel" aria-labelledby="tab-stats" className="space-y-4">
             <BalanceAdvisor
               analysis={analysis}
               activeTypeFilter={typeFilter}
@@ -1162,41 +1239,46 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
       {/* ========== MOBILE CHAT BOTTOM SHEET ========== */}
       {createPortal(<div className="fixed bottom-[60px] left-0 right-0 z-10 lg:hidden">
         {!chatSheetOpen && (
-          <div className="border-t border-surface-700 bg-surface-900/95 px-3 py-2 backdrop-blur-sm">
-            <div className="flex gap-2">
-              <input
-                type="text"
-                readOnly
-                onFocus={() => setChatSheetOpen(true)}
-                placeholder={chatLoading ? '...' : t('chat.inputPlaceholder')}
-                className="flex-1 rounded-lg border border-surface-600 bg-surface-800 px-3 py-1.5 text-sm text-surface-100 placeholder-surface-500 focus:border-accent focus:outline-none"
-              />
-              <button
-                type="button"
+          <div className="border-t border-hairline bg-ash-900/95 px-3 py-3 backdrop-blur-sm">
+            <div className="flex items-center gap-2">
+              <div className="flex flex-1 items-center border border-hairline-strong bg-ash-800 px-3 py-2">
+                <input
+                  type="text"
+                  readOnly
+                  onFocus={() => setChatSheetOpen(true)}
+                  placeholder={chatLoading ? '...' : t('chat.inputPlaceholder')}
+                  className="flex-1 bg-transparent font-mono text-mono-label text-cream-100 placeholder-cream-400 focus:outline-none"
+                />
+              </div>
+              <Button
+                variant="primary"
+                size="sm"
                 onClick={() => setChatSheetOpen(true)}
-                className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white"
               >
                 {t('chat.send')}
-              </button>
+              </Button>
             </div>
           </div>
         )}
 
         {chatSheetOpen && (
           <>
-            <div className="fixed inset-0 z-[9] bg-black/40" onClick={() => setChatSheetOpen(false)} />
+            <div className="fixed inset-0 z-[9] bg-ash-900/80" onClick={() => setChatSheetOpen(false)} />
             <div
-              className="relative z-[10] flex flex-col border-t border-surface-700 bg-surface-900"
+              className="relative z-[10] flex flex-col border-t border-hairline-strong bg-ash-900"
               style={{ height: '50dvh', animation: 'card-enter 200ms cubic-bezier(0.16, 1, 0.3, 1) both' }}
             >
-              <div className="flex items-center justify-between border-b border-surface-700 px-3 py-2">
-                <span className="text-xs font-medium text-surface-300">AI Chat</span>
+              <div className="flex items-center justify-between border-b border-hairline px-4 py-3">
+                <span className="font-mono text-mono-label uppercase tracking-mono-label text-cream-300">
+                  {t('deck.paneChat')}
+                </span>
                 <button
                   type="button"
                   onClick={() => setChatSheetOpen(false)}
-                  className="text-xs text-surface-500 hover:text-surface-300"
+                  className="font-mono text-mono-label uppercase tracking-mono-label text-cream-400 transition-colors hover:text-ink-red-bright focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ink-red focus-visible:ring-offset-2 focus-visible:ring-offset-ash-900"
+                  aria-label={t('action.close')}
                 >
-                  ✕
+                  {t('action.close')}
                 </button>
               </div>
               <div className="min-h-0 flex-1">
@@ -1216,14 +1298,17 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
       </div>, document.body)}
 
       {/* ========== DESKTOP LAYOUT (>= lg) ========== */}
-      <div ref={desktopGridRef} className="hidden lg:grid lg:grid-cols-12 lg:gap-3" style={{ height: desktopGridHeight }}>
+      <div ref={desktopGridRef} className="hidden lg:grid lg:grid-cols-12 lg:gap-4" style={{ height: desktopGridHeight }}>
         {/* Left: AI Chat */}
         <div
-          className="min-h-0 flex flex-col lg:col-span-3"
+          className="flex min-h-0 flex-col lg:col-span-3"
           style={!workspaceMounted.current ? { animation: 'card-enter 400ms cubic-bezier(0.16, 1, 0.3, 1) both', animationDelay: '100ms' } : undefined}
         >
-          {candidatesBar && <div className="mb-2">{candidatesBar}</div>}
-          <div className="min-h-0 flex-1">
+          <span className="mb-2 font-mono text-mono-label uppercase tracking-mono-label text-cream-300">
+            {t('deck.paneChat')}
+          </span>
+          {candidatesBar && <div className="mb-3">{candidatesBar}</div>}
+          <div className="min-h-0 flex-1 border border-hairline bg-ash-800/40">
             <AiChat
               messages={messages}
               pending={pending}
@@ -1238,64 +1323,68 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish }: StepDeckFill
 
         {/* Center: Card grid with search */}
         <div
-          className="flex min-h-0 flex-col gap-2 lg:col-span-6"
+          className="flex min-h-0 flex-col lg:col-span-6"
           style={!workspaceMounted.current ? { animation: 'card-enter 400ms cubic-bezier(0.16, 1, 0.3, 1) both', animationDelay: '200ms' } : undefined}
         >
-          <div className="flex gap-2">
+          <span className="mb-2 font-mono text-mono-label uppercase tracking-mono-label text-cream-300">
+            {t('deck.paneCards')}
+          </span>
+          <div className="mb-3 flex gap-2">
             <div className="flex-1">
               <SearchInput value={search} onChange={setSearch} placeholder={t('fill.searchPlaceholder')} />
             </div>
             {hasActiveFilter && (
-              <button
-                type="button"
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={() => { setTypeFilter(null); setColorFilter(null); setCmcFilter(null) }}
-                className="rounded-lg border border-surface-600 px-3 text-xs text-surface-400 hover:text-surface-200"
               >
                 {t('fill.clearFilters')}
-              </button>
+              </Button>
             )}
           </div>
-          <div className="flex-1 overflow-y-auto rounded-xl border border-surface-700 bg-surface-800/50 p-3">
+          <div className="min-h-0 flex-1 overflow-y-auto border border-hairline bg-ash-800/40 p-4">
             {cardGridContent}
           </div>
         </div>
 
         {/* Right: Balance advisor */}
         <div
-          className="min-h-0 overflow-y-auto lg:col-span-3"
+          className="flex min-h-0 flex-col lg:col-span-3"
           style={!workspaceMounted.current ? { animation: 'card-enter 400ms cubic-bezier(0.16, 1, 0.3, 1) both', animationDelay: '300ms' } : undefined}
         >
-          <BalanceAdvisor
-            analysis={analysis}
-            activeTypeFilter={typeFilter}
-            activeColorFilter={colorFilter}
-            activeCmcFilter={cmcFilter}
-            onFilterByType={setTypeFilter}
-            onFilterByColor={setColorFilter}
-            onFilterByCmc={setCmcFilter}
-          />
+          <span className="mb-2 font-mono text-mono-label uppercase tracking-mono-label text-cream-300">
+            {t('deck.paneBalance')}
+          </span>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <BalanceAdvisor
+              analysis={analysis}
+              activeTypeFilter={typeFilter}
+              activeColorFilter={colorFilter}
+              activeCmcFilter={cmcFilter}
+              onFilterByType={setTypeFilter}
+              onFilterByColor={setColorFilter}
+              onFilterByCmc={setCmcFilter}
+            />
+          </div>
         </div>
       </div>
 
       {/* Fixed bottom nav */}
       {createPortal(
-        <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-surface-700 bg-surface-900/95 px-4 py-3 backdrop-blur-sm">
-          <div className="mx-auto flex max-w-7xl items-center justify-between">
-            <button
-              type="button"
-              onClick={onBack}
-              className="rounded-lg border border-surface-600 px-6 py-2.5 text-sm text-surface-300 hover:border-surface-500 hover:text-surface-100"
-            >
-              {t('wizard.back')}
-            </button>
-            <button
-              type="button"
-              onClick={onFinish}
-              disabled={mainCount === 0}
-              className="rounded-lg bg-mana-green px-8 py-2.5 font-medium text-white hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed"
-            >
+        <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-hairline bg-ash-900/95 px-4 py-4 backdrop-blur-sm">
+          <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <Button variant="secondary" size="lg" onClick={onBack}>
+                {t('wizard.back')}
+              </Button>
+              <Button variant="ghost" size="md" onClick={onReset}>
+                {t('wizard.reset')}
+              </Button>
+            </div>
+            <Button variant="primary" size="lg" onClick={onFinish} disabled={mainCount === 0}>
               {t('fill.finishOpen')}
-            </button>
+            </Button>
           </div>
         </div>,
         document.body,

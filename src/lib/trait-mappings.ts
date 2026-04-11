@@ -149,6 +149,45 @@ export const TRAITS: TraitMapping[] = [
     colorAffinity: ['R'],
     description: 'Deal direct damage to win the game',
   },
+  {
+    id: 'goodstuff',
+    label: 'Goodstuff',
+    category: 'archetype',
+    scryfallQueries: [
+      't:artifact o:"add" o:"mana of any color"',
+      't:artifact o:"add" cmc<=3',
+      'id>=3 r>=rare t:creature',
+      'o:"lands you control" o:"any color"',
+    ],
+    colorAffinity: ['W', 'U', 'B', 'R', 'G'],
+    description: 'Splashy multi-color payoffs held together by mana-fixing artifacts',
+  },
+  {
+    id: 'sacrifice',
+    label: 'Sacrifice',
+    category: 'archetype',
+    scryfallQueries: [
+      'o:"whenever" o:"dies" r>=uncommon',
+      'o:"sacrifice a creature" r>=uncommon',
+      'o:"create" o:"token" t:creature cmc<=3',
+      'o:"return" o:"from your graveyard" t:creature cmc<=3',
+    ],
+    colorAffinity: ['B', 'R'],
+    description: 'Creatures die for profit — fodder feeds sacrifice payoffs',
+  },
+  {
+    id: 'drain',
+    label: 'Drain',
+    category: 'archetype',
+    scryfallQueries: [
+      'o:"loses" o:"life" o:"gain" r>=uncommon',
+      'o:"each opponent loses" r>=uncommon',
+      'o:"swamps you control" t:creature',
+      'o:"return target creature card from your graveyard to your hand" r>=uncommon',
+    ],
+    colorAffinity: ['B'],
+    description: 'Bleed opponents with life-loss spells and recursive black threats',
+  },
 
   // ─── Combat Keywords ──────────────────────────────────────
   {
@@ -341,6 +380,15 @@ export const TRAITS: TraitMapping[] = [
     colorAffinity: ['B', 'R'],
     description: 'Cast spells for a discount when you discard them',
     oracleTerms: ['madness'],
+  },
+  {
+    id: 'equipment',
+    label: 'Equipment',
+    category: 'mechanic',
+    scryfallQueries: ['t:equipment', 'keyword:equip'],
+    colorAffinity: ['W', 'R'],
+    description: 'Weapons and armor to suit up your creatures',
+    oracleTerms: ['equip'],
   },
   {
     id: 'sagas',
@@ -559,7 +607,8 @@ export function buildScryfallQueriesFromTraits(
   colors: string[],
   options?: {
     format?: string
-    budgetLimit?: number | null
+    budgetMin?: number | null
+    budgetMax?: number | null
     rarities?: string[]
   },
 ): string[] {
@@ -568,9 +617,13 @@ export function buildScryfallQueriesFromTraits(
   const formatFilter = options?.format && options.format !== 'casual'
     ? ` f:${options.format}`
     : ''
-  const budgetFilter = options?.budgetLimit != null
-    ? ` usd<=${options.budgetLimit.toFixed(2)}`
+  const budgetMinFilter = options?.budgetMin != null
+    ? ` usd>=${options.budgetMin.toFixed(2)}`
     : ''
+  const budgetMaxFilter = options?.budgetMax != null
+    ? ` usd<=${options.budgetMax.toFixed(2)}`
+    : ''
+  const budgetFilter = `${budgetMinFilter}${budgetMaxFilter}`
 
   // Build rarity filter (exclude unselected rarities)
   const allRarities = ['common', 'uncommon', 'rare', 'mythic']
@@ -601,7 +654,8 @@ export function buildSearchFilterSuffix(
   colors: string[],
   options?: {
     format?: string
-    budgetLimit?: number | null
+    budgetMin?: number | null
+    budgetMax?: number | null
     rarities?: string[]
   },
 ): string {
@@ -609,9 +663,13 @@ export function buildSearchFilterSuffix(
   const formatFilter = options?.format && options.format !== 'casual'
     ? ` f:${options.format}`
     : ''
-  const budgetFilter = options?.budgetLimit != null
-    ? ` usd<=${options.budgetLimit.toFixed(2)}`
+  const budgetMinFilter = options?.budgetMin != null
+    ? ` usd>=${options.budgetMin.toFixed(2)}`
     : ''
+  const budgetMaxFilter = options?.budgetMax != null
+    ? ` usd<=${options.budgetMax.toFixed(2)}`
+    : ''
+  const budgetFilter = `${budgetMinFilter}${budgetMaxFilter}`
 
   const allRarities = ['common', 'uncommon', 'rare', 'mythic']
   let rarityFilter = ''

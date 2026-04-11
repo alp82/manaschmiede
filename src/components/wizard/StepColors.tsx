@@ -2,18 +2,21 @@ import { useMemo } from 'react'
 import { ManaSymbol, type ManaColor } from '../ManaSymbol'
 import { useDeckSounds } from '../../lib/sounds'
 import { WizardNav } from './WizardNav'
+import { Pill } from '../ui/Pill'
+import { Button } from '../ui/Button'
+import { cn } from '../../lib/utils'
 import { useT } from '../../lib/i18n'
 import type { ManaColorState, WizardAction } from '../../lib/wizard-state'
-import type { DeckFormat } from '../../lib/deck-utils'
 import { getTraitById } from '../../lib/trait-mappings'
 
 interface StepColorsProps {
   colors: Record<ManaColor, ManaColorState>
-  format: DeckFormat
   selectedArchetypes: string[]
+  selectedTraits: string[]
   dispatch: React.Dispatch<WizardAction>
   onNext: () => void
   onBack: () => void
+  onReset: () => void
 }
 
 const ALL_COLORS: ManaColor[] = ['W', 'U', 'B', 'R', 'G']
@@ -25,13 +28,27 @@ const COLOR_KEYS: Record<ManaColor, string> = {
   G: 'color.green',
 }
 
-const FORMATS: { value: DeckFormat; key: string }[] = [
-  { value: 'casual', key: 'colors.formatCasual' },
-  { value: 'modern', key: 'colors.formatModern' },
-  { value: 'standard', key: 'colors.formatStandard' },
-]
+// Ambient mana-color tints used when a color is selected. Each tint
+// uses the mana color's own hue so selection reads as "this color lives
+// here now" rather than a generic red wash (which also collides with
+// the red mana tile).
+const COLOR_TINT_CLASS: Record<ManaColor, string> = {
+  W: 'bg-mana-white/15',
+  U: 'bg-mana-blue/20',
+  B: 'bg-mana-black/40',
+  R: 'bg-mana-red/20',
+  G: 'bg-mana-green/20',
+}
 
-export function StepColors({ colors, format, selectedArchetypes, dispatch, onNext, onBack }: StepColorsProps) {
+export function StepColors({
+  colors,
+  selectedArchetypes,
+  selectedTraits,
+  dispatch,
+  onNext,
+  onBack,
+  onReset,
+}: StepColorsProps) {
   const t = useT()
   const selectedColors = ALL_COLORS.filter((c) => colors[c] === 'selected')
   const maybeColors = ALL_COLORS.filter((c) => colors[c] === 'maybe')
@@ -41,7 +58,7 @@ export function StepColors({ colors, format, selectedArchetypes, dispatch, onNex
   // Compute recommended colors from selected archetypes
   const recommendedColors = useMemo(() => {
     const colorCounts = new Map<string, number>()
-    for (const id of selectedArchetypes) {
+    for (const id of [...selectedArchetypes, ...selectedTraits]) {
       const trait = getTraitById(id)
       if (trait?.colorAffinity) {
         for (const c of trait.colorAffinity) {
@@ -54,7 +71,7 @@ export function StepColors({ colors, format, selectedArchetypes, dispatch, onNex
         .sort((a, b) => b[1] - a[1])
         .map(([c]) => c),
     )
-  }, [selectedArchetypes])
+  }, [selectedArchetypes, selectedTraits])
 
   const sounds = useDeckSounds()
 
@@ -79,122 +96,120 @@ export function StepColors({ colors, format, selectedArchetypes, dispatch, onNex
   }
 
   return (
-    <div className="flex flex-col items-center gap-8 py-8 pb-20">
-      <div className="text-center">
-        <h2 className="font-display text-2xl font-bold text-surface-100">{t('colors.title')}</h2>
-        <p className="mt-2 text-sm text-surface-400">
-          {t('colors.subtitle')}
-        </p>
-      </div>
+    <section className="relative">
+      {/* Reading-mode content column */}
+      <div className="mx-auto max-w-2xl px-4 pb-24 pt-16">
+        {/* Section header */}
+        <header className="flex flex-col items-center text-center">
+          <span className="font-display text-display-eyebrow uppercase leading-none tracking-eyebrow text-cream-400">
+            Chapter II
+          </span>
+          <h2 className="mt-4 font-display text-display-title leading-[1.1] tracking-display text-cream-100">
+            {t('colors.title')}
+          </h2>
+          <p className="mt-4 max-w-md font-body text-base text-cream-300">
+            {t('colors.subtitle')}
+          </p>
+        </header>
 
-      {/* Main color selection */}
-      <div className="flex items-center gap-5">
-        {ALL_COLORS.map((color) => {
-          const isSelected = colors[color] === 'selected'
-          const isRecommended = recommendedColors.has(color) && !isSelected
-          return (
-            <button
-              key={color}
-              type="button"
-              onClick={() => toggleSelected(color)}
-              className="group flex flex-col items-center gap-2"
-            >
-              <ManaSymbol
-                color={color}
-                size="lg"
-                selected={isSelected}
-                recommended={isRecommended}
-              />
-              <span className={`text-xs ${isSelected ? 'text-surface-100 font-medium' : isRecommended ? 'text-surface-200 font-medium' : 'text-surface-500'}`}>
-                {t(COLOR_KEYS[color])}
-              </span>
-              <span className={`h-3 text-[10px] text-surface-400 transition-opacity duration-150 ${isRecommended ? 'opacity-100' : 'opacity-0'}`}>
-                {t('colors.recommended')}
-              </span>
-            </button>
-          )
-        })}
-      </div>
-
-      {/* "Open to splashing?" - only show when 1+ colors are selected */}
-      {selectedColors.length > 0 && unselectedColors.length > 0 && (
-        <div className="flex flex-col items-center gap-3">
-          <span className="text-xs text-surface-500">{t('colors.splashQuestion')}</span>
-          <div className="flex items-center gap-3">
-            {unselectedColors.map((color) => (
+        {/* Primary color selector — forced single row */}
+        <div className="mt-20 flex items-start justify-between gap-2 sm:gap-4">
+          {ALL_COLORS.map((color) => {
+            const isSelected = colors[color] === 'selected'
+            const isGoodFit = recommendedColors.has(color)
+            return (
               <button
                 key={color}
                 type="button"
-                onClick={() => toggleMaybe(color)}
-                className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition-all ${
-                  colors[color] === 'maybe'
-                    ? 'border-accent/50 bg-accent/10 text-accent'
-                    : 'border-surface-600 text-surface-400 hover:border-surface-500 hover:text-surface-200'
-                }`}
+                onClick={() => toggleSelected(color)}
+                className={cn(
+                  'group relative flex flex-1 cursor-pointer flex-col items-center gap-3 pb-4 pt-10 outline-none transition-colors duration-150',
+                  isSelected && COLOR_TINT_CLASS[color],
+                )}
               >
-                <ManaSymbol color={color} size="sm" selected={colors[color] === 'maybe'} />
-                <span>{t('colors.maybe')}</span>
+                <ManaSymbol
+                  color={color}
+                  size="lg"
+                  selected={isSelected}
+                  recommended={isGoodFit && !isSelected}
+                />
+                <span
+                  className={cn(
+                    'font-mono text-mono-label uppercase leading-none tracking-mono-label transition-colors duration-150',
+                    isSelected
+                      ? 'text-cream-100'
+                      : isGoodFit
+                        ? 'text-cream-400 group-hover:text-cream-200'
+                        : 'text-cream-500 group-hover:text-cream-200',
+                  )}
+                >
+                  {t(COLOR_KEYS[color])}
+                </span>
+                <span
+                  className={cn(
+                    'h-3 font-mono text-mono-marginal uppercase leading-none tracking-mono-marginal text-cream-500 transition-opacity duration-150',
+                    isGoodFit ? 'opacity-60' : 'opacity-0',
+                  )}
+                >
+                  {t('colors.recommended')}
+                </span>
               </button>
-            ))}
+            )
+          })}
+        </div>
+
+        {/* Splash row — "Open to splashing?" */}
+        {selectedColors.length > 0 && unselectedColors.length > 0 && (
+          <div className="mt-16 flex flex-col items-center gap-4">
+            <span className="font-mono text-mono-label uppercase tracking-mono-label text-cream-300">
+              {t('colors.splashQuestion')}
+            </span>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              {unselectedColors.map((color) => (
+                <Pill
+                  key={color}
+                  size="md"
+                  selected={colors[color] === 'maybe'}
+                  onClick={() => toggleMaybe(color)}
+                  className="px-4 py-2.5"
+                >
+                  <ManaSymbol color={color} size="sm" />
+                  <span>{t('colors.maybe')}</span>
+                </Pill>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Not sure button */}
-      <button
-        type="button"
-        onClick={() => {
-          dispatch({ type: 'CLEAR_COLORS' })
-          onNext()
-        }}
-        className="text-sm text-surface-400 hover:text-surface-200 underline underline-offset-4"
-      >
-        {t('colors.aiDecide')}
-      </button>
-
-      {/* Format toggle */}
-      <div className="flex flex-col items-center gap-2">
-        <span className="text-xs text-surface-500">{t('colors.format')}</span>
-        <div className="flex rounded-lg border border-surface-600 p-0.5">
-          {FORMATS.map((f) => (
-            <button
-              key={f.value}
-              type="button"
-              onClick={() => dispatch({ type: 'SET_FORMAT', format: f.value })}
-              className={`rounded-md px-4 py-1.5 text-sm transition-colors ${
-                format === f.value
-                  ? 'bg-accent text-white'
-                  : 'text-surface-400 hover:text-surface-200'
-              }`}
-            >
-              {t(f.key)}
-            </button>
-          ))}
+        {/* AI decide escape hatch */}
+        <div className="mt-16 flex justify-center">
+          <Button
+            variant="secondary"
+            size="md"
+            onClick={() => {
+              dispatch({ type: 'CLEAR_COLORS' })
+              onNext()
+            }}
+          >
+            {t('colors.aiDecide')}
+          </Button>
         </div>
-        <p className="text-[10px] text-surface-500">
-          {format === 'casual' && t('colors.descCasual')}
-          {format === 'modern' && t('colors.descModern')}
-          {format === 'standard' && t('colors.descStandard')}
-        </p>
+
       </div>
 
       <WizardNav>
-        <button
-          type="button"
-          onClick={onBack}
-          className="rounded-lg border border-surface-600 px-6 py-2.5 text-sm text-surface-300 hover:border-surface-500 hover:text-surface-100"
-        >
-          {t('wizard.back')}
-        </button>
-        <button
-          type="button"
-          onClick={onNext}
-          disabled={!hasAnyColor}
-          className="rounded-lg bg-accent px-8 py-2.5 font-medium text-white hover:bg-accent-hover disabled:opacity-30 disabled:cursor-not-allowed"
-        >
+        <div className="flex items-center gap-3">
+          <Button variant="secondary" size="lg" onClick={onBack}>
+            {t('wizard.back')}
+          </Button>
+          <Button variant="ghost" size="md" onClick={onReset}>
+            {t('wizard.reset')}
+          </Button>
+        </div>
+        <Button variant="primary" size="lg" onClick={onNext} disabled={!hasAnyColor}>
           {t('colors.nextCoreCards')}
-        </button>
+        </Button>
       </WizardNav>
-    </div>
+    </section>
   )
 }

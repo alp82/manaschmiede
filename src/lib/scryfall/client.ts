@@ -1,4 +1,6 @@
-import type { ScryfallCard, ScryfallList, ScryfallAutocomplete } from './types'
+import type { ScryfallCard, ScryfallList, ScryfallAutocomplete, ScryfallSetList } from './types'
+import { HARD_FILTER_SCRYFALL_QUERY } from '../../../convex/lib/card-filters'
+import { getCardRejectionReason } from '../card-validation'
 
 const SCRYFALL_BASE = 'https://api.scryfall.com'
 const MIN_REQUEST_INTERVAL = 75 // Scryfall asks for 50-100ms between requests
@@ -40,14 +42,27 @@ async function scryfallFetch<T>(
   return res.json() as Promise<T>
 }
 
-// Exclude non-playable card types from search results
-const EXCLUDE_TYPES = '-t:dungeon -t:emblem -t:token -t:scheme -t:vanguard -t:plane -t:phenomenon -t:conspiracy'
-
-export function searchCards(query: string, page = 1): Promise<ScryfallList> {
-  return scryfallFetch<ScryfallList>('/cards/search', {
-    q: `${query} ${EXCLUDE_TYPES}`,
+/**
+ * Search Scryfall and return only cards that pass every app-level filter.
+ *
+ * Scryfall-side: `HARD_FILTER_SCRYFALL_QUERY` rules out most junk at the API
+ * level (stickers, Un-sets, oversized, digital-only, etc.) so pagination
+ * counts stay honest.
+ *
+ * Client-side: `getCardRejectionReason` catches the rest — notably
+ * commander-only printings like Fallout (`pip`), which Scryfall has no
+ * clean set-level exclusion for but which this app refuses to show because
+ * it's a 60-card casual deckbuilder.
+ */
+export async function searchCards(query: string, page = 1): Promise<ScryfallList> {
+  const result = await scryfallFetch<ScryfallList>('/cards/search', {
+    q: `${query} ${HARD_FILTER_SCRYFALL_QUERY}`,
     page: String(page),
   })
+  if (result.data) {
+    result.data = result.data.filter((c) => !getCardRejectionReason(c))
+  }
+  return result
 }
 
 export function autocompleteCards(
@@ -70,4 +85,13 @@ export function getCardByName(name: string, lang?: string): Promise<ScryfallCard
   const params: Record<string, string> = { fuzzy: name }
   if (lang) params.lang = lang
   return scryfallFetch<ScryfallCard>('/cards/named', params)
+}
+
+/**
+ * List every set published on Scryfall. Used by the Edition filter dropdown.
+ * Callers should filter down to the set types they care about (the search
+ * filter uses only expansions, core sets, masters, and commander decks).
+ */
+export function listSets(): Promise<ScryfallSetList> {
+  return scryfallFetch<ScryfallSetList>('/sets')
 }

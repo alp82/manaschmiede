@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { memo, useState, useCallback, useMemo, useEffect } from 'react'
 import { Layout } from '../../components/Layout'
 import { SearchInput } from '../../components/SearchInput'
@@ -8,13 +8,20 @@ import { CardLightbox } from '../../components/CardLightbox'
 import { DeckCardList } from '../../components/DeckCardList'
 import { BalanceAdvisor } from '../../components/BalanceAdvisor'
 import { AiChat } from '../../components/AiChat'
+import { Button } from '../../components/ui/Button'
+import { Tabs } from '../../components/ui/Tabs'
+import { SectionLaneHeader } from '../../components/ui/SectionLaneHeader'
+import { EmptyState } from '../../components/ui/EmptyState'
+import { useToast } from '../../components/ui/Toast'
+import { cn } from '../../lib/utils'
 import { analyzeDeck } from '../../lib/balance'
 import { useDeckChat } from '../../lib/useDeckChat'
 import { searchCards, getCardById, getCardInLang } from '../../lib/scryfall/client'
 import { loadDeck, persistDeck, type LocalDeck } from '../../lib/deck-storage'
+import { localizeDeckSection } from '../../lib/section-plan'
 import type { ScryfallCard } from '../../lib/scryfall/types'
 import type { DeckCard, DeckZone } from '../../lib/deck-utils'
-import { getTotalCards, copyDecklistToClipboard } from '../../lib/deck-utils'
+import { getTotalCards, copyDecklistToClipboard, FORMAT_LABELS } from '../../lib/deck-utils'
 import { useT, useI18n } from '../../lib/i18n'
 import { useDeckSounds } from '../../lib/sounds'
 
@@ -22,6 +29,8 @@ type DeckDisplayCard = DeckCard & { card: ScryfallCard }
 
 interface SectionLaneProps {
   label: string
+  sectionLetter?: string
+  targetCount?: number
   isCore?: boolean
   isLands?: boolean
   items: DeckDisplayCard[]
@@ -33,41 +42,74 @@ interface SectionLaneProps {
   onRemoveCard: (scryfallId: string, zone: DeckZone) => void
 }
 
+// TODO: unify with wizard/StepDeckFill SectionLane once the drift narrows —
+// that one carries a progress bar, preview/loading/error states, and fill
+// buttons that this view-mode lane does not need.
 const SectionLane = memo(function SectionLane({
-  label, isCore, isLands, items, newCardIds, editing,
+  label, sectionLetter, targetCount, isCore, isLands, items, newCardIds, editing,
   onOpenLightbox, onToggleLock, onUpdateQuantity, onRemoveCard,
 }: SectionLaneProps) {
   const [collapsed, setCollapsed] = useState(false)
   const count = items.reduce((s, d) => s + d.quantity, 0)
+  const hasTarget = typeof targetCount === 'number' && targetCount > 0
+  const underFilled = hasTarget && count < targetCount!
+  const overFilled = hasTarget && count > targetCount!
 
   return (
-    <div>
-      <button
-        type="button"
-        onClick={() => setCollapsed(!collapsed)}
-        className="mb-1 flex w-full items-center justify-between"
-      >
-        <span className="font-display text-sm font-bold text-surface-200">{label}</span>
-        <span className="flex items-center gap-2">
-          <span className="rounded-full bg-surface-700 px-2 py-0.5 text-xs font-medium text-surface-400">{count}</span>
-          <span className={`text-xs text-surface-500 transition-transform duration-[--duration-quick] ${collapsed ? '' : 'rotate-90'}`}>▸</span>
-        </span>
-      </button>
-      {!collapsed && (
-        <div className={isLands
-          ? 'grid grid-cols-4 gap-1.5 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8'
-          : 'grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6'
-        }>
-          {items.map(({ card, quantity, locked, scryfallId }) => (
-            <div key={scryfallId}>
-              {isCore ? (
-                <div className="ring-2 ring-mana-multi/50 rounded-lg">
-                  <CardStack card={card} quantity={quantity} locked={locked} isNew={newCardIds.has(scryfallId)} onClick={() => onOpenLightbox(card)} onToggleLock={editing ? () => onToggleLock(scryfallId) : undefined} onChangeQuantity={editing ? (qty) => onUpdateQuantity(scryfallId, 'main', qty) : undefined} onRemove={editing ? () => onRemoveCard(scryfallId, 'main') : undefined} />
-                </div>
-              ) : (
-                <CardStack card={card} quantity={quantity} locked={locked} isNew={newCardIds.has(scryfallId)} onClick={() => onOpenLightbox(card)} onToggleLock={editing ? () => onToggleLock(scryfallId) : undefined} onChangeQuantity={editing ? (qty) => onUpdateQuantity(scryfallId, 'main', qty) : undefined} onRemove={editing ? () => onRemoveCard(scryfallId, 'main') : undefined} />
+    <div className={cn('relative', isCore && 'pl-3')}>
+      {/* Core section marker — ink-red slab on the left edge */}
+      {isCore && (
+        <span
+          aria-hidden="true"
+          className="absolute bottom-2 left-0 top-2 w-[3px] bg-ink-red"
+        />
+      )}
+
+      <SectionLaneHeader
+        letter={sectionLetter}
+        label={label}
+        collapsed={collapsed}
+        onToggle={() => setCollapsed(!collapsed)}
+        count={
+          hasTarget ? (
+            <span
+              className={cn(
+                'tabular-nums',
+                overFilled
+                  ? 'text-ink-red-bright'
+                  : underFilled
+                    ? 'text-cream-400'
+                    : 'text-cream-100',
               )}
-            </div>
+            >
+              {count} / {targetCount}
+            </span>
+          ) : (
+            <span className="tabular-nums text-cream-300">{count}</span>
+          )
+        }
+      />
+
+      {!collapsed && (
+        <div
+          className={
+            isLands
+              ? 'grid grid-cols-4 gap-2 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8'
+              : 'grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6'
+          }
+        >
+          {items.map(({ card, quantity, locked, scryfallId }) => (
+            <CardStack
+              key={scryfallId}
+              card={card}
+              quantity={quantity}
+              locked={locked}
+              isNew={newCardIds.has(scryfallId)}
+              onClick={() => onOpenLightbox(card)}
+              onToggleLock={editing ? () => onToggleLock(scryfallId) : undefined}
+              onChangeQuantity={editing ? (qty) => onUpdateQuantity(scryfallId, 'main', qty) : undefined}
+              onRemove={editing ? () => onRemoveCard(scryfallId, 'main') : undefined}
+            />
           ))}
         </div>
       )}
@@ -76,6 +118,11 @@ const SectionLane = memo(function SectionLane({
 })
 
 export const Route = createFileRoute('/deck/$id')({
+  // TODO: deck data lives in localStorage and loads post-mount, so a dynamic
+  // title would require a route loader — static fallback for now.
+  head: () => ({
+    meta: [{ title: 'Deck — Manaschmiede' }],
+  }),
   component: DeckPage,
 })
 
@@ -84,6 +131,8 @@ type MobileTab = 'cards' | 'chat' | 'stats'
 function DeckPage() {
   const t = useT()
   const sounds = useDeckSounds()
+  const navigate = useNavigate()
+  const toast = useToast()
   const { scryfallLang } = useI18n()
   const { id } = Route.useParams()
   const [deck, setDeck] = useState<LocalDeck | null>(null)
@@ -93,15 +142,12 @@ function DeckPage() {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
   const [editing, setEditing] = useState(false)
   const [mobileTab, setMobileTab] = useState<MobileTab>('cards')
-  const [copied, setCopied] = useState(false)
   const [pdfGenerating, setPdfGenerating] = useState(false)
 
   // Search (edit mode only)
   const [search, setSearch] = useState('')
   const [searchResults, setSearchResults] = useState<ScryfallCard[]>([])
   const [searching, setSearching] = useState(false)
-
-  useEffect(() => { if (copied) { const t = setTimeout(() => setCopied(false), 2000); return () => clearTimeout(t) } }, [copied])
 
   // Load deck
   useEffect(() => {
@@ -273,19 +319,21 @@ function DeckPage() {
       a.download = `${deck.name || 'deck'}.pdf`
       a.click()
       URL.revokeObjectURL(url)
+      toast.success('PDF ready')
     } catch (err) {
       console.error('PDF generation failed:', err)
+      toast.error('PDF generation failed')
     } finally {
       setPdfGenerating(false)
     }
-  }, [deck, cardDataMap])
+  }, [deck, cardDataMap, toast])
 
   // ─── Computed ────────────────────────────────────────────────
 
   const analysis = useMemo(() => {
     if (!deck || deck.cards.length === 0) return null
-    return analyzeDeck(deck.cards, cardDataMap, 'casual')
-  }, [deck?.cards, cardDataMap])
+    return analyzeDeck(deck.cards, cardDataMap, 'casual', t)
+  }, [deck?.cards, cardDataMap, t])
 
   const deckDisplay = useMemo((): DeckDisplayCard[] => {
     if (!deck) return []
@@ -371,17 +419,20 @@ function DeckPage() {
     return result
   }, [deckDisplay, deck?.sectionPlan, deck?.sectionAssignments])
 
-  // Build ordered section list for display
+  // Build ordered section list for display. Persisted section plans freeze
+  // their label/description at creation time, so we re-localize each entry
+  // against the active locale before rendering.
   const orderedSections = useMemo(() => {
     const plan = deck?.sectionPlan ?? []
-    const sections: { id: string; label: string }[] = []
+    const sections: { id: string; label: string; targetCount?: number }[] = []
 
     if (sectionCards['core']) sections.push({ id: 'core', label: t('fill.laneCore') })
 
     if (plan.length > 0) {
       for (const s of plan) {
         if (s.id !== 'lands' && sectionCards[s.id]) {
-          sections.push({ id: s.id, label: s.label })
+          const localized = localizeDeckSection(s, t)
+          sections.push({ id: s.id, label: localized.label, targetCount: s.targetCount })
         }
       }
     } else {
@@ -392,7 +443,10 @@ function DeckPage() {
     }
 
     if (sectionCards['unassigned']) sections.push({ id: 'unassigned', label: t('fill.unassigned') })
-    if (sectionCards['lands']) sections.push({ id: 'lands', label: t('fill.laneLands') })
+    if (sectionCards['lands']) {
+      const landsPlan = plan.find((p) => p.id === 'lands')
+      sections.push({ id: 'lands', label: t('fill.laneLands'), targetCount: landsPlan?.targetCount })
+    }
 
     return sections
   }, [deck?.sectionPlan, sectionCards, t])
@@ -407,10 +461,27 @@ function DeckPage() {
     if (idx >= 0) { setLightboxIndex(idx); sounds.cardOpen() }
   }, [allScryfallCards, sounds])
 
+  const renderLightboxActions = useCallback(
+    (card: ScryfallCard) => (
+      <Button
+        variant="primary"
+        size="md"
+        className="w-full"
+        onClick={() => {
+          sounds.uiClick()
+          navigate({ to: '/deck/new', search: { seed: card.id } })
+        }}
+      >
+        {t('wizard.forgeWithCard')}
+      </Button>
+    ),
+    [navigate, sounds, t],
+  )
+
   if (!deck) {
     return (
       <Layout>
-        <div className="flex items-center justify-center py-20 text-surface-500">{t('deck.deckNotFound')}</div>
+        <EmptyState title={t('deck.deckNotFound')} className="py-24" />
       </Layout>
     )
   }
@@ -423,35 +494,44 @@ function DeckPage() {
     <>
       {/* Search results (edit mode) */}
       {editing && newSearchResults.length > 0 && (
-        <div className="mb-4">
-          <h4 className="mb-2 text-xs font-medium text-surface-400">{t('fill.addToDeck')}</h4>
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">
+        <div className="mb-6">
+          <h4 className="mb-3 font-mono text-mono-label uppercase tracking-mono-label text-cream-300">
+            {t('fill.addToDeck')}
+          </h4>
+          <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5">
             {newSearchResults.map((card) => (
               <button
                 key={card.id}
                 type="button"
                 onClick={() => addCard(card)}
-                className="group relative rounded-lg transition-all opacity-70 hover:opacity-100"
+                className="group relative overflow-hidden border border-hairline opacity-80 transition-all hover:-translate-y-1 hover:border-ink-red hover:opacity-100"
               >
                 <CardImage card={card} size="normal" />
-                <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
-                  <span className="rounded bg-accent px-2 py-1 text-xs font-bold text-white">{t('deckPage.addOverlay')}</span>
-                </div>
+                <span className="absolute inset-x-0 bottom-0 translate-y-full bg-ink-red py-1.5 text-center font-mono text-mono-tag uppercase tracking-mono-tag text-cream-100 transition-transform duration-150 group-hover:translate-y-0">
+                  + {t('deckPage.addOverlay')}
+                </span>
+
               </button>
             ))}
           </div>
         </div>
       )}
 
-      {searching && <p className="py-4 text-center text-xs text-surface-500">{t('search.searching')}</p>}
+      {searching && (
+        <p className="py-4 text-center font-mono text-mono-tag uppercase tracking-mono-tag text-cream-500">
+          {t('search.searching')}
+        </p>
+      )}
 
       {/* Section-based deck display */}
       {orderedSections.length > 0 ? (
-        <div className="space-y-6">
-          {orderedSections.map((section) => (
+        <div className="space-y-10">
+          {orderedSections.map((section, i) => (
             <SectionLane
               key={section.id}
               label={section.label}
+              sectionLetter={String.fromCharCode(65 + i)}
+              targetCount={section.targetCount}
               isCore={section.id === 'core'}
               isLands={section.id === 'lands'}
               items={sectionCards[section.id] ?? []}
@@ -465,10 +545,11 @@ function DeckPage() {
           ))}
         </div>
       ) : (
-        <div className="flex min-h-[200px] flex-col items-center justify-center gap-2 text-surface-500">
-          <p className="font-display text-lg">{t('deck.emptyDeck')}</p>
-          <p className="text-sm">{t('deck.emptyDeckSub')}</p>
-        </div>
+        <EmptyState
+          title={t('deck.emptyDeck')}
+          description={t('deck.emptyDeckSub')}
+          className="min-h-[200px] py-16"
+        />
       )}
     </>
   )
@@ -477,10 +558,13 @@ function DeckPage() {
 
   return (
     <Layout>
-      <div className="flex flex-col gap-3">
-        {/* Header */}
-        <div className="flex items-center gap-2 sm:gap-3">
+      <div className="flex flex-col gap-6">
+        {/* ─── HEADER ────────────────────────────────────────── */}
+        <header className="flex flex-col gap-4 border-b border-hairline pb-6 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0 flex-1">
+            <span className="font-mono text-mono-marginal uppercase leading-none tracking-mono-marginal text-ink-red-bright">
+              {FORMAT_LABELS[deck.format]}
+            </span>
             {editing ? (
               <>
                 <input
@@ -488,7 +572,7 @@ function DeckPage() {
                   value={deckName}
                   onChange={(e) => updateDeckName(e.target.value)}
                   onKeyDown={(e) => e.key.length === 1 && sounds.typing()}
-                  className="w-full bg-transparent font-display text-lg font-bold text-surface-100 focus:outline-none sm:text-xl"
+                  className="mt-2 w-full border-0 border-b border-hairline bg-transparent font-display text-2xl uppercase tracking-display text-cream-100 focus:border-cream-200 focus:outline-none sm:text-display-section"
                   placeholder={t('deck.namePlaceholder')}
                 />
                 <input
@@ -496,89 +580,79 @@ function DeckPage() {
                   value={deckDescription}
                   onChange={(e) => updateDeckDescription(e.target.value)}
                   onKeyDown={(e) => e.key.length === 1 && sounds.typing()}
-                  className="w-full bg-transparent text-xs text-surface-400 focus:outline-none"
+                  className="mt-3 w-full border-0 border-b border-hairline bg-transparent font-body text-sm italic text-cream-400 focus:border-cream-200 focus:outline-none"
                   placeholder={t('deck.descriptionPlaceholder')}
                 />
               </>
             ) : (
               <>
-                <h1 className="font-display text-lg font-bold text-surface-100 sm:text-xl">{deckName}</h1>
-                {deckDescription && <p className="text-xs text-surface-400">{deckDescription}</p>}
+                <h1 className="mt-2 font-display text-2xl uppercase leading-tight tracking-display text-cream-100 sm:text-display-section">
+                  {deckName}
+                </h1>
+                {deckDescription && (
+                  <p className="mt-2 font-body text-sm italic text-cream-400">{deckDescription}</p>
+                )}
               </>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-surface-400 sm:text-sm">{t('deck.cards', { count: mainCount })}</span>
-            <button
-              type="button"
+
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+            <span className="font-mono text-mono-num tabular-nums text-cream-300">
+              {t('deck.cards', { count: mainCount })}
+            </span>
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={async () => {
                 const ok = await copyDecklistToClipboard(deck.cards, cardDataMap)
-                if (ok) setCopied(true)
+                if (ok) toast.info('Decklist copied to clipboard')
+                else toast.error('Could not copy decklist')
               }}
-              className="rounded-lg border border-surface-600 px-2.5 py-1.5 text-xs text-surface-400 hover:border-surface-500 hover:text-surface-200 transition-colors"
             >
-              {copied ? '\u2713 Copied' : '\u{1F4CB} Copy'}
-            </button>
-            <button
-              type="button"
+              {t('action.copy')}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={handleDownloadPdf}
               disabled={pdfGenerating || mainCount === 0}
-              className="rounded-lg border border-surface-600 px-2.5 py-1.5 text-xs text-surface-400 hover:border-surface-500 hover:text-surface-200 disabled:opacity-50 transition-colors"
             >
               {pdfGenerating ? t('deck.pdfGenerating') : t('deck.pdf')}
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant={editing ? 'secondary' : 'primary'}
+              size="sm"
               onClick={() => setEditing(!editing)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                editing
-                  ? 'bg-mana-green text-white hover:opacity-90'
-                  : 'bg-accent text-white hover:bg-accent-hover'
-              }`}
             >
               {editing ? t('deck.doneEditing') : t('deck.editMode')}
-            </button>
+            </Button>
           </div>
-        </div>
+        </header>
 
         {editing ? (
           <>
             {/* ========== EDIT MODE: MOBILE (< lg) ========== */}
             <div className="lg:hidden">
-              <div className="mb-3 flex rounded-lg border border-surface-600 p-0.5">
-                {([
-                  { id: 'cards' as MobileTab, label: t('nav.cards') },
-                  { id: 'chat' as MobileTab, label: 'AI Chat' },
-                  { id: 'stats' as MobileTab, label: 'Stats' },
-                ]).map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => setMobileTab(tab.id)}
-                    className={`flex-1 rounded-md px-3 py-2 text-xs font-medium transition-colors ${
-                      mobileTab === tab.id
-                        ? 'bg-accent text-white'
-                        : 'text-surface-400 hover:text-surface-200'
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
+              <Tabs
+                className="mb-6"
+                value={mobileTab}
+                onChange={(id) => setMobileTab(id as MobileTab)}
+                items={[
+                  { id: 'cards', label: t('deck.paneCards'), panelId: 'tabpanel-cards' },
+                  { id: 'chat', label: t('deck.paneChat'), panelId: 'tabpanel-chat' },
+                  { id: 'stats', label: t('deck.paneStats'), panelId: 'tabpanel-stats' },
+                ]}
+              />
 
               {mobileTab === 'cards' && (
-                <div>
-                  <div className="mb-2">
-                    <SearchInput value={search} onChange={setSearch} placeholder={t('fill.searchPlaceholder')} />
-                  </div>
-                  <div className="rounded-xl border border-surface-700 bg-surface-800/50 p-3">
-                    {cardGridContent}
-                  </div>
+                <div id="tabpanel-cards" role="tabpanel" aria-labelledby="tab-cards" className="space-y-4">
+                  <SearchInput value={search} onChange={setSearch} placeholder={t('fill.searchPlaceholder')} />
+                  {cardGridContent}
                 </div>
               )}
 
               {mobileTab === 'chat' && (
-                <div style={{ height: 'calc(100dvh - 220px)' }}>
+                <div id="tabpanel-chat" role="tabpanel" aria-labelledby="tab-chat" className="border border-hairline bg-ash-800/40" style={{ height: 'calc(100dvh - 240px)' }}>
                   <AiChat
                     messages={messages}
                     pending={pending}
@@ -591,9 +665,9 @@ function DeckPage() {
               )}
 
               {mobileTab === 'stats' && (
-                <div>
+                <div id="tabpanel-stats" role="tabpanel" aria-labelledby="tab-stats" className="space-y-4">
                   <BalanceAdvisor analysis={analysis} />
-                  <div className="mt-3 rounded-xl border border-surface-700 bg-surface-800/50 p-2">
+                  <div className="border border-hairline bg-ash-800/40 p-3">
                     <DeckCardList
                       cards={deck.cards}
                       cardData={cardDataMap}
@@ -608,31 +682,42 @@ function DeckPage() {
             </div>
 
             {/* ========== EDIT MODE: DESKTOP (>= lg) ========== */}
-            <div className="hidden lg:grid lg:grid-cols-12 lg:gap-3" style={{ height: 'calc(100dvh - 170px)' }}>
+            <div className="hidden lg:grid lg:grid-cols-12 lg:gap-4" style={{ height: 'calc(100dvh - 220px)' }}>
               {/* Left: AI Chat */}
-              <div className="min-h-0 lg:col-span-3">
-                <AiChat
-                  messages={messages}
-                  pending={pending}
-                  onSend={sendMessage}
-                  onApply={applyChanges}
-                  onDiscard={discardChanges}
-                  isLoading={chatLoading}
-                />
+              <div className="flex min-h-0 flex-col lg:col-span-3">
+                <span className="mb-2 font-mono text-mono-label uppercase tracking-mono-label text-cream-300">
+                  {t('deck.paneChat')}
+                </span>
+                <div className="min-h-0 flex-1 border border-hairline bg-ash-800/40">
+                  <AiChat
+                    messages={messages}
+                    pending={pending}
+                    onSend={sendMessage}
+                    onApply={applyChanges}
+                    onDiscard={discardChanges}
+                    isLoading={chatLoading}
+                  />
+                </div>
               </div>
 
               {/* Center: Card grid + search */}
-              <div className="flex min-h-0 flex-col gap-2 lg:col-span-6">
+              <div className="flex min-h-0 flex-col lg:col-span-6">
+                <span className="mb-2 font-mono text-mono-label uppercase tracking-mono-label text-cream-300">
+                  {t('deck.paneCards')}
+                </span>
                 <SearchInput value={search} onChange={setSearch} placeholder={t('fill.searchPlaceholder')} />
-                <div className="flex-1 overflow-y-auto rounded-xl border border-surface-700 bg-surface-800/50 p-3">
+                <div className="mt-3 flex-1 overflow-y-auto border border-hairline bg-ash-800/40 p-4">
                   {cardGridContent}
                 </div>
               </div>
 
               {/* Right: Balance + Card list */}
-              <div className="flex min-h-0 flex-col gap-2 lg:col-span-3">
+              <div className="flex min-h-0 flex-col lg:col-span-3">
+                <span className="mb-2 font-mono text-mono-label uppercase tracking-mono-label text-cream-300">
+                  {t('deck.paneBalance')}
+                </span>
                 <BalanceAdvisor analysis={analysis} />
-                <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-surface-700 bg-surface-800/50 p-2">
+                <div className="mt-3 min-h-0 flex-1 overflow-y-auto border border-hairline bg-ash-800/40 p-3">
                   <DeckCardList
                     cards={deck.cards}
                     cardData={cardDataMap}
@@ -646,11 +731,9 @@ function DeckPage() {
             </div>
           </>
         ) : (
-          /* ========== VIEW MODE ========== */
-          <div className="mx-auto w-full max-w-5xl">
-            <div className="overflow-y-auto rounded-xl border border-surface-700 bg-surface-800/50 p-4" style={{ maxHeight: 'calc(100dvh - 170px)' }}>
-              {cardGridContent}
-            </div>
+          /* ========== VIEW MODE — reading-mode airy ========== */
+          <div className="mx-auto w-full max-w-4xl space-y-12 pt-6">
+            {cardGridContent}
           </div>
         )}
       </div>
@@ -662,6 +745,7 @@ function DeckPage() {
           currentIndex={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
           onNavigate={setLightboxIndex}
+          renderActions={renderLightboxActions}
         />
       )}
     </Layout>

@@ -1,6 +1,7 @@
 import { action } from './_generated/server'
 import { v } from 'convex/values'
 import { callAnthropic, callHaiku } from './lib/anthropic'
+import { HARD_FILTER_PROMPT_RULES } from './lib/card-filters'
 
 const SYSTEM_PROMPT = `You are an expert Magic: The Gathering casual deck builder.
 
@@ -18,9 +19,9 @@ RULES:
 - Use ONLY real, existing Magic: The Gathering cards
 - Use ENGLISH card names (official Oracle names)
 - Make sure the land base supports all colors in the deck - each color needs proportional land support
-- Do NOT suggest planeswalker, conspiracy, vanguard, scheme, plane, phenomenon, dungeon, or attraction cards - they are excluded from this app
-- Do NOT suggest Un-set / silver-border / acorn cards
-- Do NOT suggest cards from Commander-specific sets or cards that reference "commander"
+
+HARD FILTER RULES (enforced automatically — violating suggestions are rejected):
+${HARD_FILTER_PROMPT_RULES}
 
 HARD SYNERGY RULES (these are checked automatically - violations get rejected):
 - Do NOT suggest tribal payoff cards (e.g. "Dragon Tempest", "Goblin Chieftain", "Elvish Archdruid") unless the deck has at least 4 creatures of that tribe
@@ -28,6 +29,10 @@ HARD SYNERGY RULES (these are checked automatically - violations get rejected):
 - Do NOT suggest "X matters" cards (artifact matters, enchantment matters, instant/sorcery matters) unless the deck has 4+ enablers of that type
 - Do NOT suggest cards that gate value on a keyword the deck lacks (e.g. "creatures you control with flying" only works if the deck has fliers)
 - Every card you suggest must have at least one ability that meaningfully triggers given the actual deck composition
+- For decks with 3+ colors, include 4–8 mana-fixing artifacts (Chromatic Lantern, Coalition Relic, signets, talismans). Basic lands alone cannot fix 3+ colors in a 60-card deck
+- For sacrifice strategies, provide at least 8 cheap sacrificeable creatures/tokens (fodder) paired with 4+ death-trigger or sacrifice-outlet payoffs. Do not include payoffs without fodder
+- For drain / mono-black value strategies, pair life-loss spells with creature recursion and black threats that scale with swamps. Do not default to "reanimate a fattie" — small recursion loops are the core
+- Equipment as a secondary theme does not require a voltron shell — midrange or ramp decks can run 2–4 equipment pieces as utility upgrades
 
 COUNTING:
 Before outputting, mentally sum all quantities. The total MUST be exactly 60.
@@ -155,6 +160,12 @@ function extractSearchQueries(prompt: string, colors?: string[]): string[] {
     'flyer': 'o:flying t:creature',
     'flieger': 'o:flying t:creature',
     'removal': '(o:destroy OR o:exile) t:instant',
+    'sacrifice': 'o:"whenever" o:"dies"',
+    'sacrifice-payoff': 'o:"whenever a creature dies"',
+    'drain': 'o:"loses" o:"life" o:"gain"',
+    'mana fixing': 't:artifact o:"add" o:"mana of any color"',
+    'multicolor': 'id>=3 t:creature r>=rare',
+    'goodstuff': 't:artifact o:"add" o:"mana of any color"',
   }
 
   for (const [keyword, query] of Object.entries(themes)) {
@@ -562,10 +573,16 @@ RULES:
 - Use ONLY real, existing Magic: The Gathering cards
 - Use ENGLISH card names (official Oracle names)
 - Pick cards that fit the section description and work well with the existing deck cards
-- Do NOT suggest planeswalker, conspiracy, vanguard, scheme, plane, phenomenon, dungeon, or attraction cards
-- Do NOT suggest Un-set / silver-border / acorn cards
-- Do NOT suggest cards from Commander-specific sets or cards that reference "commander"
 - Do NOT duplicate cards already in the deck
+
+HARD FILTER RULES (enforced automatically — violating suggestions are rejected):
+${HARD_FILTER_PROMPT_RULES}
+
+HARD COLOR IDENTITY RULE (checked automatically - violations get rejected):
+- Every card you suggest MUST have a color identity that is a subset of the allowed colors listed under DECK CONTEXT.
+- "Color identity" includes mana symbols in cost AND in rules text (e.g. "Alzhan Charm" has color identity R/G/W and is illegal in a W/B deck).
+- Multicolor cards, charms, and hybrid cards that include ANY color outside the allowed list are forbidden. No exceptions. No "close enough".
+- Colorless and basic-land cards are always allowed regardless of the color list.
 
 HARD SYNERGY RULES (these are checked automatically - violations get rejected):
 - Do NOT suggest tribal payoff cards (e.g. "Dragon Tempest", "Goblin Chieftain", "Elvish Archdruid") unless the deck has at least 4 creatures of that tribe
@@ -689,7 +706,12 @@ export const fillSection = action({
       W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green',
     }
     systemPrompt += `\n\nDECK CONTEXT:`
-    systemPrompt += `\nColors: ${args.colors.map((c) => colorNames[c] || c).join(', ')}`
+    if (args.colors.length > 0) {
+      const colorList = args.colors.map((c) => colorNames[c] || c).join(', ')
+      const colorCodes = args.colors.join('')
+      systemPrompt += `\nAllowed colors (HARD CONSTRAINT): ${colorList} [${colorCodes}]`
+      systemPrompt += `\nOnly suggest cards whose color identity is a subset of {${colorCodes}}. Anything outside this set - including multicolor cards that touch other colors - will be rejected.`
+    }
     if (args.archetypes.length > 0) systemPrompt += `\nArchetypes: ${args.archetypes.join(', ')}`
     if (args.traits.length > 0) systemPrompt += `\nTraits: ${args.traits.join(', ')}`
     if (args.customStrategy) systemPrompt += `\nStrategy: ${args.customStrategy}`

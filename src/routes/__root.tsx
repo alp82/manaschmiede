@@ -7,6 +7,8 @@ import {
 import { QueryClientProvider, type QueryClient } from '@tanstack/react-query'
 import { NuqsAdapter } from 'nuqs/adapters/tanstack-router'
 import { I18nProvider } from '../lib/i18n'
+import { ToastProvider } from '../components/ui/Toast'
+import { ErrorBoundary } from '../components/ErrorBoundary'
 import appCss from '../styles/app.css?url'
 
 export const Route = createRootRouteWithContext<{
@@ -31,7 +33,7 @@ export const Route = createRootRouteWithContext<{
       },
       {
         rel: 'stylesheet',
-        href: 'https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Inter:wght@400;500;600;700&display=swap',
+        href: 'https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Geist:wght@300..700&family=JetBrains+Mono:wght@400;500;600&display=swap',
       },
     ],
   }),
@@ -55,7 +57,11 @@ function RootComponent() {
         <QueryClientProvider client={queryClient}>
           <NuqsAdapter>
             <I18nProvider>
-              <Outlet />
+              <ToastProvider>
+                <ErrorBoundary>
+                  <Outlet />
+                </ErrorBoundary>
+              </ToastProvider>
             </I18nProvider>
           </NuqsAdapter>
         </QueryClientProvider>

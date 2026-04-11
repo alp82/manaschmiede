@@ -5,13 +5,23 @@ interface SearchInputProps {
   value: string
   onChange: (value: string) => void
   placeholder?: string
+  /**
+   * Focus the input on mount. Default `false` — unconditional autofocus
+   * can cause the browser to scroll the input into view on page load,
+   * shifting wizard steps unexpectedly. Opt in only where the input is
+   * unambiguously the primary action (e.g. homepage search).
+   */
+  autoFocus?: boolean
 }
 
-export function SearchInput({
-  value,
-  onChange,
-  placeholder,
-}: SearchInputProps) {
+/**
+ * Specimen search input.
+ *
+ * Sharp rectangle, hairline border, ash-filled — reads unmistakably as
+ * an input field. Mono input (searches are commands). Focus lights the
+ * border ink-red. Escape clears.
+ */
+export function SearchInput({ value, onChange, placeholder, autoFocus = false }: SearchInputProps) {
   const sounds = useDeckSounds()
   const [localValue, setLocalValue] = useState(value)
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
@@ -36,15 +46,16 @@ export function SearchInput({
   }
 
   return (
-    <div className="relative">
+    <div className="group relative flex items-center border border-hairline-strong bg-ash-800 px-3 transition-colors focus-within:border-cream-200">
       <input
         type="text"
         value={localValue}
         onChange={(e) => handleChange(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
-        className="w-full rounded-xl border border-surface-600 bg-surface-800 px-4 py-3 text-lg text-surface-100 placeholder-surface-500 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-        autoFocus
+        className="w-full bg-transparent py-3 font-mono text-mono-label text-cream-100 placeholder-cream-400 focus:outline-none"
+        // eslint-disable-next-line jsx-a11y/no-autofocus
+        autoFocus={autoFocus}
       />
       {localValue && (
         <button
@@ -53,9 +64,10 @@ export function SearchInput({
             setLocalValue('')
             onChange('')
           }}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-500 hover:text-surface-300"
+          className="ml-2 font-mono text-mono-label text-cream-400 transition-colors hover:text-ink-red-bright"
+          aria-label="Clear"
         >
-          x
+          {'\u00D7'}
         </button>
       )}
     </div>

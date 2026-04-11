@@ -37,11 +37,17 @@ export interface ScryfallCard {
   color_identity: string[]
   set: string
   set_name: string
+  set_type?: string
   rarity: string
   collector_number: string
   legalities: Record<string, string>
   prices?: Record<string, string | null>
   keywords?: string[]
+  border_color?: string
+  security_stamp?: string
+  games?: string[]
+  oversized?: boolean
+  digital?: boolean
 }
 
 export interface ScryfallList {
@@ -50,6 +56,24 @@ export interface ScryfallList {
   has_more: boolean
   next_page?: string
   data: ScryfallCard[]
+}
+
+export interface ScryfallSet {
+  object: 'set'
+  id: string
+  code: string
+  name: string
+  released_at?: string
+  set_type: string
+  card_count: number
+  digital: boolean
+  parent_set_code?: string
+}
+
+export interface ScryfallSetList {
+  object: 'list'
+  has_more: boolean
+  data: ScryfallSet[]
 }
 
 export interface ScryfallAutocomplete {

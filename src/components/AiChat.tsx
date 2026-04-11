@@ -3,6 +3,10 @@ import type { ChatMessage, PendingChanges, CardChange } from '../lib/useDeckChat
 import type { ScryfallCard } from '../lib/scryfall/types'
 import { getCardImageUri } from '../lib/scryfall/types'
 import { CardLightbox } from './CardLightbox'
+import { Button } from './ui/Button'
+import { Pill } from './ui/Pill'
+import { LoadingDots } from './ui/LoadingDots'
+import { cn } from '../lib/utils'
 import { useT } from '../lib/i18n'
 import { useDeckSounds } from '../lib/sounds'
 
@@ -21,42 +25,110 @@ interface AiChatProps {
   quickActions?: QuickAction[]
 }
 
+/**
+ * Specimen AiChat — epistolary treatment.
+ *
+ * User messages: JetBrains Mono, preceded by `USER —` marginal header.
+ * AI messages: body face (Geist), preceded by `MANASCHMIEDE —` marginal
+ * header. Exchanges are separated by a `§` ornamental rule rather than
+ * bubbles — feels like a correspondence in a printed book.
+ *
+ * Input: mono textarea with bottom hairline only. Send is a Button.
+ * Pending change previews live inside a hairline-framed ledger block.
+ */
+
 function ChangeItem({ ch, onClick }: { ch: CardChange; onClick?: () => void }) {
   const thumb = ch.scryfallCard ? getCardImageUri(ch.scryfallCard, 'small') : null
+
+  const glyph =
+    ch.type === 'added' ? '+' : ch.type === 'removed' ? '\u2212' : '\u223C'
+  const glyphColor =
+    ch.type === 'added'
+      ? 'text-cream-100'
+      : ch.type === 'removed'
+        ? 'text-ink-red-bright'
+        : 'text-cream-300'
+
+  // Color-code the quantity delta for changed rows: increase reads as
+  // cream-bright (additive), decrease as ink-red (subtractive), mirroring
+  // the +/− glyph colors at the row level.
+  const qtyDelta =
+    ch.type === 'changed' ? ch.newQuantity - ch.oldQuantity : 0
+  const qtyColor =
+    qtyDelta > 0
+      ? 'text-cream-100'
+      : qtyDelta < 0
+        ? 'text-ink-red-bright'
+        : 'text-cream-300'
+
+  const nameClass =
+    ch.type === 'removed' ? 'text-cream-500 line-through' : 'text-cream-200'
+
+  const body =
+    ch.type === 'added' ? (
+      <span className={cn('font-mono text-mono-tag', nameClass)}>
+        {ch.newQuantity}× {ch.name}
+      </span>
+    ) : ch.type === 'removed' ? (
+      <span className={cn('font-mono text-mono-tag', nameClass)}>
+        {ch.oldQuantity}× {ch.name}
+      </span>
+    ) : (
+      <span className={cn('font-mono text-mono-tag', nameClass)}>
+        {ch.name}:{' '}
+        <span className={cn('whitespace-nowrap tabular-nums', qtyColor)}>
+          {ch.oldQuantity} → {ch.newQuantity}
+        </span>
+      </span>
+    )
+
   const content = (
     <>
-      {ch.type === 'added' && (
-        <>
-          <span className="flex-shrink-0 font-bold text-mana-green">+</span>
-          <span className="text-surface-200">{ch.newQuantity}x {ch.name}</span>
-        </>
+      <span
+        className={cn(
+          'w-3 flex-shrink-0 text-center font-mono text-mono-label font-bold',
+          glyphColor,
+        )}
+      >
+        {glyph}
+      </span>
+      {thumb ? (
+        <img
+          src={thumb}
+          alt=""
+          className="h-14 w-10 flex-shrink-0 border border-hairline object-cover transition-colors group-hover:border-cream-200"
+        />
+      ) : (
+        <span className="h-14 w-10 flex-shrink-0 border border-hairline bg-ash-800" />
       )}
-      {ch.type === 'removed' && (
-        <>
-          <span className="flex-shrink-0 font-bold text-mana-red">-</span>
-          <span className="text-surface-400 line-through">{ch.oldQuantity}x {ch.name}</span>
-        </>
-      )}
-      {ch.type === 'changed' && (
-        <>
-          <span className="flex-shrink-0 font-bold text-mana-multi">~</span>
-          <span className="text-surface-200">{ch.name}: {ch.oldQuantity} &#8594; {ch.newQuantity}</span>
-        </>
-      )}
+      <span className="min-w-0 flex-1 leading-snug">{body}</span>
     </>
   )
+
   if (!thumb || !onClick) {
-    return <div className="flex items-center gap-2 text-xs">{content}</div>
+    return <div className="flex items-center gap-3 py-1">{content}</div>
   }
+
   return (
-    <button type="button" onClick={onClick} className="flex items-center gap-2 text-xs hover:bg-surface-700/50 -mx-1 px-1 rounded transition-colors w-full text-left">
-      <img src={thumb} alt="" className="h-7 w-5 flex-shrink-0 rounded-sm object-cover" />
+    <button
+      type="button"
+      onClick={onClick}
+      className="group flex w-full cursor-pointer items-center gap-3 px-1 py-1 text-left transition-colors hover:bg-ash-800/60"
+    >
       {content}
     </button>
   )
 }
 
-export function AiChat({ messages, pending, onSend, onApply, onDiscard, isLoading, quickActions }: AiChatProps) {
+export function AiChat({
+  messages,
+  pending,
+  onSend,
+  onApply,
+  onDiscard,
+  isLoading,
+  quickActions,
+}: AiChatProps) {
   const t = useT()
   const sounds = useDeckSounds()
   const [input, setInput] = useState('')
@@ -84,131 +156,188 @@ export function AiChat({ messages, pending, onSend, onApply, onDiscard, isLoadin
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col rounded-xl border border-surface-700 bg-surface-800/50">
+    <div className="flex h-full min-h-0 flex-col">
       {/* Messages */}
-      <div ref={scrollRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+      <div ref={scrollRef} className="min-h-0 flex-1 space-y-8 overflow-y-auto px-5 py-6">
         {messages.length === 0 && !pending && (
-          <p className="py-8 text-center text-sm text-surface-500">
+          // TODO: migrate to <EmptyState> — current sidebar style is a single
+          // italic prompt line without a Cinzel title, which would be too
+          // loud for the compact chat pane.
+          <p className="py-8 text-center font-body text-sm italic text-cream-500">
             {t('chat.emptyPrompt')}
           </p>
         )}
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={`rounded-lg px-3 py-2 text-sm ${
-              msg.role === 'user'
-                ? 'ml-4 bg-accent/20 text-surface-100'
-                : 'mr-4 bg-surface-700/50 text-surface-300'
-            }`}
-          >
-            {msg.content}
-            {/* Inline change preview for applied/discarded changes */}
-            {msg.changes && msg.changes.length > 0 && (
-              <div className={`mt-2 space-y-0.5 border-t pt-2 ${
-                msg.changesApplied ? 'border-mana-green/30' : 'border-surface-600'
-              }`}>
-                <span className={`text-[10px] font-medium ${
-                  msg.changesApplied ? 'text-mana-green' : 'text-surface-500'
-                }`}>
-                  {msg.changesApplied ? '\u2713 Applied' : '\u2717 Discarded'}
-                </span>
-                {(() => {
-                  const allCards = msg.changes!.filter((c) => c.scryfallCard).map((c) => c.scryfallCard!)
-                  return msg.changes!.map((ch) => (
-                    <ChangeItem key={ch.scryfallId} ch={ch} onClick={ch.scryfallCard ? () => openCardLightbox(ch.scryfallCard!, allCards) : undefined} />
-                  ))
-                })()}
-              </div>
-            )}
-          </div>
-        ))}
 
-        {/* Loading */}
-        {isLoading && (
-          <div className="mr-4 flex items-center gap-2 rounded-lg bg-surface-700/50 px-3 py-2">
-            <div className="flex gap-1">
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-surface-400" style={{ animationDelay: '0ms' }} />
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-surface-400" style={{ animationDelay: '150ms' }} />
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-surface-400" style={{ animationDelay: '300ms' }} />
+        {messages.map((msg, i) => {
+          const isUser = msg.role === 'user'
+          const prev = messages[i - 1]
+          const showDivider = i > 0 && prev && prev.role !== msg.role
+          return (
+            <div key={i}>
+              {showDivider && (
+                <div
+                  className="mb-8 flex items-center justify-center gap-3"
+                  aria-hidden="true"
+                >
+                  <span className="h-px w-10 bg-hairline" />
+                  <span className="font-mono text-mono-marginal text-cream-500">
+                    {'\u00A7'}
+                  </span>
+                  <span className="h-px w-10 bg-hairline" />
+                </div>
+              )}
+              <div>
+                {/* Marginal sender header */}
+                <p className="mb-2 font-mono text-mono-marginal uppercase leading-none tracking-mono-marginal text-cream-500">
+                  {isUser ? 'User \u2014' : 'Manaschmiede \u2014'}
+                </p>
+
+                {/* Message body */}
+                <p
+                  className={cn(
+                    'whitespace-pre-wrap leading-relaxed',
+                    isUser
+                      ? 'font-mono text-mono-label uppercase tracking-mono-label text-cream-100'
+                      : 'font-body text-sm text-cream-200',
+                  )}
+                >
+                  {msg.content}
+                </p>
+
+                {/* Inline change summary for applied/discarded */}
+                {msg.changes && msg.changes.length > 0 && (
+                  <div
+                    className={cn(
+                      'mt-3 border-l-2 pl-3',
+                      msg.changesApplied ? 'border-cream-300' : 'border-ink-red',
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        'font-mono text-mono-marginal uppercase tracking-mono-marginal',
+                        msg.changesApplied ? 'text-cream-300' : 'text-ink-red-bright',
+                      )}
+                    >
+                      {msg.changesApplied ? 'Applied' : 'Discarded'}
+                    </span>
+                    <div className="mt-1.5 space-y-0.5">
+                      {(() => {
+                        const allCards = msg.changes!
+                          .filter((c) => c.scryfallCard)
+                          .map((c) => c.scryfallCard!)
+                        return msg.changes!.map((ch) => (
+                          <ChangeItem
+                            key={ch.scryfallId}
+                            ch={ch}
+                            onClick={
+                              ch.scryfallCard
+                                ? () => openCardLightbox(ch.scryfallCard!, allCards)
+                                : undefined
+                            }
+                          />
+                        ))
+                      })()}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
+          )
+        })}
+
+        {/* Loading — marching squares */}
+        {isLoading && (
+          <div>
+            <p className="mb-2 font-mono text-mono-marginal uppercase leading-none tracking-mono-marginal text-cream-500">
+              Manaschmiede &mdash;
+            </p>
+            <LoadingDots size="sm" tone="muted" />
           </div>
         )}
 
-        {/* Pending changes preview */}
+        {/* Pending changes ledger */}
         {pending && (
-          <div className="mr-2 space-y-2 rounded-lg border border-accent/30 bg-accent/5 p-3">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-medium text-accent">{pending.deckName}</p>
+          <div className="border border-ink-red bg-ash-800/40 p-4">
+            <div className="mb-2 flex items-baseline justify-between gap-3">
+              <p className="font-mono text-mono-label uppercase tracking-mono-label text-cream-100">
+                {t('chat.cardSwap')}
+              </p>
               {(() => {
-                const added = pending.changes.filter((c) => c.type === 'added').reduce((s, c) => s + c.newQuantity, 0)
-                const removed = pending.changes.filter((c) => c.type === 'removed').reduce((s, c) => s + c.oldQuantity, 0)
+                const added = pending.changes
+                  .filter((c) => c.type === 'added')
+                  .reduce((s, c) => s + c.newQuantity, 0)
+                const removed = pending.changes
+                  .filter((c) => c.type === 'removed')
+                  .reduce((s, c) => s + c.oldQuantity, 0)
                 const changed = pending.changes.filter((c) => c.type === 'changed').length
                 const parts: string[] = []
                 if (added > 0) parts.push(`+${added}`)
-                if (removed > 0) parts.push(`-${removed}`)
-                if (changed > 0) parts.push(`~${changed}`)
+                if (removed > 0) parts.push(`\u2212${removed}`)
+                if (changed > 0) parts.push(`\u223C${changed}`)
                 return parts.length > 0 ? (
-                  <span className="text-[10px] font-bold text-surface-400">{parts.join(' / ')}</span>
+                  <span className="flex-shrink-0 whitespace-nowrap font-mono text-mono-tag tabular-nums tracking-mono-tag text-cream-300">
+                    {parts.join(' / ')}
+                  </span>
                 ) : (
-                  <span className="text-[10px] font-bold text-surface-500">no changes</span>
+                  <span className="flex-shrink-0 whitespace-nowrap font-mono text-mono-tag tabular-nums tracking-mono-tag text-cream-500">
+                    {t('chat.noChanges')}
+                  </span>
                 )
               })()}
             </div>
-            <p className="text-xs text-surface-400">{pending.explanation ?? pending.description}</p>
+            <p className="mb-3 font-body text-sm italic text-cream-300">
+              {pending.explanation ?? pending.description}
+            </p>
 
             {/* Change list */}
-            <div className="space-y-0.5">
+            <div className="space-y-0.5 border-t border-hairline pt-3">
               {(() => {
-                const allCards = pending.changes.filter((c) => c.scryfallCard).map((c) => c.scryfallCard!)
+                const allCards = pending.changes
+                  .filter((c) => c.scryfallCard)
+                  .map((c) => c.scryfallCard!)
                 return pending.changes.map((ch) => (
-                  <ChangeItem key={ch.scryfallId} ch={ch} onClick={ch.scryfallCard ? () => openCardLightbox(ch.scryfallCard!, allCards) : undefined} />
+                  <ChangeItem
+                    key={ch.scryfallId}
+                    ch={ch}
+                    onClick={
+                      ch.scryfallCard ? () => openCardLightbox(ch.scryfallCard!, allCards) : undefined
+                    }
+                  />
                 ))
               })()}
               {pending.changes.length === 0 && (
-                <p className="text-xs text-surface-500">{t('chat.noChanges')}</p>
+                <p className="font-mono text-mono-tag uppercase tracking-mono-tag text-cream-500">
+                  {t('chat.noChanges')}
+                </p>
               )}
             </div>
 
             {/* Action buttons */}
-            <div className="flex gap-2 pt-1">
-              <button
-                type="button"
-                onClick={onApply}
-                className="rounded bg-mana-green/20 px-3 py-1 text-xs font-medium text-mana-green transition-colors hover:bg-mana-green/30"
-              >
+            <div className="mt-4 flex gap-2">
+              <Button variant="primary" size="sm" onClick={onApply}>
                 {t('chat.apply')}
-              </button>
-              <button
-                type="button"
-                onClick={onDiscard}
-                className="rounded bg-surface-700 px-3 py-1 text-xs text-surface-400 transition-colors hover:bg-surface-600"
-              >
+              </Button>
+              <Button variant="secondary" size="sm" onClick={onDiscard}>
                 {t('chat.discard')}
-              </button>
+              </Button>
             </div>
           </div>
         )}
       </div>
 
       {/* Quick action chips + Input */}
-      <div className="flex-shrink-0 border-t border-surface-700 p-2">
+      <div className="flex-shrink-0 border-t border-hairline px-5 py-4">
         {quickActions && quickActions.length > 0 && !isLoading && !pending && (
-          <div className="mb-2 flex flex-wrap gap-1.5">
+          <div className="mb-3 flex flex-wrap gap-2">
             {quickActions.map((action) => (
-              <button
-                key={action.label}
-                type="button"
-                onClick={() => onSend(action.message)}
-                className="rounded-full border border-surface-600 bg-surface-800 px-3 py-1 text-xs text-surface-400 transition-colors hover:border-accent hover:text-accent"
-              >
+              <Pill key={action.label} size="sm" onClick={() => onSend(action.message)}>
                 {action.label}
-              </button>
+              </Pill>
             ))}
           </div>
         )}
-        <div className="flex gap-2">
-          <input
-            type="text"
+        <div className="flex flex-col border border-hairline-strong bg-ash-800 px-3 py-2 transition-colors focus-within:border-cream-200">
+          <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
@@ -221,16 +350,25 @@ export function AiChat({ messages, pending, onSend, onApply, onDiscard, isLoadin
             }}
             placeholder={pending ? t('chat.inputPending') : t('chat.inputPlaceholder')}
             disabled={isLoading}
-            className="flex-1 rounded-lg border border-surface-600 bg-surface-800 px-3 py-1.5 text-sm text-surface-100 placeholder-surface-500 focus:border-accent focus:outline-none disabled:opacity-50"
+            rows={2}
+            className="w-full resize-none bg-transparent font-mono text-mono-label text-cream-100 placeholder-cream-400 focus:outline-none disabled:cursor-not-allowed disabled:opacity-40"
           />
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={!input.trim() || isLoading}
-            className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
-          >
-            {t('chat.send')}
-          </button>
+          <div className="mt-2 flex items-center justify-end gap-2">
+            <span
+              aria-hidden="true"
+              className="hidden font-mono text-mono-tag text-cream-500 sm:inline"
+            >
+              {'\u21B5'}
+            </span>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleSubmit}
+              disabled={!input.trim() || isLoading}
+            >
+              {t('chat.send')}
+            </Button>
+          </div>
         </div>
       </div>
 

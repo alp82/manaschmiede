@@ -7,13 +7,14 @@ import { mergeCardsIntoDeck } from './deck-utils'
 import { BASIC_LAND_IDS, BASIC_LAND_ID_SET } from './basic-lands'
 import type { DeckSection } from './section-plan'
 import type { WizardState } from './wizard-state'
-import { getActiveColors } from './wizard-state'
+import { getFillColors } from './wizard-state'
 import { getTraitById } from './trait-mappings'
 import {
   analyzeComposition,
   findSynergyIssue,
   summarizeComposition,
 } from './synergy-validation'
+import { getCardRejectionReason, getFilterRejectionReason, type DeckFilters } from './card-validation'
 
 interface PreviewCard {
   name: string
@@ -56,10 +57,10 @@ async function callFillSection(
   section: DeckSection,
   currentCards: Array<{ name: string; quantity: number }>,
   wizardState: WizardState,
+  fillColors: string[],
   onCardDataUpdate: (card: ScryfallCard) => void,
   options: FillCallOptions = {},
 ): Promise<PreviewCard[]> {
-  const activeColors = getActiveColors(wizardState.colors)
   const archetypeLabels = wizardState.selectedArchetypes.map((id) => getTraitById(id)?.label || id)
   const traitLabels = wizardState.selectedTraits.map((id) => getTraitById(id)?.label || id)
 
@@ -74,12 +75,12 @@ async function callFillSection(
     targetCount: section.targetCount,
     scryfallHints: section.scryfallHints,
     currentCards: currentCards.length > 0 ? currentCards : undefined,
-    colors: activeColors,
+    colors: fillColors,
     archetypes: archetypeLabels,
     traits: traitLabels,
     customStrategy: wizardState.customStrategy || undefined,
     format: wizardState.format !== 'casual' ? wizardState.format : undefined,
-    budgetLimit: wizardState.budgetLimit ?? undefined,
+    budgetLimit: wizardState.budgetMax ?? undefined,
     deckComposition: options.deckComposition,
     rejectedCards: options.rejectedCards && options.rejectedCards.length > 0
       ? options.rejectedCards
@@ -130,11 +131,21 @@ function buildCompositionFromDeck(
 /**
  * Validate AI suggestions against the resulting deck state. Returns the cards
  * that should be kept and the rejection reasons for the rest.
+ *
+ * Three checks run in order:
+ *   1. Hard filter (stickers, Un-sets, oversized, digital-only, etc.) — a
+ *      non-playable card is rejected before anything else, because no
+ *      user preference can legalize a card the app refuses to ship.
+ *   2. Filter compliance (color identity, format, budget, rarity) — an
+ *      off-color card is rejected before any synergy reasoning, because
+ *      no amount of synergy can legalize a color violation.
+ *   3. Synergy (tribal payoffs, triggered abilities, keyword gates).
  */
 function validateSection(
   previewCards: PreviewCard[],
   currentDeck: DeckCard[],
   cardDataMap: Map<string, ScryfallCard>,
+  filters: DeckFilters,
 ): { kept: PreviewCard[]; rejected: Array<{ name: string; reason: string }> } {
   // Composition includes the existing deck AND every preview card, so a
   // tribal payoff is fine if the same batch also adds enough creatures.
@@ -144,6 +155,16 @@ function validateSection(
   for (const p of previewCards) {
     if (!p.scryfallCard) {
       kept.push(p)
+      continue
+    }
+    const hardIssue = getCardRejectionReason(p.scryfallCard)
+    if (hardIssue) {
+      rejected.push({ name: p.name, reason: hardIssue })
+      continue
+    }
+    const filterIssue = getFilterRejectionReason(p.scryfallCard, filters)
+    if (filterIssue) {
+      rejected.push({ name: p.name, reason: filterIssue })
       continue
     }
     const issue = findSynergyIssue(p.scryfallCard, composition)
@@ -199,6 +220,24 @@ export function useSectionFill({
       })
   }, [])
 
+  /**
+   * Resolve the fill-phase hard identity + full DeckFilters snapshot.
+   * Returns null when the selected combo hasn't finished resolving its
+   * cards from Scryfall — callers must block fill in that case, because
+   * we can't compute a correct color-identity constraint without it.
+   */
+  const buildFilters = useCallback((): DeckFilters | null => {
+    const fill = getFillColors(wizardState)
+    if (!fill.ready || !fill.colors) return null
+    return {
+      colors: fill.colors,
+      format: wizardState.format,
+      budgetMin: wizardState.budgetMin,
+      budgetMax: wizardState.budgetMax,
+      rarities: wizardState.rarityFilter,
+    }
+  }, [wizardState])
+
   /** Fill a single section - shows preview for user to accept */
   const fillSection = useCallback(async (sectionId: string) => {
     const section = sections.find((s) => s.id === sectionId)
@@ -207,6 +246,14 @@ export function useSectionFill({
     updateSection(sectionId, { status: 'loading', error: undefined })
 
     try {
+      const filters = buildFilters()
+      if (!filters) {
+        updateSection(sectionId, {
+          status: 'error',
+          error: 'Core combo data is still loading — please retry in a moment.',
+        })
+        return
+      }
       const currentCards = getCurrentCardNames()
       const composition = buildCompositionFromDeck(deckCardsRef.current, cardDataMapRef.current)
       const compositionSummary = summarizeComposition(composition)
@@ -216,10 +263,11 @@ export function useSectionFill({
         section,
         currentCards,
         wizardState,
+        filters.colors,
         onCardDataUpdate,
         { deckComposition: compositionSummary },
       )
-      const firstResult = validateSection(firstBatch, deckCardsRef.current, cardDataMapRef.current)
+      const firstResult = validateSection(firstBatch, deckCardsRef.current, cardDataMapRef.current, filters)
       let kept = firstResult.kept
 
       // If the validator caught dead cards, retry once with explicit rejection feedback.
@@ -228,10 +276,11 @@ export function useSectionFill({
           section,
           currentCards,
           wizardState,
+          filters.colors,
           onCardDataUpdate,
           { deckComposition: compositionSummary, rejectedCards: firstResult.rejected },
         )
-        const retryResult = validateSection(retryBatch, deckCardsRef.current, cardDataMapRef.current)
+        const retryResult = validateSection(retryBatch, deckCardsRef.current, cardDataMapRef.current, filters)
         // Prefer retry - it knows about rejections. Fall back only if retry
         // produced nothing usable.
         if (retryResult.kept.length > 0) {
@@ -261,7 +310,7 @@ export function useSectionFill({
         error: err instanceof Error ? err.message : 'Failed to fill section',
       })
     }
-  }, [sections, wizardState, onCardDataUpdate, updateSection, getCurrentCardNames])
+  }, [sections, wizardState, onCardDataUpdate, updateSection, getCurrentCardNames, buildFilters])
 
   /** Apply previewed cards from a section into the deck */
   const applySection = useCallback((sectionId: string) => {
@@ -287,7 +336,8 @@ export function useSectionFill({
 
   /** Auto-fill basic lands based on deck color identity */
   const fillLands = useCallback(async (targetCount: number) => {
-    const activeColors = getActiveColors(wizardState.colors)
+    const fill = getFillColors(wizardState)
+    const activeColors = fill.colors ?? []
     if (activeColors.length === 0) return
 
     const landsPerColor = Math.floor(targetCount / activeColors.length)
@@ -321,7 +371,7 @@ export function useSectionFill({
     onDeckUpdate(merged)
     onSectionAssign('lands', addedIds)
     updateSection('lands', { status: 'applied' })
-  }, [wizardState.colors, onDeckUpdate, onCardDataUpdate, onSectionAssign, updateSection])
+  }, [wizardState, onDeckUpdate, onCardDataUpdate, onSectionAssign, updateSection])
 
   /**
    * Fill all unfilled sections sequentially, auto-applying each.
@@ -385,15 +435,24 @@ export function useSectionFill({
         // Composition snapshot includes everything filled so far in this run.
         const composition = buildCompositionFromDeck(accumulated, cardDataMapRef.current)
         const compositionSummary = summarizeComposition(composition)
+        const filters = buildFilters()
+        if (!filters) {
+          updateSection(section.id, {
+            status: 'error',
+            error: 'Core combo data is still loading — please retry in a moment.',
+          })
+          continue
+        }
 
         const firstBatch = await callFillSection(
           { ...section, targetCount: deficit },
           accumulatedNames(),
           wizardState,
+          filters.colors,
           onCardDataUpdate,
           { deckComposition: compositionSummary },
         )
-        const firstResult = validateSection(firstBatch, accumulated, cardDataMapRef.current)
+        const firstResult = validateSection(firstBatch, accumulated, cardDataMapRef.current, filters)
         let previewCards = firstResult.kept
 
         if (firstResult.rejected.length > 0) {
@@ -401,10 +460,11 @@ export function useSectionFill({
             { ...section, targetCount: deficit },
             accumulatedNames(),
             wizardState,
+            filters.colors,
             onCardDataUpdate,
             { deckComposition: compositionSummary, rejectedCards: firstResult.rejected },
           )
-          const retryResult = validateSection(retryBatch, accumulated, cardDataMapRef.current)
+          const retryResult = validateSection(retryBatch, accumulated, cardDataMapRef.current, filters)
           // Prefer retry's cards - they know about the rejections. Fall back
           // to the first attempt's keepers only if retry produced nothing.
           if (retryResult.kept.length > 0) {
@@ -448,7 +508,7 @@ export function useSectionFill({
     }
 
     setFillProgress(null)
-  }, [sections, sectionStates, wizardState, onCardDataUpdate, onDeckUpdate, onSectionAssign, updateSection])
+  }, [sections, sectionStates, wizardState, onCardDataUpdate, onDeckUpdate, onSectionAssign, updateSection, buildFilters])
 
   const cancelFillAll = useCallback(() => {
     abortRef.current = true

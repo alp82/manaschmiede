@@ -10,22 +10,26 @@
   --color-mana-colorless: oklch(0.65 0.01 250);
   --color-mana-multi: oklch(0.72 0.12 85);
 
-  /* Surface palette (dark-first) */
-  --color-surface-900: oklch(0.13 0.01 260);
-  --color-surface-800: oklch(0.18 0.01 260);
-  --color-surface-700: oklch(0.25 0.01 260);
-  --color-surface-600: oklch(0.35 0.01 260);
-  --color-surface-500: oklch(0.45 0.01 260);
-  --color-surface-400: oklch(0.55 0.01 260);
-  --color-surface-300: oklch(0.65 0.01 260);
-  --color-surface-200: oklch(0.80 0.01 260);
-  --color-surface-100: oklch(0.92 0.01 260);
+  /* Surface palette — REMAPPED to warm Specimen ash/cream so every legacy
+     component using surface-* tokens instantly lands in the new language.
+     Values align with ash-*/cream-* below; keeping both token names for
+     a transitional period, consolidate later. */
+  --color-surface-900: oklch(0.14 0.008 55);   /* = ash-900 */
+  --color-surface-800: oklch(0.18 0.008 55);   /* = ash-800 */
+  --color-surface-700: oklch(0.22 0.008 55);   /* = ash-700 */
+  --color-surface-600: oklch(0.28 0.008 55);   /* = ash-600 */
+  --color-surface-500: oklch(0.48 0.02 85);    /* = cream-500 */
+  --color-surface-400: oklch(0.65 0.02 85);    /* = cream-400 */
+  --color-surface-300: oklch(0.80 0.02 85);    /* = cream-300 */
+  --color-surface-200: oklch(0.89 0.02 85);    /* = cream-200 */
+  --color-surface-100: oklch(0.95 0.02 85);    /* = cream-100 */
 
-  /* Accent */
-  --color-accent: oklch(0.65 0.18 250);
-  --color-accent-hover: oklch(0.72 0.18 250);
+  /* Accent — REMAPPED from blue to Specimen ink-red wax seal.
+     Every legacy bg-accent/text-accent/border-accent site becomes ink-red. */
+  --color-accent: oklch(0.42 0.15 28);        /* = ink-red */
+  --color-accent-hover: oklch(0.62 0.22 28);  /* = ink-red-bright */
 
-  /* Mana tints (ambient backgrounds at 5% opacity) */
+  /* Mana tints (ambient backgrounds at 5% opacity) — kept MTG-semantic */
   --color-tint-white: oklch(0.92 0.04 90 / 0.05);
   --color-tint-blue: oklch(0.55 0.18 250 / 0.05);
   --color-tint-black: oklch(0.30 0.02 285 / 0.08);
@@ -33,20 +37,107 @@
   --color-tint-green: oklch(0.60 0.18 145 / 0.05);
   --color-tint-multi: oklch(0.72 0.12 85 / 0.05);
 
-  /* Mana glows (selections, highlights) */
-  --color-glow-white: oklch(0.92 0.04 90 / 0.25);
-  --color-glow-blue: oklch(0.55 0.18 250 / 0.25);
-  --color-glow-black: oklch(0.30 0.02 285 / 0.3);
-  --color-glow-red: oklch(0.58 0.22 25 / 0.25);
-  --color-glow-green: oklch(0.60 0.18 145 / 0.25);
-  --color-glow-multi: oklch(0.72 0.12 85 / 0.25);
+  /* Mana glows — tamed to hairline-equivalents. The pulsing/glowing uses
+     in legacy components (CardStack/CardGrid) will be replaced during
+     Phase 9; until then these render as subtle cream hairlines rather
+     than blue halos. */
+  --color-glow-white: oklch(0.48 0.02 85 / 0.25);
+  --color-glow-blue: oklch(0.48 0.02 85 / 0.25);
+  --color-glow-black: oklch(0.48 0.02 85 / 0.25);
+  --color-glow-red: oklch(0.48 0.02 85 / 0.25);
+  --color-glow-green: oklch(0.48 0.02 85 / 0.25);
+  --color-glow-multi: oklch(0.48 0.02 85 / 0.25);
 
   /* Card frame */
   --color-card-border: oklch(0.45 0.04 55);
 
+  /* ─── Specimen design language ──────────────────────────── */
+  /* Ink on ash palette — warm near-black backgrounds, warm cream text.
+     Introduced alongside existing surface-* tokens; Specimen components
+     consume ash/cream directly. Legacy components keep surface-* until
+     migrated. */
+
+  /* Ash (backgrounds) — warm near-black, hue 45 (yellow-brown) */
+  --color-ash-900: oklch(0.14 0.008 55);   /* deepest — page background */
+  --color-ash-800: oklch(0.18 0.008 55);   /* panels, elevated surfaces */
+  --color-ash-700: oklch(0.22 0.008 55);   /* hover surfaces */
+  --color-ash-600: oklch(0.28 0.008 55);   /* hairline on dark */
+
+  /* Cream (text & hairlines) — warm off-white, hue 85.
+     Bumped L values so secondary/tertiary/metadata text meets WCAG AA
+     contrast against ash-900 background. The old 0.65/0.48 values were
+     below 4.5:1 contrast and made marginalia genuinely unreadable. */
+  --color-cream-100: oklch(0.96 0.02 85);  /* primary text */
+  --color-cream-200: oklch(0.92 0.02 85);  /* strong secondary */
+  --color-cream-300: oklch(0.86 0.02 85);  /* secondary */
+  --color-cream-400: oklch(0.78 0.02 85);  /* tertiary, metadata */
+  --color-cream-500: oklch(0.68 0.02 85);  /* muted, eyebrows */
+
+  /* Ink red — the single Specimen accent, used only for live states
+     (current step, selected, primary CTA, active link). Never decorative. */
+  --color-ink-red: oklch(0.42 0.15 28);       /* wax seal */
+  --color-ink-red-bright: oklch(0.62 0.22 28); /* vivid — labels, hover, marginalia-accent */
+
+  /* Hairline — the structural language. Not borders, not boxes. */
+  --color-hairline: oklch(0.68 0.02 85 / 0.4);       /* default 40% opacity */
+  --color-hairline-strong: oklch(0.68 0.02 85 / 0.85); /* hover / active */
+  --color-hairline-ink-red: oklch(0.62 0.22 28 / 1); /* selected */
+
   /* Fonts */
-  --font-display: 'Cinzel', serif;
-  --font-body: 'Inter', system-ui, sans-serif;
+  --font-display: 'Cinzel', serif;                                /* ritual, titles, wordmark */
+  --font-body: 'Geist', system-ui, sans-serif;                    /* UI body — labels, paragraphs, buttons */
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;          /* metadata, labels, numerals, marginalia */
+  /* Reading-serif (for long prose only — card rules text, AI chat) will be
+     added later when those screens are redesigned. */
+
+  /* Type scale — Specimen
+     Each entry: font-size / line-height with tracking noted.
+     Display sizes are for Cinzel, mono sizes for JetBrains Mono,
+     body sizes for EB Garamond. */
+  --text-display-hero: 4.5rem;       /* 72px — home wordmark */
+  --text-display-hero--line-height: 1.06;
+  --text-display-title: 3rem;        /* 48px — page titles */
+  --text-display-title--line-height: 1.08;
+  --text-display-section: 2rem;      /* 32px — section headings */
+  --text-display-section--line-height: 1.13;
+  --text-display-eyebrow: 1.125rem;  /* 18px — CHAPTER II, all caps */
+  --text-display-eyebrow--line-height: 1.22;
+
+  --text-body-lead: 1.25rem;         /* 20px — lead paragraphs, card names in input */
+  --text-body-lead--line-height: 1.5;
+  --text-body: 1rem;                 /* 16px — default body */
+  --text-body--line-height: 1.625;
+  --text-body-small: 0.875rem;       /* 14px — descriptions, help text */
+  --text-body-small--line-height: 1.57;
+
+  --text-mono-label: 0.875rem;       /* 14px — pill labels, button labels, step labels */
+  --text-mono-label--line-height: 1.28;
+  --text-mono-tag: 0.8125rem;        /* 13px — badges, chips */
+  --text-mono-tag--line-height: 1.23;
+  --text-mono-num: 1rem;             /* 16px — numerals, tabular */
+  --text-mono-num--line-height: 1.25;
+  --text-mono-marginal: 0.75rem;     /* 12px — eyebrow labels, breadcrumbs */
+  --text-mono-marginal--line-height: 1.33;
+
+  /* Tracking (letter-spacing) — Specimen display type wants air */
+  --tracking-display: 0.04em;        /* Cinzel titles */
+  --tracking-display-tight: 0.02em;  /* Cinzel at hero sizes */
+  --tracking-eyebrow: 0.12em;        /* Cinzel all-caps eyebrows */
+  --tracking-section: 0.06em;        /* Cinzel section headings */
+  --tracking-mono-label: 0.08em;     /* Mono all-caps labels */
+  --tracking-mono-tag: 0.04em;       /* Mono tags */
+  --tracking-mono-marginal: 0.10em;  /* Mono all-caps marginalia */
+
+  /* Tailwind default-tier overrides — aggressive readability bump
+     Shifts the small tier up one notch so the whole app reads more
+     generously. xs/sm/base are affected; lg and above keep their
+     defaults so the hierarchy stays intact. */
+  --text-xs: 0.875rem;            /* 14px (was 12px) */
+  --text-xs--line-height: 1.25rem;  /* 20px */
+  --text-sm: 1rem;                /* 16px (was 14px) */
+  --text-sm--line-height: 1.5rem;   /* 24px */
+  --text-base: 1.125rem;          /* 18px (was 16px) */
+  --text-base--line-height: 1.75rem; /* 28px */
 
   /* Motion - durations */
   --duration-instant: 80ms;
@@ -64,9 +155,7 @@
   /* Animation shorthand tokens */
   --animate-card-enter: card-enter var(--duration-smooth) var(--ease-spring) both;
   --animate-card-exit: card-exit 200ms var(--ease-out-expo) both;
-  --animate-card-settle: card-settle var(--duration-smooth) var(--ease-out-expo);
-  --animate-glow-pulse: glow-pulse 2s ease-in-out infinite;
-  --animate-glow-once: glow-pulse 1.5s ease-in-out 1;
+  --animate-card-settle: card-settle 400ms var(--ease-out-back) both;
   --animate-step-out-forward: step-out-forward 200ms ease-in both;
   --animate-step-out-backward: step-out-backward 200ms ease-in both;
   --animate-step-in-forward: step-in-forward var(--duration-smooth) var(--ease-out-expo) both;
@@ -84,6 +173,11 @@
     color-scheme: dark;
   }
 
+  ::selection {
+    background: var(--color-ink-red);
+    color: var(--color-cream-100);
+  }
+
   /* Scrollbar styling */
   ::-webkit-scrollbar {
     width: 8px;
@@ -95,7 +189,10 @@
 
   ::-webkit-scrollbar-thumb {
     background: var(--color-surface-600);
-    border-radius: 4px;
+    border-radius: 0;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-cream-500);
   }
 
   /* ─── Keyframes ─────────────────────────────────────────── */
@@ -127,16 +224,6 @@
     }
     100% {
       transform: scale(1);
-    }
-  }
-
-  @keyframes glow-pulse {
-    0%,
-    100% {
-      box-shadow: 0 0 0 0 oklch(0.65 0.18 250 / 0);
-    }
-    50% {
-      box-shadow: 0 0 12px 4px oklch(0.65 0.18 250 / 0.3);
     }
   }
 
@@ -176,17 +263,6 @@
     }
   }
 
-  @keyframes glow-mana {
-    0%, 100% {
-      transform: scale(1.05);
-      opacity: 0.8;
-    }
-    50% {
-      transform: scale(1.12);
-      opacity: 1;
-    }
-  }
-
   @keyframes foil-shimmer {
     0% {
       background-position: -200% 0;
@@ -196,12 +272,14 @@
     }
   }
 
-  @keyframes badge-fade {
-    0%, 80% {
-      opacity: 1;
-    }
-    100% {
+  @keyframes drawer-enter {
+    from {
       opacity: 0;
+      transform: translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
     }
   }
 
@@ -224,4 +302,37 @@
   }
 }
 
+@media print {
+  /* Invert the page to ink-on-cream for printing. Card art and anything
+     explicitly kept as chrome stay visible; only elements marked
+     `.no-print` are hidden. */
+  html, body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+  nav, .no-print {
+    display: none !important;
+  }
+  /* Strip dark surface backgrounds so ash panels print as empty space
+     rather than solid black rectangles. Scoped to the utility classes
+     used for chrome containers — card images and other <img> content
+     are unaffected. */
+  [class*='bg-ash-'], [class*='bg-surface-'] {
+    background: transparent !important;
+  }
+  /* Lift body/heading text to pure ink so the default cream-on-ash
+     palette doesn't render as near-invisible on paper. */
+  body, h1, h2, h3, h4, h5, h6, p, span, a, li, td, th {
+    color: #000 !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
 

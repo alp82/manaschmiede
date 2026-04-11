@@ -1,5 +1,5 @@
 import { queryOptions } from '@tanstack/react-query'
-import { searchCards, autocompleteCards, getCardById } from './client'
+import { searchCards, autocompleteCards, getCardById, listSets } from './client'
 
 const STALE_24H = 1000 * 60 * 60 * 24
 
@@ -10,6 +10,7 @@ export const scryfallKeys = {
   autocomplete: (partial: string) =>
     [...scryfallKeys.all, 'autocomplete', partial] as const,
   card: (id: string, lang: string) => [...scryfallKeys.all, 'card', id, lang] as const,
+  sets: () => [...scryfallKeys.all, 'sets'] as const,
 }
 
 export function cardSearchOptions(query: string, page = 1) {
@@ -36,5 +37,13 @@ export function cardByIdOptions(id: string, lang = 'en') {
     queryFn: () => getCardById(id, lang),
     staleTime: STALE_24H,
     enabled: !!id,
+  })
+}
+
+export function setsListOptions() {
+  return queryOptions({
+    queryKey: scryfallKeys.sets(),
+    queryFn: listSets,
+    staleTime: STALE_24H,
   })
 }

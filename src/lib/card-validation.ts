@@ -1,9 +1,13 @@
 import type { ScryfallCard } from './scryfall/types'
+import { getHardFilterRejectionReason } from '../../convex/lib/card-filters'
+
+export { getHardFilterRejectionReason, isPlayableCard } from '../../convex/lib/card-filters'
 
 export interface DeckFilters {
   colors: string[]
   format?: string
-  budgetLimit?: number | null
+  budgetMin?: number | null
+  budgetMax?: number | null
   rarities?: string[]
 }
 
@@ -31,11 +35,14 @@ export function getFilterRejectionReason(card: ScryfallCard, filters: DeckFilter
     }
   }
 
-  // Budget check
-  if (filters.budgetLimit != null && card.prices) {
+  // Budget range check
+  if ((filters.budgetMin != null || filters.budgetMax != null) && card.prices) {
     const price = parseFloat(card.prices.usd ?? card.prices.usd_foil ?? '0')
-    if (price > filters.budgetLimit) {
-      return `Card price ($${price.toFixed(2)}) exceeds budget ($${filters.budgetLimit.toFixed(2)})`
+    if (filters.budgetMin != null && price < filters.budgetMin) {
+      return `Card price ($${price.toFixed(2)}) is below minimum budget ($${filters.budgetMin.toFixed(2)})`
+    }
+    if (filters.budgetMax != null && price > filters.budgetMax) {
+      return `Card price ($${price.toFixed(2)}) exceeds budget ($${filters.budgetMax.toFixed(2)})`
     }
   }
 
@@ -56,38 +63,18 @@ const COMMANDER_SET_PATTERNS = [
   /^cm[a-z]/i,  // CMR, CMD, etc.
 ]
 
-/** Card types that aren't valid for normal 60-card constructed play */
-const EXCLUDED_TYPES = [
-  'planeswalker',
-  'conspiracy',
-  'vanguard',
-  'scheme',
-  'plane',
-  'phenomenon',
-  'dungeon',
-  'attraction',
-  'stickers',
-]
-
 /**
- * Check if a card is likely a commander-only card that shouldn't appear in 60-card casual decks.
+ * Check if a card should not appear in this app at all. Runs the shared
+ * hard-filter rules first (non-playable types, Un-sets, memorabilia, digital
+ * cards, etc.), then layers on the 60-card casual specific heuristics that
+ * exclude commander-only cards.
+ *
  * Returns a rejection reason string, or null if the card is fine.
  */
 export function getCardRejectionReason(card: ScryfallCard): string | null {
-  const typeLine = card.type_line.toLowerCase()
-
-  // Reject non-constructable card types
-  for (const excluded of EXCLUDED_TYPES) {
-    if (typeLine.includes(excluded)) {
-      return `${excluded.charAt(0).toUpperCase() + excluded.slice(1)} cards are excluded`
-    }
-  }
-
-  // Reject acorn/silver-border (Un-set joke cards)
-  const raw = card as unknown as Record<string, unknown>
-  if (raw.border_color === 'silver' || raw.security_stamp === 'acorn') {
-    return 'Un-set / acorn cards are excluded'
-  }
+  // Hard filter: stickers, playtest cards, oversized, digital-only, etc.
+  const hardReason = getHardFilterRejectionReason(card)
+  if (hardReason) return hardReason
 
   // Check if oracle text references "commander"
   const oracleText = (card.oracle_text || '').toLowerCase()

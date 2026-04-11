@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useMemo } from 'react'
 import { getCardByName } from './scryfall/client'
+import { getCardRejectionReason } from './card-validation'
 import type { ScryfallCard } from './scryfall/types'
 import { getCardName } from './scryfall/types'
 import type { DeckCard } from './deck-utils'
@@ -287,6 +288,10 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
 
             try {
               const scryfallCard = await getCardByName(card.name)
+              // Hard filter: skip stickers, Un-sets, oversized, digital-only, etc.
+              // The AI shouldn't suggest these, but Scryfall-by-name can still
+              // resolve them so we enforce it here as a safety net.
+              if (getCardRejectionReason(scryfallCard)) continue
               batchCardData.push(scryfallCard)
               const isLocked = lockedCardIds?.has(scryfallCard.id) ?? false
               resolvedCards.push({

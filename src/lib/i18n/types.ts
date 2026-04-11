@@ -5,6 +5,12 @@ export interface Translations {
   'nav.cards': string
   'nav.newDeck': string
 
+  // Home hero
+  'home.tagline': string
+  'home.forgeDeck': string
+  'home.browseCatalog': string
+  'home.emptyHint': string
+
   // Search
   'search.placeholder': string
   'search.noResults': string
@@ -35,6 +41,26 @@ export interface Translations {
   'filter.keyword': string
   'filter.allKeywords': string
   'filter.clearAll': string
+  'filter.add': string
+  'filter.addHint': string
+  'filter.type': string
+  'filter.cmc': string
+  'filter.power': string
+  'filter.toughness': string
+  'filter.stats': string
+  'filter.statsLinked': string
+  'filter.statsUnlinked': string
+  'filter.statsLinkedHint': string
+  'filter.statsUnlinkedHint': string
+  'filter.set': string
+  'filter.allEditions': string
+  'filter.remove': string
+  'filter.anyPower': string
+  'filter.anyToughness': string
+  'filter.colorModeAll': string
+  'filter.colorModeAny': string
+  'filter.colorModeAllHint': string
+  'filter.colorModeAnyHint': string
 
   // Mana colors
   'color.white': string
@@ -70,6 +96,13 @@ export interface Translations {
   'wizard.back': string
   'wizard.skip': string
   'wizard.next': string
+  'wizard.forgeWithCard': string
+  'wizard.seedClear': string
+  'wizard.seedExplanation': string
+  'wizard.seedConflictTitle': string
+  'wizard.seedConflictBody': string
+  'wizard.seedConflictConfirm': string
+  'wizard.seedConflictCancel': string
 
   // Step 1: Colors
   'colors.title': string
@@ -91,7 +124,7 @@ export interface Translations {
   'strategy.title': string
   'strategy.subtitle': string
   'strategy.archetypes': string
-  'strategy.pickUpTo2': string
+  'strategy.pickUpToLimit': string
   'strategy.traitsThemes': string
   'strategy.filterPlaceholder': string
   'strategy.combatKeywords': string
@@ -124,9 +157,11 @@ export interface Translations {
   'core.suggestDifferent': string
   'core.orSearch': string
   'core.searchPlaceholder': string
-  'core.suggestWithCard': string
+  'core.suggestNewWithCard': string
   'core.skipLong': string
   'core.nextBuildDeck': string
+  'core.prevBatch': string
+  'core.nextBatch': string
 
   // Step 4: Deck Fill
   'fill.yourDeck': string
@@ -155,6 +190,9 @@ export interface Translations {
   'fill.cancel': string
   'fill.emptyPrompt': string
   'fill.unassigned': string
+  'fill.cardsCountShort': string
+  'fill.sectionCount': string
+  'fill.suggestionCount': string
 
   // AI Chat
   'chat.emptyPrompt': string
@@ -162,9 +200,9 @@ export interface Translations {
   'chat.inputPending': string
   'chat.send': string
   'chat.noChanges': string
+  'chat.cardSwap': string
   'chat.apply': string
   'chat.discard': string
-  'chat.quickFill': string
   'chat.quickFixMana': string
   'chat.quickAddCreatures': string
   'chat.quickAddRemoval': string
@@ -195,9 +233,28 @@ export interface Translations {
   'deckPage.searchPlaceholder': string
   'deckPage.addOverlay': string
 
+  // Workspace pane eyebrows
+  'deck.paneChat': string
+  'deck.paneCards': string
+  'deck.paneBalance': string
+  'deck.paneStats': string
+
+  // Section/card preview states
+  'deck.previewLabel': string
+  'deck.queued': string
+
+  // Generic actions (tooltips, button labels)
+  'action.close': string
+  'action.copy': string
+  'action.undo': string
+  'action.redo': string
+
   // Trait descriptions (keyed by trait id)
   [key: `trait.${string}`]: string
   [key: `trait.desc.${string}`]: string
+
+  // Section labels + descriptions (keyed by section id)
+  [key: `section.${string}`]: string
 
   // Balance warnings (dynamic, handled separately)
   'balance.warning.tooFewCards': string

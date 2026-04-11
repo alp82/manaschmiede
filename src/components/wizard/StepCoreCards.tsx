@@ -5,6 +5,10 @@ import { CardImage } from '../CardImage'
 import { CardLightbox } from '../CardLightbox'
 import { buildScryfallQueriesFromTraits, buildSearchFilterSuffix, getTraitById, getOracleTermsForTraits } from '../../lib/trait-mappings'
 import { WizardNav } from './WizardNav'
+import { Button } from '../ui/Button'
+import { LoadingDots } from '../ui/LoadingDots'
+import { ErrorBox } from '../ui/ErrorBox'
+import { cn } from '../../lib/utils'
 import { searchCards, getCardByName } from '../../lib/scryfall/client'
 import { getCardRejectionReason, getFilterRejectionReason, type DeckFilters } from '../../lib/card-validation'
 import { analyzeComposition, findSynergyIssue } from '../../lib/synergy-validation'
@@ -12,13 +16,14 @@ import { useT, useI18n } from '../../lib/i18n'
 import { useDeckSounds } from '../../lib/sounds'
 import type { ScryfallCard } from '../../lib/scryfall/types'
 import type { WizardState, WizardAction, CoreCombo } from '../../lib/wizard-state'
-import { getActiveColors, loadWizardAux, persistWizardAux } from '../../lib/wizard-state'
+import { getActiveColors, getSelectedColors, getMaybeColors, loadWizardAux, persistWizardAux } from '../../lib/wizard-state'
 
 interface StepCoreCardsProps {
   state: WizardState
   dispatch: React.Dispatch<WizardAction>
   onNext: () => void
   onBack: () => void
+  onReset: () => void
 }
 
 interface RejectedCard {
@@ -35,6 +40,8 @@ interface FetchResult {
   combos: CoreCombo[]
   rejectedCards: RejectedCard[]
   rejectedCombos: RejectedCombo[]
+  /** Maybe colors the batch failed to cover across all valid combos. */
+  missingMaybes: string[]
 }
 
 /** Check if any card in a combo has at least one of the required oracle terms. */
@@ -57,6 +64,7 @@ async function fetchAndResolveCombos(
   rejectedCards?: RejectedCard[],
   rejectedCombos?: RejectedCombo[],
   pinnedCard?: string,
+  missingMaybeColors?: string[],
 ): Promise<FetchResult> {
   const activeColors = getActiveColors(state.colors)
   const allTraitIds = [...state.selectedArchetypes, ...state.selectedTraits]
@@ -67,7 +75,8 @@ async function fetchAndResolveCombos(
   // Build Scryfall queries from trait mappings
   const queries = buildScryfallQueriesFromTraits(allTraitIds, activeColors, {
     format: state.format,
-    budgetLimit: state.budgetLimit,
+    budgetMin: state.budgetMin,
+    budgetMax: state.budgetMax,
     rarities: state.rarityFilter,
   })
 
@@ -105,16 +114,18 @@ async function fetchAndResolveCombos(
 
   const result = await client.action(api.suggestCombos.suggest, {
     cardPool: uniquePool.join('\n'),
-    colors: activeColors,
+    selectedColors: getSelectedColors(state.colors),
+    maybeColors: getMaybeColors(state.colors),
     archetypes: archetypeLabels,
     traits: traitLabels,
     requiredKeywords: oracleTerms.length > 0 ? oracleTerms : undefined,
     pinnedCard: pinnedCard || undefined,
     customStrategy: state.customStrategy || undefined,
     format: state.format,
-    budgetLimit: state.budgetLimit ?? undefined,
+    budgetLimit: state.budgetMax ?? undefined,
     rejectedCards: rejectedCards && rejectedCards.length > 0 ? rejectedCards : undefined,
     rejectedCombos: rejectedCombos && rejectedCombos.length > 0 ? rejectedCombos : undefined,
+    missingMaybeColors: missingMaybeColors && missingMaybeColors.length > 0 ? missingMaybeColors : undefined,
     language: locale,
   })
 
@@ -122,7 +133,8 @@ async function fetchAndResolveCombos(
   const deckFilters: DeckFilters = {
     colors: activeColors,
     format: state.format,
-    budgetLimit: state.budgetLimit,
+    budgetMin: state.budgetMin,
+    budgetMax: state.budgetMax,
     rarities: state.rarityFilter,
   }
   const validCombos: CoreCombo[] = []
@@ -197,12 +209,34 @@ async function fetchAndResolveCombos(
     validCombos.push(combo)
   }
 
-  return { combos: validCombos, rejectedCards: newRejectedCards, rejectedCombos: newRejectedCombos }
+  // Maybe-color coverage: across the full valid batch, every maybe color the
+  // user picked must appear in at least one combo's color identity. Anything
+  // missing is fed back to the retry prompt so the next batch can cover it.
+  const maybeColors = getMaybeColors(state.colors)
+  const coveredMaybes = new Set<string>()
+  for (const combo of validCombos) {
+    for (const card of combo.cards) {
+      if (!card.scryfallCard) continue
+      for (const c of card.scryfallCard.color_identity) {
+        if (maybeColors.includes(c as typeof maybeColors[number])) {
+          coveredMaybes.add(c)
+        }
+      }
+    }
+  }
+  const missingMaybes = maybeColors.filter((c) => !coveredMaybes.has(c))
+
+  return {
+    combos: validCombos,
+    rejectedCards: newRejectedCards,
+    rejectedCombos: newRejectedCombos,
+    missingMaybes,
+  }
 }
 
 const DISPLAY_COUNT = 3
 
-export function StepCoreCards({ state, dispatch, onNext, onBack }: StepCoreCardsProps) {
+export function StepCoreCards({ state, dispatch, onNext, onBack, onReset }: StepCoreCardsProps) {
   const t = useT()
   const sounds = useDeckSounds()
   const { locale } = useI18n()
@@ -226,8 +260,8 @@ export function StepCoreCards({ state, dispatch, onNext, onBack }: StepCoreCards
 
   // Fingerprint of strategy inputs that affect combo generation
   const currentFingerprint = useMemo(() =>
-    JSON.stringify([state.selectedArchetypes, state.selectedTraits, state.customStrategy, state.colors, state.format]),
-    [state.selectedArchetypes, state.selectedTraits, state.customStrategy, state.colors, state.format],
+    JSON.stringify([state.selectedArchetypes, state.selectedTraits, state.customStrategy, state.colors, state.format, state.seedCard?.id ?? null]),
+    [state.selectedArchetypes, state.selectedTraits, state.customStrategy, state.colors, state.format, state.seedCard],
   )
   const combosAreStale = comboFingerprint !== '' && comboFingerprint !== currentFingerprint && state.coreCombos.length > 0
 
@@ -251,8 +285,14 @@ export function StepCoreCards({ state, dispatch, onNext, onBack }: StepCoreCards
   }, [dispatch, currentFingerprint])
 
   const fetchCombos = useCallback(async (rejectCurrent = false, pinCard?: string) => {
+    // A wizard-level seed card is a hard MUST-INCLUDE across every
+    // generation. An explicit `pinCard` arg (ad-hoc "suggest with this
+    // card" from the in-step lightbox) always wins when passed —
+    // otherwise the seed takes over.
+    const effectivePin = pinCard ?? state.seedCard?.name
+
     // Try buffer first when requesting different combos (not pinned)
-    if (rejectCurrent && !pinCard && comboBuffer.length >= DISPLAY_COUNT) {
+    if (rejectCurrent && !effectivePin && comboBuffer.length >= DISPLAY_COUNT) {
       const fromBuffer = comboBuffer.slice(0, DISPLAY_COUNT)
       const remaining = comboBuffer.slice(DISPLAY_COUNT)
       dispatch({ type: 'SET_CORE_COMBOS', combos: fromBuffer })
@@ -283,18 +323,33 @@ export function StepCoreCards({ state, dispatch, onNext, onBack }: StepCoreCards
       const first = await fetchAndResolveCombos(
         state, locale, undefined,
         seedRejectedCombos.length > 0 ? seedRejectedCombos : undefined,
-        pinCard,
+        effectivePin,
       )
 
-      if (first.combos.length > 0) {
+      // Accept the first batch only when it both (a) produced valid combos
+      // AND (b) covered every maybe color. Either failure triggers one
+      // targeted retry with explicit feedback.
+      const coverageFailed = first.missingMaybes.length > 0
+      if (first.combos.length > 0 && !coverageFailed) {
         applyBatch(first.combos)
         setIsLoading(false)
         return
       }
 
-      // Retry with rejection feedback if we had any rejections
-      if (first.rejectedCards.length > 0 || first.rejectedCombos.length > 0) {
-        const second = await fetchAndResolveCombos(state, locale, first.rejectedCards, first.rejectedCombos, pinCard)
+      // Retry with rejection feedback and/or missing-maybe coverage hint
+      const shouldRetry =
+        first.rejectedCards.length > 0 ||
+        first.rejectedCombos.length > 0 ||
+        coverageFailed
+      if (shouldRetry) {
+        const second = await fetchAndResolveCombos(
+          state,
+          locale,
+          first.rejectedCards,
+          first.rejectedCombos,
+          effectivePin,
+          coverageFailed ? first.missingMaybes : undefined,
+        )
 
         if (second.combos.length > 0) {
           applyBatch(second.combos)
@@ -303,13 +358,22 @@ export function StepCoreCards({ state, dispatch, onNext, onBack }: StepCoreCards
         }
       }
 
+      // If coverage still failed but we have combos from the first batch,
+      // fall back to those — a partial batch beats no batch, and the user
+      // can hit "suggest different" to reroll.
+      if (first.combos.length > 0) {
+        applyBatch(first.combos)
+        setIsLoading(false)
+        return
+      }
+
       setError(t('core.noValidCombos'))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to get suggestions')
     } finally {
       setIsLoading(false)
     }
-  }, [state.colors, state.selectedArchetypes, state.selectedTraits, state.customStrategy, state.format, state.budgetLimit, state.rarityFilter, state.coreCombos, locale, dispatch, t, currentFingerprint, previouslyRejected, applyBatch, comboBuffer])
+  }, [state.colors, state.selectedArchetypes, state.selectedTraits, state.customStrategy, state.format, state.budgetMin, state.budgetMax, state.rarityFilter, state.coreCombos, state.seedCard, locale, dispatch, t, currentFingerprint, previouslyRejected, applyBatch, comboBuffer])
 
   useEffect(() => {
     if (state.coreCombos.length === 0 && !isLoading) {
@@ -328,10 +392,11 @@ export function StepCoreCards({ state, dispatch, onNext, onBack }: StepCoreCards
     const activeColors = getActiveColors(state.colors)
     return buildSearchFilterSuffix(activeColors, {
       format: state.format,
-      budgetLimit: state.budgetLimit,
+      budgetMin: state.budgetMin,
+      budgetMax: state.budgetMax,
       rarities: state.rarityFilter,
     })
-  }, [state.colors, state.format, state.budgetLimit, state.rarityFilter])
+  }, [state.colors, state.format, state.budgetMin, state.budgetMax, state.rarityFilter])
 
   // Manual card search - searches name + oracle text
   useEffect(() => {
@@ -363,194 +428,162 @@ export function StepCoreCards({ state, dispatch, onNext, onBack }: StepCoreCards
   }, [fetchCombos])
 
   const renderLightboxActions = useCallback((card: ScryfallCard) => (
-    <button
-      type="button"
+    <Button
+      variant="primary"
+      size="md"
       onClick={() => suggestWithCard(card)}
-      className="w-full rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover"
+      className="w-full"
     >
-      {t('core.suggestWithCard')}
-    </button>
+      {t('core.suggestNewWithCard')}
+    </Button>
   ), [suggestWithCard, t])
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 py-6 pb-20">
-      <div className="text-center">
-        <h2 className="font-display text-2xl font-bold text-surface-100">{t('core.title')}</h2>
-        <p className="mt-2 text-sm text-surface-400">
-          {t('core.subtitle')}
-        </p>
-      </div>
+    <section className="relative">
+      <div className="mx-auto max-w-3xl space-y-8 px-4 pb-24 pt-16">
+        {/* Section header */}
+        <header className="flex flex-col items-center text-center">
+          <span className="font-display text-display-eyebrow uppercase leading-none tracking-eyebrow text-cream-400">
+            Chapter III
+          </span>
+          <h2 className="mt-4 font-display text-display-title leading-[1.1] tracking-display text-cream-100">
+            {t('core.title')}
+          </h2>
+          <p className="mt-4 max-w-md font-body text-base text-cream-300">
+            {t('core.subtitle')}
+          </p>
+        </header>
 
-      {/* Loading state */}
-      {isLoading && (
-        <div className="flex flex-col items-center gap-4 py-12">
-          <div className="flex gap-1">
-            <span className="h-2 w-2 animate-bounce rounded-full bg-accent" style={{ animationDelay: '0ms' }} />
-            <span className="h-2 w-2 animate-bounce rounded-full bg-accent" style={{ animationDelay: '150ms' }} />
-            <span className="h-2 w-2 animate-bounce rounded-full bg-accent" style={{ animationDelay: '300ms' }} />
+        {/* Loading state — marching hairline squares */}
+        {isLoading && (
+          <div className="flex flex-col items-center gap-4 py-12">
+            <LoadingDots size="md" tone="bright" />
+            <p className="font-mono text-mono-label uppercase tracking-mono-label text-cream-400">
+              {t('core.analyzing')}
+            </p>
           </div>
-          <p className="text-sm text-surface-400">{t('core.analyzing')}</p>
-        </div>
-      )}
+        )}
 
-      {/* Error */}
-      {error && (
-        <div className="rounded-lg bg-mana-red/10 p-4 text-center">
-          <p className="text-sm text-mana-red">{error}</p>
-          <button
-            type="button"
-            onClick={() => fetchCombos(false)}
-            className="mt-3 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover"
-          >
-            {t('core.tryAgain')}
-          </button>
-        </div>
-      )}
+        {/* Error */}
+        {error && (
+          <ErrorBox
+            message={error}
+            onRetry={() => fetchCombos(false)}
+            retryLabel={t('core.tryAgain')}
+          />
+        )}
 
-      {/* Combo suggestions */}
-      {!isLoading && state.coreCombos.length > 0 && (
-        <div className="space-y-3">
-          {/* Stale combos - prominent warning above combos */}
-          {combosAreStale && (
-            <div className="rounded-xl border-2 border-mana-multi/40 bg-mana-multi/10 px-5 py-4 text-center">
-              <p className="font-medium text-mana-multi">{t('core.strategyChanged')}</p>
-              <p className="mt-1 text-xs text-surface-400">{t('core.strategyChangedHint')}</p>
-              <button
-                type="button"
-                onClick={() => { setPreviouslyRejected([]); setComboHistory([]); setComboBuffer([]); fetchCombos(false) }}
-                className="mt-3 rounded-lg bg-accent px-6 py-2 text-sm font-medium text-white hover:bg-accent-hover"
-              >
-                {t('core.refreshCombos')}
-              </button>
-            </div>
-          )}
-
-          {!combosAreStale && (
-            <button
-              type="button"
-              onClick={() => fetchCombos(true)}
-              disabled={isLoading}
-              className="w-full rounded-xl border border-accent/30 bg-accent/10 py-3 text-sm font-medium text-accent transition-colors hover:border-accent/50 hover:bg-accent/20"
-            >
-              {t('core.suggestDifferent')}
-            </button>
-          )}
-
-          {/* History nav - top */}
-          {comboHistory.length > 1 && (
-            <div className="flex items-center justify-center gap-3 py-1">
-              <button
-                type="button"
-                disabled={historyIndex <= 0}
-                onClick={() => { navigateHistory(historyIndex - 1); sounds.uiClick() }}
-                className="flex h-7 w-7 items-center justify-center rounded-full text-sm text-surface-400 hover:bg-surface-700 hover:text-surface-200 disabled:opacity-20 disabled:pointer-events-none"
-              >
-                &lsaquo;
-              </button>
-              <div className="flex items-center gap-2">
-                {comboHistory.map((_, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => { navigateHistory(i); sounds.uiClick() }}
-                    className={`rounded-full transition-all ${
-                      i === historyIndex ? 'h-2.5 w-7 bg-accent' : 'h-2.5 w-2.5 bg-surface-600 hover:bg-surface-500'
-                    }`}
-                    aria-label={`Suggestion batch ${i + 1}`}
-                  />
-                ))}
+        {/* Combo suggestions */}
+        {!isLoading && state.coreCombos.length > 0 && (
+          <div className="space-y-4">
+            {/* Stale combos — prominent warning above combos */}
+            {combosAreStale && (
+              <div className="border border-ink-red px-5 py-4 text-center">
+                <p className="font-mono text-mono-label uppercase tracking-mono-label text-ink-red-bright">
+                  {t('core.strategyChanged')}
+                </p>
+                <p className="mt-2 font-body text-sm text-cream-400">{t('core.strategyChangedHint')}</p>
+                <div className="mt-4 flex justify-center">
+                  <Button
+                    variant="primary"
+                    size="md"
+                    onClick={() => { setPreviouslyRejected([]); setComboHistory([]); setComboBuffer([]); fetchCombos(false) }}
+                  >
+                    {t('core.refreshCombos')}
+                  </Button>
+                </div>
               </div>
-              <button
-                type="button"
-                disabled={historyIndex >= comboHistory.length - 1}
-                onClick={() => { navigateHistory(historyIndex + 1); sounds.uiClick() }}
-                className="flex h-7 w-7 items-center justify-center rounded-full text-sm text-surface-400 hover:bg-surface-700 hover:text-surface-200 disabled:opacity-20 disabled:pointer-events-none"
-              >
-                &rsaquo;
-              </button>
-            </div>
-          )}
+            )}
 
-          <div className={combosAreStale ? 'opacity-40 pointer-events-none' : ''}>
-            {state.coreCombos.map((combo, i) => (
-              <div key={i} className="mt-3">
+            {!combosAreStale && (
+              <Button
+                variant="secondary"
+                size="md"
+                onClick={() => fetchCombos(true)}
+                disabled={isLoading}
+                className="w-full"
+              >
+                {t('core.suggestDifferent')}
+              </Button>
+            )}
+
+            {/* History nav — top */}
+            {comboHistory.length > 1 && (
+              <HistoryNav
+                historyIndex={historyIndex}
+                length={comboHistory.length}
+                onNavigate={(i) => { navigateHistory(i); sounds.uiClick() }}
+              />
+            )}
+
+            <div className={cn('space-y-4', combosAreStale && 'pointer-events-none opacity-40')}>
+              {state.coreCombos.map((combo, i) => (
                 <ComboCard
+                  key={i}
                   combo={combo}
                   selected={state.selectedComboIndex === i}
                   onSelect={() => { dispatch({ type: 'SELECT_COMBO', index: i }); sounds.uiClick() }}
                   renderLightboxActions={renderLightboxActions}
                 />
-              </div>
-            ))}
-          </div>
-
-          {/* History nav - bottom */}
-          {comboHistory.length > 1 && (
-            <div className="flex items-center justify-center gap-3 py-1">
-              <button
-                type="button"
-                disabled={historyIndex <= 0}
-                onClick={() => { navigateHistory(historyIndex - 1); sounds.uiClick() }}
-                className="flex h-7 w-7 items-center justify-center rounded-full text-sm text-surface-400 hover:bg-surface-700 hover:text-surface-200 disabled:opacity-20 disabled:pointer-events-none"
-              >
-                &lsaquo;
-              </button>
-              <div className="flex items-center gap-2">
-                {comboHistory.map((_, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => { navigateHistory(i); sounds.uiClick() }}
-                    className={`rounded-full transition-all ${
-                      i === historyIndex ? 'h-2.5 w-7 bg-accent' : 'h-2.5 w-2.5 bg-surface-600 hover:bg-surface-500'
-                    }`}
-                    aria-label={`Suggestion batch ${i + 1}`}
-                  />
-                ))}
-              </div>
-              <button
-                type="button"
-                disabled={historyIndex >= comboHistory.length - 1}
-                onClick={() => { navigateHistory(historyIndex + 1); sounds.uiClick() }}
-                className="flex h-7 w-7 items-center justify-center rounded-full text-sm text-surface-400 hover:bg-surface-700 hover:text-surface-200 disabled:opacity-20 disabled:pointer-events-none"
-              >
-                &rsaquo;
-              </button>
+              ))}
             </div>
-          )}
 
-          {!combosAreStale && (
-            <button
-              type="button"
-              onClick={() => fetchCombos(true)}
-              disabled={isLoading}
-              className="w-full rounded-xl border border-accent/30 bg-accent/10 py-3 text-sm font-medium text-accent transition-colors hover:border-accent/50 hover:bg-accent/20"
-            >
-              {t('core.suggestDifferent')}
-            </button>
-          )}
-        </div>
-      )}
+            {/* History nav — bottom */}
+            {comboHistory.length > 1 && (
+              <HistoryNav
+                historyIndex={historyIndex}
+                length={comboHistory.length}
+                onNavigate={(i) => { navigateHistory(i); sounds.uiClick() }}
+              />
+            )}
 
-      {/* Card search */}
-      <div className="border-t border-surface-700 pt-4">
-        <h3 className="mb-2 text-sm font-medium text-surface-300">{t('core.orSearch')}</h3>
-        <SearchInput value={manualSearch} onChange={setManualSearch} placeholder={t('core.searchPlaceholder')} />
-        {manualSearching && <p className="mt-2 text-xs text-surface-500">{t('search.searching')}</p>}
-        {manualResults.length > 0 && (
-          <div className="mt-3 grid grid-cols-4 gap-2 sm:grid-cols-6 md:grid-cols-8">
-            {manualResults.map((card, i) => (
-              <button
-                key={card.id}
-                type="button"
-                onClick={() => { setLightboxIndex(i); sounds.cardOpen() }}
-                className="group relative overflow-hidden rounded-lg transition-transform hover:scale-[1.03]"
+            {!combosAreStale && (
+              <Button
+                variant="secondary"
+                size="md"
+                onClick={() => fetchCombos(true)}
+                disabled={isLoading}
+                className="w-full"
               >
-                <CardImage card={card} size="small" />
-              </button>
-            ))}
+                {t('core.suggestDifferent')}
+              </Button>
+            )}
           </div>
         )}
+
+        {/* Ornamental rule separating combos from card search */}
+        <div className="flex items-center justify-center gap-4" aria-hidden="true">
+          <span className="h-px w-16 bg-hairline" />
+          <span className="font-mono text-mono-marginal text-cream-500">§</span>
+          <span className="h-px w-16 bg-hairline" />
+        </div>
+
+        {/* Card search */}
+        <div>
+          <h3 className="mb-3 font-mono text-mono-label uppercase tracking-mono-label text-cream-200">
+            {t('core.orSearch')}
+          </h3>
+          <SearchInput value={manualSearch} onChange={setManualSearch} placeholder={t('core.searchPlaceholder')} />
+          {manualSearching && (
+            <p className="mt-2 font-mono text-mono-tag uppercase tracking-mono-tag text-cream-500">
+              {t('search.searching')}
+            </p>
+          )}
+          {manualResults.length > 0 && (
+            <div className="mt-4 grid grid-cols-4 gap-2 sm:grid-cols-6 md:grid-cols-8">
+              {manualResults.map((card, i) => (
+                <button
+                  key={card.id}
+                  type="button"
+                  onClick={() => { setLightboxIndex(i); sounds.cardOpen() }}
+                  className="group relative overflow-hidden border border-hairline transition-transform hover:-translate-y-1 hover:border-hairline-strong"
+                >
+                  <CardImage card={card} size="small" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Lightbox for search results */}
@@ -566,34 +599,88 @@ export function StepCoreCards({ state, dispatch, onNext, onBack }: StepCoreCards
       )}
 
       <WizardNav>
-        <button
-          type="button"
-          onClick={onBack}
-          className="rounded-lg border border-surface-600 px-6 py-2.5 text-sm text-surface-300 hover:border-surface-500 hover:text-surface-100"
-        >
-          {t('wizard.back')}
-        </button>
         <div className="flex items-center gap-3">
-          <button
-            type="button"
+          <Button variant="secondary" size="lg" onClick={onBack}>
+            {t('wizard.back')}
+          </Button>
+          <Button variant="ghost" size="md" onClick={onReset}>
+            {t('wizard.reset')}
+          </Button>
+        </div>
+        <div className="flex items-center gap-3">
+          <Button
+            variant="ghost"
+            size="md"
             onClick={() => {
               dispatch({ type: 'SELECT_COMBO', index: -1 })
               onNext()
             }}
-            className="text-sm text-surface-400 hover:text-surface-200 underline underline-offset-4"
           >
-            <span className="sm:hidden">{t('wizard.skip')}</span><span className="hidden sm:inline">{t('core.skipLong')}</span>
-          </button>
-          <button
-            type="button"
+            <span className="sm:hidden">{t('wizard.skip')}</span>
+            <span className="hidden sm:inline">{t('core.skipLong')}</span>
+          </Button>
+          <Button
+            variant="primary"
+            size="lg"
             onClick={onNext}
             disabled={state.selectedComboIndex == null}
-            className="rounded-lg bg-accent px-8 py-2.5 font-medium text-white hover:bg-accent-hover disabled:opacity-30 disabled:cursor-not-allowed"
           >
             {t('core.nextBuildDeck')}
-          </button>
+          </Button>
         </div>
       </WizardNav>
+    </section>
+  )
+}
+
+/** History pagination — slabs instead of dots. */
+function HistoryNav({
+  historyIndex,
+  length,
+  onNavigate,
+}: {
+  historyIndex: number
+  length: number
+  onNavigate: (i: number) => void
+}) {
+  const t = useT()
+  return (
+    <div className="flex items-center justify-center gap-5">
+      <button
+        type="button"
+        disabled={historyIndex <= 0}
+        onClick={() => onNavigate(historyIndex - 1)}
+        className="flex h-9 cursor-pointer items-center gap-2 border border-hairline px-3 font-mono text-mono-label uppercase tracking-mono-label text-cream-300 transition-colors hover:border-hairline-strong hover:text-cream-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ink-red focus-visible:ring-offset-2 focus-visible:ring-offset-ash-900 disabled:cursor-not-allowed disabled:opacity-40 disabled:pointer-events-none"
+        aria-label={t('core.prevBatch')}
+      >
+        <span aria-hidden="true" className="text-base leading-none">{'\u2039'}</span>
+        <span className="hidden sm:inline">{t('core.prevBatch')}</span>
+      </button>
+      <div className="flex items-center gap-2">
+        {Array.from({ length }).map((_, i) => (
+          <button
+            key={i}
+            type="button"
+            onClick={() => onNavigate(i)}
+            className={cn(
+              'h-1 cursor-pointer transition-all',
+              'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ink-red focus-visible:ring-offset-2 focus-visible:ring-offset-ash-900',
+              i === historyIndex ? 'w-8 bg-ink-red-bright' : 'w-3 bg-cream-500/50 hover:bg-cream-300',
+            )}
+            aria-label={`Suggestion batch ${i + 1}`}
+          />
+        ))}
+      </div>
+      <button
+        type="button"
+        disabled={historyIndex >= length - 1}
+        onClick={() => onNavigate(historyIndex + 1)}
+        className="flex h-9 cursor-pointer items-center gap-2 border border-hairline px-3 font-mono text-mono-label uppercase tracking-mono-label text-cream-300 transition-colors hover:border-hairline-strong hover:text-cream-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ink-red focus-visible:ring-offset-2 focus-visible:ring-offset-ash-900 disabled:cursor-not-allowed disabled:opacity-40 disabled:pointer-events-none"
+        aria-label={t('core.nextBatch')}
+      >
+        <span className="hidden sm:inline">{t('core.nextBatch')}</span>
+        <span aria-hidden="true" className="text-base leading-none">{'\u203A'}</span>
+      </button>
     </div>
   )
 }

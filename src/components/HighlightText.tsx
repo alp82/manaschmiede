@@ -3,6 +3,8 @@ interface HighlightTextProps {
   term: string
 }
 
+/** Highlights matches of `term` within `text`. Specimen treatment: faint
+ *  ink-red background tint with cream text, no rounding, no bold. */
 export function HighlightText({ text, term }: HighlightTextProps) {
   if (!term || term.length < 1) return <>{text}</>
 
@@ -16,7 +18,7 @@ export function HighlightText({ text, term }: HighlightTextProps) {
     <>
       {parts.map((part, i) =>
         part.toLowerCase() === term.toLowerCase() ? (
-          <mark key={i} className="rounded-sm bg-accent/30 text-accent-hover px-0.5">
+          <mark key={i} className="bg-ink-red/30 px-0.5 text-cream-100">
             {part}
           </mark>
         ) : (

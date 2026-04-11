@@ -6,7 +6,9 @@ interface WizardNavProps {
   children: ReactNode
 }
 
-/** Fixed bottom navigation bar for wizard steps - portaled to body to escape transform ancestors */
+/** Fixed-bottom wizard nav — portaled to body so transform ancestors don't
+ *  trap it. Specimen treatment: thin hairline top border, ash-900
+ *  translucent background, no backdrop blur. */
 export function WizardNav({ children }: WizardNavProps) {
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
@@ -14,8 +16,8 @@ export function WizardNav({ children }: WizardNavProps) {
   if (!mounted) return null
 
   return createPortal(
-    <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-surface-700 bg-surface-900/95 px-4 py-3 backdrop-blur-sm">
-      <div className="mx-auto flex max-w-3xl items-center justify-between">
+    <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-hairline bg-ash-900/95 px-4 py-4 backdrop-blur-sm">
+      <div className="mx-auto flex max-w-3xl items-center justify-between gap-4">
         {children}
       </div>
     </div>,

@@ -1,6 +1,7 @@
 import { action } from './_generated/server'
 import { v } from 'convex/values'
 import { callAnthropic } from './lib/anthropic'
+import { HARD_FILTER_PROMPT_RULES } from './lib/card-filters'
 
 function getSystemPrompt(language: string): string {
   const langInstruction = language === 'de'
@@ -47,18 +48,37 @@ CRITICAL - INTERNAL SYNERGY:
 - Do NOT include "tribal payoff" cards (e.g. "Dragon Tempest", "Goblin Chieftain") unless the rest of the combo provides creatures of that tribe.
 - This is automatically verified - violating combos will be rejected.
 
+CRITICAL - TRIBAL TRAITS ARE COMMITMENTS:
+- When the user lists a creature-type trait (e.g. Elves, Merfolk, Dragons, Goblins, Zombies, Vampires, Angels, Humans, Spirits, Elementals, Knights, Faeries, Dinosaurs, Cats, Rogues, Wizards, Warriors, Beasts), at least TWO of the 5 combos MUST prominently feature that creature type — at minimum one creature of that type in the combo, and ideally a tribal payoff.
+- This applies EVEN when the archetype is not "Tribal". A user picking "Lifegain + Elves" wants elf-flavored lifegain combos, not generic lifegain. Silently dropping the tribe is a rejection-worthy failure.
+- If two creature-type traits conflict (e.g. Elves + Dragons), prefer giving each tribe its own combo rather than hybrids.
+
+CRITICAL - MULTI-ARCHETYPE BALANCE:
+- When the user lists MORE THAN ONE archetype, treat all of them as equally important pillars of the strategy - never collapse onto whichever archetype has more obvious cards.
+- Across the 5 combos, EVERY listed archetype must appear in at least one combo's core mechanic. With 2 archetypes, aim for roughly 2 combos per archetype plus 1 hybrid that fuses both. With 3+, give each at least one dedicated combo.
+- A "hybrid" combo must show both archetypes actively doing work (e.g. for "reanimator + tokens", a combo where a reanimation spell returns a token-producing creature, not a pure token swarm with a reanimator in name only).
+- Do NOT suggest a combo that is named after one archetype but whose cards all belong to the other. The mechanic in the card text must match the archetype it claims.
+- If you cannot fulfil an archetype with strong cards, say so by picking a weaker-but-correct card - do NOT silently drop the archetype.
+
+CRITICAL - COLOR DISCIPLINE:
+- SELECTED colors are colors the user is committed to — they will be in the final deck no matter which combo wins. Every combo you suggest should make sense in a deck that runs every selected color.
+- MAYBE colors are colors the user is open to if a combo earns them. They are NOT decoration: the user wants to see how each maybe color could pull its weight.
+- Across the 5 combos, EVERY listed MAYBE color must appear in the color identity of at least one combo. No maybe may go unused across the full batch — if a maybe never shows up, the batch is invalid and will be rejected.
+- A combo's color identity is the union of its cards' color identities (mana symbols in costs AND rules text). A combo "uses" a maybe color if and only if at least one card in the combo has that color in its color identity.
+- Every combo's color identity MUST be a subset of SELECTED ∪ MAYBE. Do not reach for colors outside this set.
+- Combos that touch only SELECTED colors are fine and encouraged — just make sure at least one combo per maybe color exists so the user can compare.
+
 RULES:
 - Use ONLY real, existing Magic: The Gathering cards
 ${langInstruction}
 - Suggest exactly 5 combos - each should feel distinct and offer a genuinely different strategic direction
 - Explain WHY the cards work together in 1-2 sentences
 - Consider the user's color preferences, strategy, and any constraints
-- Do NOT suggest planeswalker, conspiracy, vanguard, scheme, plane, phenomenon, dungeon, or attraction cards - they are excluded from this app
-- Do NOT suggest Un-set / silver-border / acorn cards
-- Do NOT suggest cards that are exclusive to Commander format or Commander-specific products (Commander Legends, Commander precon decks, etc.)
-- Do NOT suggest cards that reference "commander" in their rules text
 - Prefer cards that are legal in Modern or Legacy formats
 - This is for a 60-card deck, NOT a Commander deck - avoid legendary creatures designed primarily as commanders
+
+HARD FILTER RULES (enforced automatically — violating combos are rejected):
+${HARD_FILTER_PROMPT_RULES}
 
 OUTPUT FORMAT (JSON ONLY, no other text):
 {
@@ -85,7 +105,8 @@ interface ComboResult {
 export const suggest = action({
   args: {
     cardPool: v.string(),
-    colors: v.array(v.string()),
+    selectedColors: v.array(v.string()),
+    maybeColors: v.array(v.string()),
     archetypes: v.array(v.string()),
     traits: v.array(v.string()),
     requiredKeywords: v.optional(v.array(v.string())),
@@ -101,17 +122,31 @@ export const suggest = action({
       name: v.string(),
       reason: v.string(),
     }))),
+    /**
+     * Maybe colors that a previous attempt failed to cover. When present,
+     * the retry MUST produce combos whose color identity collectively
+     * includes every one of these.
+     */
+    missingMaybeColors: v.optional(v.array(v.string())),
     language: v.optional(v.string()),
   },
   handler: async (_ctx, args): Promise<ComboResult> => {
     const language = args.language ?? 'en'
     let userPrompt = 'Suggest exactly 5 core card combinations for a deck with these preferences:\n'
 
-    if (args.colors.length > 0) {
-      const colorNames: Record<string, string> = {
-        W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green',
-      }
-      userPrompt += `Colors: ${args.colors.map((c) => colorNames[c] || c).join(', ')}\n`
+    const colorNames: Record<string, string> = {
+      W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green',
+    }
+    const fmtColors = (cs: string[]) =>
+      cs.map((c) => `${colorNames[c] || c} (${c})`).join(', ')
+
+    if (args.selectedColors.length > 0) {
+      userPrompt += `SELECTED colors (committed - every combo must live within SELECTED ∪ MAYBE): ${fmtColors(args.selectedColors)}\n`
+    }
+    if (args.maybeColors.length > 0) {
+      userPrompt += `MAYBE colors (each one MUST appear in at least one combo's color identity across the batch): ${fmtColors(args.maybeColors)}\n`
+    } else if (args.selectedColors.length > 0) {
+      userPrompt += `MAYBE colors: none — every combo must stay strictly within the SELECTED colors above.\n`
     }
 
     if (args.archetypes.length > 0) {
@@ -155,6 +190,11 @@ export const suggest = action({
       for (const combo of args.rejectedCombos) {
         userPrompt += `- "${combo.name}": ${combo.reason}\n`
       }
+    }
+
+    if (args.missingMaybeColors && args.missingMaybeColors.length > 0) {
+      const missing = args.missingMaybeColors.map((c) => colorNames[c] || c).join(', ')
+      userPrompt += `\nCRITICAL - MAYBE COVERAGE FAILURE: The previous batch did not produce a combo using these MAYBE colors: ${missing}. The new batch MUST include at least one combo whose color identity covers each of: ${args.missingMaybeColors.join(', ')}. A batch that still leaves any of these uncovered is invalid.\n`
     }
 
     if (args.cardPool) {

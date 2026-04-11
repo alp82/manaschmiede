@@ -2,6 +2,8 @@ import type { ScryfallCard } from './scryfall/types'
 import type { DeckCard, DeckFormat } from './deck-utils'
 import { FORMAT_RULES, getTotalCards, isBasicLand } from './deck-utils'
 
+type Translate = (key: string, params?: Record<string, string | number>) => string
+
 export interface BalanceWarning {
   severity: 'error' | 'warning' | 'info'
   message: string
@@ -48,6 +50,7 @@ export function analyzeDeck(
   cards: DeckCard[],
   cardData: Map<string, ScryfallCard>,
   format: DeckFormat,
+  t: Translate,
 ): BalanceAnalysis {
   const rules = FORMAT_RULES[format]
   const mainCards = cards.filter((c) => c.zone === 'main')
@@ -79,6 +82,11 @@ export function analyzeDeck(
       nonLandCount += dc.quantity
       const cmc = Math.min(Math.floor(card.cmc), 7)
       cmcCounts.set(cmc, (cmcCounts.get(cmc) || 0) + dc.quantity)
+      // Artifact mana sources count toward color fixing so goodstuff decks
+      // with Chromatic Lantern / signets don't trip the land-mismatch warning.
+      for (const color of getArtifactManaColors(card)) {
+        landColorCounts.set(color, (landColorCounts.get(color) || 0) + dc.quantity)
+      }
     }
 
     if (!isLand && card.colors) {
@@ -125,7 +133,7 @@ export function analyzeDeck(
   if (maindeckSize < rules.minDeckSize) {
     warnings.push({
       severity: 'error',
-      message: 'Your deck has only ' + maindeckSize + ' cards - at least ' + rules.minDeckSize + ' are required.',
+      message: t('balance.warning.tooFewCards', { count: maindeckSize, min: rules.minDeckSize }),
     })
   }
 
@@ -135,12 +143,12 @@ export function analyzeDeck(
     if (landCount < minLand) {
       warnings.push({
         severity: 'warning',
-        message: 'You have only ' + landCount + ' lands - recommended is ' + minLand + '-' + maxLand + '.',
+        message: t('balance.warning.tooFewLands', { count: landCount, min: minLand, max: maxLand }),
       })
     } else if (landCount > maxLand) {
       warnings.push({
         severity: 'warning',
-        message: 'You have ' + landCount + ' lands - recommended is ' + minLand + '-' + maxLand + '.',
+        message: t('balance.warning.tooManyLands', { count: landCount, min: minLand, max: maxLand }),
       })
     }
   }
@@ -150,7 +158,7 @@ export function analyzeDeck(
   if (nonLandCount >= 10 && averageCmc > maxCmc) {
     warnings.push({
       severity: 'warning',
-      message: 'Your average mana cost is ' + averageCmc.toFixed(1) + ' - consider adding cheaper cards.',
+      message: t('balance.warning.highCmc', { cmc: averageCmc.toFixed(1) }),
     })
   }
 
@@ -168,7 +176,7 @@ export function analyzeDeck(
       const name = card?.printed_name || card?.name || scryfallId
       warnings.push({
         severity: 'error',
-        message: '"' + name + '" appears ' + qty + 'x - maximum ' + rules.maxCopies + ' allowed.',
+        message: t('balance.warning.tooManyCopies', { name, count: qty, max: rules.maxCopies }),
       })
     }
   }
@@ -177,7 +185,7 @@ export function analyzeDeck(
   if (sideboardSize > rules.sideboardSize) {
     warnings.push({
       severity: 'error',
-      message: 'Sideboard has ' + sideboardSize + ' cards - maximum ' + rules.sideboardSize + ' allowed.',
+      message: t('balance.warning.sideboardTooLarge', { count: sideboardSize, max: rules.sideboardSize }),
     })
   }
 
@@ -185,10 +193,14 @@ export function analyzeDeck(
   for (const { color, count } of colorDistribution) {
     const landSupport = landColorCounts.get(color) || 0
     if (count >= 8 && landSupport < 3) {
-      const colorName = COLOR_NAMES[color] || color
+      const colorName = COLOR_KEYS[color] ? t(COLOR_KEYS[color]) : color
       warnings.push({
         severity: 'warning',
-        message: 'You have ' + count + ' ' + colorName + ' cards but only ' + landSupport + ' matching lands.',
+        message: t('balance.warning.colorLandMismatch', {
+          spells: count,
+          color: colorName,
+          lands: landSupport,
+        }),
       })
     }
   }
@@ -207,10 +219,10 @@ export function analyzeDeck(
     }
 
     if (!hasRemoval) {
-      suggestions.push('Consider adding removal spells to handle opponent threats.')
+      suggestions.push(t('balance.suggestion.addRemoval'))
     }
     if (!hasCardDraw) {
-      suggestions.push('Consider adding card draw to maintain hand advantage.')
+      suggestions.push(t('balance.suggestion.addCardDraw'))
     }
 
     // Tribal detection
@@ -220,8 +232,8 @@ export function analyzeDeck(
       if (!card || !card.type_line.toLowerCase().includes('creature')) continue
       const parts = card.type_line.split(' - ')
       if (parts[1]) {
-        for (const t of parts[1].split(' ')) {
-          const trimmed = t.trim()
+        for (const token of parts[1].split(' ')) {
+          const trimmed = token.trim()
           if (trimmed.length > 2) {
             creatureTypes.set(trimmed, (creatureTypes.get(trimmed) || 0) + dc.quantity)
           }
@@ -230,7 +242,7 @@ export function analyzeDeck(
     }
     for (const [type, typeCount] of creatureTypes) {
       if (typeCount >= 5) {
-        suggestions.push('You have ' + typeCount + ' ' + type + ' - consider tribal synergy cards.')
+        suggestions.push(t('balance.suggestion.tribalSynergy', { count: typeCount, type }))
       }
     }
   }
@@ -263,10 +275,30 @@ function getMainType(typeLine: string): string {
   return 'Other'
 }
 
-const COLOR_NAMES: Record<string, string> = {
-  W: 'white',
-  U: 'blue',
-  B: 'black',
-  R: 'red',
-  G: 'green',
+const COLOR_KEYS: Record<string, string> = {
+  W: 'color.white',
+  U: 'color.blue',
+  B: 'color.black',
+  R: 'color.red',
+  G: 'color.green',
+}
+
+const ANY_COLOR_PATTERN = /add one mana of any color|add \{w\}\{u\}\{b\}\{r\}\{g\}/i
+const SPECIFIC_MANA_PATTERNS: Record<string, RegExp> = {
+  W: /add \{w\}/i,
+  U: /add \{u\}/i,
+  B: /add \{b\}/i,
+  R: /add \{r\}/i,
+  G: /add \{g\}/i,
+}
+
+function getArtifactManaColors(card: ScryfallCard): string[] {
+  const text = (card.oracle_text || '').toLowerCase()
+  if (!text || !card.type_line.toLowerCase().includes('artifact')) return []
+  if (ANY_COLOR_PATTERN.test(text)) return ['W', 'U', 'B', 'R', 'G']
+  const colors: string[] = []
+  for (const [color, re] of Object.entries(SPECIFIC_MANA_PATTERNS)) {
+    if (re.test(text)) colors.push(color)
+  }
+  return colors
 }

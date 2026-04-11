@@ -1,11 +1,12 @@
+import { cn } from '../lib/utils'
 import { useT } from '../lib/i18n'
 
 const MANA_COLORS = {
-  W: { labelKey: 'color.white', symbol: 'W', glow: 'oklch(0.92 0.04 90 / 0.4)' },
-  U: { labelKey: 'color.blue', symbol: 'U', glow: 'oklch(0.55 0.18 250 / 0.4)' },
-  B: { labelKey: 'color.black', symbol: 'B', glow: 'oklch(0.30 0.02 285 / 0.5)' },
-  R: { labelKey: 'color.red', symbol: 'R', glow: 'oklch(0.58 0.22 25 / 0.4)' },
-  G: { labelKey: 'color.green', symbol: 'G', glow: 'oklch(0.60 0.18 145 / 0.4)' },
+  W: { labelKey: 'color.white', symbol: 'W' },
+  U: { labelKey: 'color.blue', symbol: 'U' },
+  B: { labelKey: 'color.black', symbol: 'B' },
+  R: { labelKey: 'color.red', symbol: 'R' },
+  G: { labelKey: 'color.green', symbol: 'G' },
 } as const
 
 export type ManaColor = keyof typeof MANA_COLORS
@@ -22,44 +23,58 @@ interface ManaSymbolProps {
   onClick?: () => void
 }
 
+/**
+ * Mana symbols are naturally circular (Scryfall's SVGs) so the ring around
+ * them is circular too — this does NOT violate Specimen's no-rounding rule,
+ * which is about UI chrome. Mana is iconographic.
+ */
 const sizes = {
-  sm: 'w-6 h-6',
-  md: 'w-8 h-8',
-  lg: 'w-10 h-10',
+  sm: 'h-6 w-6',      // 24px — inline / chips
+  md: 'h-8 w-8',      // 32px — stepper tooltip, default
+  lg: 'h-14 w-14',    // 56px — hero color picker
 }
 
 export function ManaSymbol({ color, size = 'md', selected, recommended, onClick }: ManaSymbolProps) {
   const t = useT()
   const label = t(MANA_COLORS[color].labelKey)
 
-  const glowColor = MANA_COLORS[color].glow
+  const classes = cn(
+    'relative inline-flex items-center justify-center rounded-full',
+    'transition-[opacity,box-shadow] duration-150 ease-out',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-red focus-visible:ring-offset-2 focus-visible:ring-offset-ash-900',
+    sizes[size],
+    selected
+      ? 'opacity-100 ring-2 ring-cream-100 ring-offset-2 ring-offset-ash-900'
+      : recommended
+        ? 'opacity-80'
+        : 'opacity-50',
+    onClick && 'cursor-pointer',
+    onClick && !selected && 'hover:opacity-100',
+  )
+
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} title={label} className={classes}>
+        <img
+          src={manaSymbolUrl(color)}
+          alt={label}
+          className="h-full w-full"
+          draggable={false}
+        />
+      </button>
+    )
+  }
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={label}
-      className={`
-        ${sizes[size]}
-        inline-flex items-center justify-center rounded-full
-        transition-all duration-150
-        ${selected ? 'ring-2 ring-white scale-125' : recommended ? 'opacity-80 scale-105' : 'opacity-50 hover:opacity-80'}
-        ${onClick ? 'cursor-pointer' : 'cursor-default'}
-      `}
-      style={selected ? {
-        filter: `drop-shadow(0 0 10px ${glowColor})`,
-      } : recommended ? {
-        filter: `drop-shadow(0 0 8px ${glowColor})`,
-        animation: 'glow-mana 2s ease-in-out infinite',
-      } : undefined}
-    >
+    <span title={label} className={classes} role="img" aria-label={label}>
       <img
         src={manaSymbolUrl(color)}
-        alt={label}
+        alt=""
         className="h-full w-full"
         draggable={false}
+        aria-hidden="true"
       />
-    </button>
+    </span>
   )
 }
 

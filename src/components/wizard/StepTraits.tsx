@@ -2,25 +2,52 @@ import { useState } from 'react'
 import { TRAITS, getRelevantTraits, getTraitsByCategory, type TraitCategory } from '../../lib/trait-mappings'
 import { useDeckSounds } from '../../lib/sounds'
 import { WizardNav } from './WizardNav'
+import { Pill } from '../ui/Pill'
+import { Button } from '../ui/Button'
+import { Checkbox } from '../ui/Checkbox'
+import { RangeSlider } from '../ui/RangeSlider'
+import { HighlightText } from '../HighlightText'
+import { cn } from '../../lib/utils'
 import { useT } from '../../lib/i18n'
 import type { ManaColor } from '../ManaSymbol'
 import type { ManaColorState, WizardAction } from '../../lib/wizard-state'
+import type { DeckFormat } from '../../lib/deck-utils'
 
 interface StepTraitsProps {
   colors: Record<ManaColor, ManaColorState>
   selectedArchetypes: string[]
   selectedTraits: string[]
   customStrategy: string
-  budgetLimit: number | null
+  budgetMin: number | null
+  budgetMax: number | null
   rarityFilter: string[]
+  format: DeckFormat
   dispatch: React.Dispatch<WizardAction>
   onNext: () => void
   onBack?: () => void
   onSkipToDeck?: () => void
+  onReset: () => void
 }
 
+function formatBudgetRange(
+  min: number | null,
+  max: number | null,
+  unlimitedLabel: string,
+): string {
+  const minStr = min != null ? `$${min}` : '$0'
+  const maxStr = max != null ? `$${max}` : unlimitedLabel
+  if (min == null && max == null) return unlimitedLabel
+  return `${minStr} \u2013 ${maxStr}`
+}
+
+const FORMATS: { value: DeckFormat; key: string }[] = [
+  { value: 'casual', key: 'colors.formatCasual' },
+  { value: 'modern', key: 'colors.formatModern' },
+  { value: 'standard', key: 'colors.formatStandard' },
+]
+
 // Scryfall art_crop URLs for each archetype (iconic cards)
-const ARCHETYPE_ART: Record<string, string> = {
+export const ARCHETYPE_ART: Record<string, string> = {
   aggro: 'https://cards.scryfall.io/art_crop/front/3/c/3c0f5411-1940-410f-96ce-6f92513f753a.jpg?1599706366',
   midrange: 'https://cards.scryfall.io/art_crop/front/9/0/9011126a-20bd-4c86-a63b-1691f79ac247.jpg?1562790317',
   control: 'https://cards.scryfall.io/art_crop/front/4/f/4f616706-ec97-4923-bb1e-11a69fbaa1f8.jpg?1751282477',
@@ -33,6 +60,9 @@ const ARCHETYPE_ART: Record<string, string> = {
   lifegain: 'https://cards.scryfall.io/art_crop/front/3/2/3245ff74-1f9c-4518-a23f-1579f338f232.jpg?1689995727',
   reanimator: 'https://cards.scryfall.io/art_crop/front/3/6/368b6903-5fc4-43e7-bd44-46b8107c8bb4.jpg?1738000013',
   burn: 'https://cards.scryfall.io/art_crop/front/7/7/77c6fa74-5543-42ac-9ead-0e890b188e99.jpg?1706239968',
+  goodstuff: 'https://cards.scryfall.io/art_crop/front/6/8/68625010-3e4e-4400-b503-bf381a7fd81b.jpg',
+  sacrifice: 'https://cards.scryfall.io/art_crop/front/2/8/282099f3-e2a7-470d-8097-b6cc247eb033.jpg',
+  drain: 'https://cards.scryfall.io/art_crop/front/0/7/0783365b-c54f-471e-bdf2-1f384e065a48.jpg',
 }
 
 const RARITIES = ['common', 'uncommon', 'rare', 'mythic'] as const
@@ -55,12 +85,15 @@ export function StepTraits({
   selectedArchetypes,
   selectedTraits,
   customStrategy,
-  budgetLimit,
+  budgetMin,
+  budgetMax,
   rarityFilter,
+  format,
   dispatch,
   onNext,
   onBack,
   onSkipToDeck,
+  onReset,
 }: StepTraitsProps) {
   const t = useT()
   const [traitSearch, setTraitSearch] = useState('')
@@ -89,85 +122,131 @@ export function StepTraits({
   const hasSelections = selectedArchetypes.length > 0 || selectedTraits.length > 0 || customStrategy.trim().length > 0
 
   return (
-    <div className="mx-auto max-w-4xl space-y-8 py-6 pb-20">
-      <div className="text-center">
-        <h2 className="font-display text-2xl font-bold text-surface-100">{t('strategy.title')}</h2>
-        <p className="mt-2 text-sm text-surface-400">
-          {t('strategy.subtitle')}
-        </p>
-      </div>
+    <section className="relative">
+      <div className="mx-auto max-w-4xl space-y-16 px-4 pb-24 pt-16">
+        {/* Section header */}
+        <header className="flex flex-col items-center text-center">
+          <span className="font-display text-display-eyebrow uppercase leading-none tracking-eyebrow text-cream-400">
+            Chapter I
+          </span>
+          <h2 className="mt-4 font-display text-display-title leading-[1.1] tracking-display text-cream-100">
+            {t('strategy.title')}
+          </h2>
+          <p className="mt-4 max-w-md font-body text-base text-cream-300">
+            {t('strategy.subtitle')}
+          </p>
+        </header>
 
-      {/* Archetype hero cards */}
-      <div>
-        <h3 className="mb-4 text-center text-sm font-medium text-surface-300">
-          {t('strategy.archetypes')} <span className="text-surface-500">{t('strategy.pickUpTo2')}</span>
-        </h3>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {archetypes.map((trait) => {
-            const isSelected = selectedArchetypes.includes(trait.id)
-            const artUrl = ARCHETYPE_ART[trait.id]
-            return (
-              <button
-                key={trait.id}
-                type="button"
-                onClick={() => {
-                  const wouldBeNoOp = !isSelected && selectedArchetypes.length >= 2
-                  dispatch({ type: 'TOGGLE_ARCHETYPE', traitId: trait.id })
-                  if (!wouldBeNoOp) sounds.cardSlide()
-                }}
-                className={`group relative aspect-[3/2] overflow-hidden rounded-2xl border-2 transition-all ${
-                  isSelected
-                    ? 'border-accent ring-2 ring-accent ring-offset-2 ring-offset-surface-900'
-                    : 'border-transparent hover:-translate-y-1 hover:shadow-xl hover:shadow-black/30'
-                }`}
-              >
-                {/* Art background */}
-                <img
-                  src={artUrl}
-                  alt=""
-                  loading="lazy"
-                  className={`absolute inset-0 h-full w-full object-cover transition-[filter] duration-[--duration-quick] ${
-                    isSelected ? 'brightness-100' : 'brightness-[0.7] group-hover:brightness-[0.85]'
-                  }`}
-                />
+        {/* Archetype hero cards */}
+        <div className="mt-16">
+          <div className="mb-6 flex items-center justify-center gap-3">
+            <span className="font-mono text-mono-label uppercase tracking-mono-label text-cream-200">
+              {t('strategy.archetypes')}
+            </span>
+            <span className="font-mono text-mono-tag tracking-mono-tag text-cream-400">
+              {t('strategy.pickUpToLimit')}
+            </span>
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {archetypes.map((trait, i) => {
+              const isSelected = selectedArchetypes.includes(trait.id)
+              const artUrl = ARCHETYPE_ART[trait.id]
+              const letterIndex = String.fromCharCode(97 + i) // a, b, c…
+              return (
+                <button
+                  key={trait.id}
+                  type="button"
+                  onClick={() => {
+                    const wouldBeNoOp = !isSelected && selectedArchetypes.length >= 3
+                    dispatch({ type: 'TOGGLE_ARCHETYPE', traitId: trait.id })
+                    if (!wouldBeNoOp) sounds.cardSlide()
+                  }}
+                  className={cn(
+                    'group relative aspect-[3/2] cursor-pointer overflow-hidden border transition-colors duration-150',
+                    isSelected
+                      ? 'border-cream-100 outline outline-2 -outline-offset-2 outline-cream-100'
+                      : 'border-hairline opacity-60 hover:border-hairline-strong hover:opacity-90',
+                  )}
+                >
+                  {/* Art background — card art gets painterly treatment
+                      (specimen exception mirrors foil-shimmer rule).
+                      Selected cards render at full brightness; unselected
+                      ones are dimmed via `opacity-60` on the button
+                      wrapper so the selected cards "light up" against
+                      faded neighbours. */}
+                  <img
+                    src={artUrl}
+                    alt=""
+                    loading="lazy"
+                    className="absolute inset-0 h-full w-full object-cover"
+                  />
 
-                {/* Gradient scrim */}
-                <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/70 via-black/30 to-transparent" />
+                  {/* Soft ink scrim — gradient fade so the text base blends
+                      into the art instead of cutting it with a hard line.
+                      This is a card-art exception to the no-gradients rule. */}
+                  <div
+                    aria-hidden="true"
+                    className="absolute inset-x-0 bottom-0 h-[70%]"
+                    style={{
+                      background:
+                        'linear-gradient(to top, oklch(0.14 0.008 55 / 0.95) 0%, oklch(0.14 0.008 55 / 0.8) 45%, oklch(0.14 0.008 55 / 0) 100%)',
+                    }}
+                  />
 
-                {/* Official name badge */}
-                <div className={`absolute right-3 top-3 flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium backdrop-blur-sm transition-colors ${
-                  isSelected ? 'bg-accent text-white' : 'bg-black/50 text-surface-300'
-                }`}>
-                  {isSelected && <span className="font-bold">✓</span>}
-                  {t(`trait.${trait.id}`)}
-                </div>
+                  {/* Selected slab — thick cream bar on the LEFT edge,
+                      combined with the cream outline above for a loud
+                      "this is selected" signal. */}
+                  {isSelected && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute inset-y-0 left-0 w-2 bg-cream-100"
+                    />
+                  )}
 
-                {/* Text area */}
-                <div className="absolute inset-x-0 bottom-0 p-4 text-left">
-                  <div className="font-display text-xl font-bold text-white">
-                    {t(`trait.casual.${trait.id}`)}
+                  {/* Marginal letter-index (catalog entry feel) */}
+                  <span
+                    aria-hidden="true"
+                    className="absolute left-3 top-2 font-mono text-mono-marginal uppercase leading-none tracking-mono-marginal text-cream-200/80"
+                  >
+                    {letterIndex}
+                  </span>
+
+                  {/* Selection checkbox — empty when not selected (a hint
+                      that the card is selectable), cream-filled X when
+                      selected. */}
+                  <Checkbox
+                    checked={isSelected}
+                    className="absolute right-2 top-2"
+                  />
+
+                  {/* Text area */}
+                  <div className="absolute inset-x-0 bottom-0 p-4 pl-5 text-left">
+                    <div className="font-display text-xl font-bold uppercase leading-tight tracking-display text-cream-100">
+                      {t(`trait.${trait.id}`)}
+                    </div>
+                    <div className="mt-1 font-body text-sm text-cream-300">
+                      {t(`trait.desc.${trait.id}`)}
+                    </div>
                   </div>
-                  <div className="mt-0.5 text-sm text-surface-300">
-                    {t(`trait.desc.${trait.id}`)}
-                  </div>
-                </div>
-              </button>
-            )
-          })}
+                </button>
+              )
+            })}
+          </div>
         </div>
-      </div>
 
       {/* Trait tags by category */}
-      <div className="space-y-4">
-        <div className="flex items-center gap-2">
-          <h3 className="text-sm font-medium text-surface-300">{t('strategy.traitsThemes')}</h3>
+      <div className="space-y-6">
+        <div className="flex items-center gap-4">
+          <span className="font-mono text-mono-label uppercase tracking-mono-label text-cream-200">
+            {t('strategy.traitsThemes')}
+          </span>
           <input
             type="text"
             value={traitSearch}
             onChange={(e) => setTraitSearch(e.target.value)}
             onKeyDown={(e) => e.key.length === 1 && sounds.typing()}
             placeholder={t('strategy.filterPlaceholder')}
-            className="ml-auto rounded-lg border border-surface-600 bg-surface-800 px-2 py-1 text-xs text-surface-100 placeholder-surface-500 focus:border-accent focus:outline-none"
+            className="ml-auto border border-hairline-strong bg-ash-800 px-3 py-2 font-mono text-mono-label text-cream-100 placeholder-cream-400 focus:border-cream-200 focus:outline-none"
           />
         </div>
 
@@ -176,43 +255,42 @@ export function StepTraits({
           if (traits.length === 0) return null
           return (
             <div key={cat}>
-              <h4 className="mb-1.5 text-xs font-medium text-surface-500">{t(CATEGORY_KEYS[cat])}</h4>
-              <div className="flex flex-wrap gap-1.5">
+              <h4 className="mb-3 font-mono text-mono-label uppercase tracking-mono-label text-cream-300">
+                {t(CATEGORY_KEYS[cat])}
+              </h4>
+              <div className="flex flex-wrap gap-2">
                 {traits.map((trait) => {
                   const isSelected = selectedTraits.includes(trait.id)
                   return (
-                    <button
+                    <Pill
                       key={trait.id}
-                      type="button"
-                      onClick={() => { dispatch({ type: 'TOGGLE_TRAIT', traitId: trait.id }); sounds.uiClick() }}
+                      size="md"
+                      selected={isSelected}
                       title={t(`trait.desc.${trait.id}`)}
-                      className={`rounded-md px-3 py-2 text-xs transition-all ${
-                        isSelected
-                          ? 'bg-accent/80 text-white'
-                          : 'bg-surface-700/50 text-surface-400 hover:bg-surface-600/50 hover:text-surface-200'
-                      }`}
+                      onClick={() => { dispatch({ type: 'TOGGLE_TRAIT', traitId: trait.id }); sounds.uiClick() }}
                     >
-                      {t(`trait.${trait.id}`)}
-                    </button>
+                      <HighlightText text={t(`trait.${trait.id}`)} term={traitSearch} />
+                    </Pill>
                   )
                 })}
               </div>
             </div>
           )
         })}
-
       </div>
 
       {/* Custom strategy text */}
       <div>
-        <h3 className="mb-2 text-sm font-medium text-surface-300">{t('strategy.describeStrategy')}</h3>
+        <h3 className="mb-3 font-mono text-mono-label uppercase tracking-mono-label text-cream-200">
+          {t('strategy.describeStrategy')}
+        </h3>
         <textarea
           value={customStrategy}
           onChange={(e) => dispatch({ type: 'SET_CUSTOM_STRATEGY', text: e.target.value })}
           onKeyDown={(e) => e.key.length === 1 && sounds.typing()}
           placeholder={t('strategy.strategyPlaceholder')}
           rows={3}
-          className="w-full rounded-lg border border-surface-600 bg-surface-800 px-3 py-2 text-sm text-surface-100 placeholder-surface-500 focus:border-accent focus:outline-none"
+          className="w-full resize-none border border-hairline-strong bg-ash-800 px-3 py-2.5 font-body text-base text-cream-100 placeholder-cream-400 focus:border-cream-200 focus:outline-none"
         />
       </div>
 
@@ -221,108 +299,115 @@ export function StepTraits({
         <button
           type="button"
           onClick={() => setShowAdvanced(!showAdvanced)}
-          className="flex items-center gap-1.5 text-xs text-surface-400 hover:text-surface-200"
+          className="flex items-center gap-2 font-mono text-mono-label uppercase tracking-mono-label text-cream-400 transition-colors hover:text-cream-100"
         >
-          <span className={`transition-transform duration-[--duration-quick] ${showAdvanced ? 'rotate-90' : ''}`}>▸</span>
+          <span aria-hidden="true">{showAdvanced ? '\u2212' : '+'}</span>
           {t('strategy.advanced')}
         </button>
         {showAdvanced && (
-          <div className="mt-3 flex gap-6">
-            <div className="flex-1">
-              <h3 className="mb-2 text-sm font-medium text-surface-300">
+          <div className="mt-4 space-y-6">
+            {/* Budget per card — double-range slider (min + max) */}
+            <div>
+              <h3 className="mb-2 font-mono text-mono-label uppercase tracking-mono-label text-cream-300">
                 {t('strategy.budgetPerCard')}
-                <span className="ml-2 text-surface-500">
-                  {budgetLimit != null ? `$${budgetLimit}` : t('strategy.unlimited')}
+                <span className="ml-2 font-body text-sm normal-case tracking-normal text-cream-500">
+                  {formatBudgetRange(budgetMin, budgetMax, t('strategy.unlimited'))}
                 </span>
               </h3>
-              <div className="flex items-center gap-3">
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  step="5"
-                  value={budgetLimit ?? 100}
-                  onChange={(e) => {
-                    const val = parseInt(e.target.value)
-                    dispatch({ type: 'SET_BUDGET', limit: val >= 100 ? null : val })
-                  }}
-                  className="flex-1 accent-accent"
-                />
-                <button
-                  type="button"
-                  onClick={() => dispatch({ type: 'SET_BUDGET', limit: null })}
-                  className={`rounded px-2 py-0.5 text-xs ${
-                    budgetLimit == null ? 'bg-accent text-white' : 'bg-surface-700 text-surface-400'
-                  }`}
-                >
-                  {t('strategy.noLimit')}
-                </button>
-              </div>
+              <RangeSlider
+                min={0}
+                max={100}
+                step={1}
+                value={[budgetMin ?? 0, budgetMax ?? 100]}
+                onChange={([nextMin, nextMax]) => {
+                  dispatch({
+                    type: 'SET_BUDGET',
+                    min: nextMin <= 0 ? null : nextMin,
+                    max: nextMax >= 100 ? null : nextMax,
+                  })
+                }}
+                formatValue={(v) => (v >= 100 ? t('strategy.unlimited') : `$${v}`)}
+              />
             </div>
 
+            {/* Rarity — full-width row */}
             <div>
-              <h3 className="mb-2 text-sm font-medium text-surface-300">{t('strategy.rarity')}</h3>
-              <div className="flex gap-2">
+              <h3 className="mb-2 font-mono text-mono-label uppercase tracking-mono-label text-cream-300">
+                {t('strategy.rarity')}
+              </h3>
+              <div className="flex flex-wrap gap-2">
                 {RARITIES.map((r) => {
                   const isIncluded = rarityFilter.includes(r)
                   return (
-                    <button
+                    <Pill
                       key={r}
-                      type="button"
+                      size="sm"
+                      selected={isIncluded}
                       onClick={() => {
                         const next = isIncluded
                           ? rarityFilter.filter((x) => x !== r)
                           : [...rarityFilter, r]
                         if (next.length > 0) dispatch({ type: 'SET_RARITY_FILTER', rarities: next })
                       }}
-                      className={`rounded px-2 py-1 text-xs transition-colors ${
-                        isIncluded
-                          ? 'bg-accent/20 text-accent'
-                          : 'bg-surface-700/50 text-surface-500 hover:text-surface-300'
-                      }`}
                     >
                       {t(RARITY_KEYS[r])}
-                    </button>
+                    </Pill>
                   )
                 })}
               </div>
+            </div>
+
+            {/* Format selector — moved from the Colors step */}
+            <div>
+              <h3 className="mb-2 font-mono text-mono-label uppercase tracking-mono-label text-cream-300">
+                {t('colors.format')}
+              </h3>
+              <div className="flex flex-wrap items-center gap-2">
+                {FORMATS.map((f) => (
+                  <Pill
+                    key={f.value}
+                    size="sm"
+                    selected={format === f.value}
+                    onClick={() => dispatch({ type: 'SET_FORMAT', format: f.value })}
+                  >
+                    {t(f.key)}
+                  </Pill>
+                ))}
+              </div>
+              <p className="mt-2 font-body text-sm italic text-cream-400">
+                {format === 'casual' && t('colors.descCasual')}
+                {format === 'modern' && t('colors.descModern')}
+                {format === 'standard' && t('colors.descStandard')}
+              </p>
             </div>
           </div>
         )}
       </div>
 
       <WizardNav>
-        {onBack ? (
-          <button
-            type="button"
-            onClick={onBack}
-            className="rounded-lg border border-surface-600 px-6 py-2.5 text-sm text-surface-300 hover:border-surface-500 hover:text-surface-100"
-          >
-            {t('wizard.back')}
-          </button>
-        ) : (
-          <div />
-        )}
+        <div className="flex items-center gap-3">
+          {onBack && (
+            <Button variant="secondary" size="lg" onClick={onBack}>
+              {t('wizard.back')}
+            </Button>
+          )}
+          <Button variant="ghost" size="md" onClick={onReset}>
+            {t('wizard.reset')}
+          </Button>
+        </div>
         <div className="flex items-center gap-3">
           {onSkipToDeck && (
-            <button
-              type="button"
-              onClick={onSkipToDeck}
-              className="text-sm text-surface-400 hover:text-surface-200 underline underline-offset-4"
-            >
-              <span className="sm:hidden">{t('wizard.skip')}</span><span className="hidden sm:inline">{t('strategy.skipLong')}</span>
-            </button>
+            <Button variant="ghost" size="md" onClick={onSkipToDeck}>
+              <span className="sm:hidden">{t('wizard.skip')}</span>
+              <span className="hidden sm:inline">{t('strategy.skipLong')}</span>
+            </Button>
           )}
-          <button
-            type="button"
-            onClick={onNext}
-            disabled={!hasSelections}
-            className="rounded-lg bg-accent px-8 py-2.5 font-medium text-white hover:bg-accent-hover disabled:opacity-30 disabled:cursor-not-allowed"
-          >
+          <Button variant="primary" size="lg" onClick={onNext} disabled={!hasSelections}>
             {t('strategy.nextColors')}
-          </button>
+          </Button>
         </div>
       </WizardNav>
-    </div>
+      </div>
+    </section>
   )
 }

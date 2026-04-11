@@ -5,6 +5,8 @@ import { getCardById } from '../../lib/scryfall/client'
 import { CardImage } from '../CardImage'
 import { CardLightbox } from '../CardLightbox'
 import { ManaSymbol, type ManaColor } from '../ManaSymbol'
+import { Checkbox } from '../ui/Checkbox'
+import { cn } from '../../lib/utils'
 import { useI18n } from '../../lib/i18n'
 
 interface ComboCardProps {
@@ -71,56 +73,68 @@ export function ComboCard({ combo, selected, onSelect, renderLightboxActions }: 
   return (
     <>
       <div
-        className={`rounded-xl border-2 transition-all ${
-          selected
-            ? 'border-accent bg-accent/10'
-            : 'border-surface-700 bg-surface-800/50 hover:border-surface-500'
-        }`}
+        className={cn(
+          'relative border border-hairline transition-colors duration-150',
+          selected ? 'bg-ash-800' : 'bg-ash-900/50 hover:border-hairline-strong',
+        )}
       >
-        {/* Header: name + colors + select button */}
+        {/* Selected-state marker: cream slab running the full left edge.
+            Cream (not ink-red) for consistency with the archetype cards —
+            the red was colliding with red imagery in both places. */}
+        {selected && (
+          <span
+            aria-hidden="true"
+            className="absolute inset-y-0 left-0 w-1.5 bg-cream-100"
+          />
+        )}
+
+        {/* Header: mana colors + name + checkbox */}
         <button
           type="button"
           onClick={onSelect}
-          className="flex w-full items-center gap-3 px-4 pt-4 pb-2 text-left"
+          className="flex w-full cursor-pointer items-center gap-3 px-5 pb-3 pt-5 text-left"
         >
           <div className="flex items-center gap-1.5">
             {colors.map((color) => (
               <ManaSymbol key={color} color={color} size="sm" selected />
             ))}
           </div>
-          <h3 className={`flex-1 font-display text-base font-bold ${selected ? 'text-accent' : 'text-surface-100'}`}>
+          <h3 className="flex-1 font-display text-display-eyebrow uppercase tracking-display text-cream-100">
             {combo.name}
           </h3>
-          <div className={`flex h-5 w-5 items-center justify-center rounded-full border-2 transition-colors ${
-            selected ? 'border-accent bg-accent' : 'border-surface-500'
-          }`}>
-            {selected && <span className="text-xs text-white">{'\u2713'}</span>}
-          </div>
+          <Checkbox checked={selected} />
         </button>
 
-        {/* Card images - grid, no scrollbar */}
-        <div className="px-4 py-2">
-          <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(resolvedCards.length, 4)}, 1fr)` }}>
-            {resolvedCards.map((card, i) => (
+        {/* Card images — flat grid, sharp corners */}
+        <div className="px-5 py-2">
+          <div
+            className="grid gap-2"
+            style={{ gridTemplateColumns: `repeat(${Math.min(resolvedCards.length, 4)}, 1fr)` }}
+          >
+            {resolvedCards.map((card) => (
               <button
                 key={card.name}
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation()
                   if (card.scryfallCard) {
-                    const scryfallIndex = scryfallCards.findIndex((sc) => sc.id === card.scryfallCard!.id)
+                    const scryfallIndex = scryfallCards.findIndex(
+                      (sc) => sc.id === card.scryfallCard!.id,
+                    )
                     if (scryfallIndex >= 0) setLightboxIndex(scryfallIndex)
                   }
                 }}
                 className="group relative"
               >
                 {card.scryfallCard ? (
-                  <div className="overflow-hidden rounded-lg transition-transform group-hover:scale-[1.03]">
+                  <div className="overflow-hidden border border-hairline transition-transform group-hover:-translate-y-1">
                     <CardImage card={card.scryfallCard} size="normal" />
                   </div>
                 ) : (
-                  <div className="flex aspect-[488/680] items-center justify-center rounded-lg border border-surface-600 bg-surface-700 p-2">
-                    <span className="text-center text-xs text-surface-300">{card.name}</span>
+                  <div className="flex aspect-[488/680] items-center justify-center border border-hairline bg-ash-800 p-2">
+                    <span className="text-center font-mono text-mono-tag uppercase tracking-mono-tag text-cream-300">
+                      {card.name}
+                    </span>
                   </div>
                 )}
               </button>
@@ -132,9 +146,9 @@ export function ComboCard({ combo, selected, onSelect, renderLightboxActions }: 
         <button
           type="button"
           onClick={onSelect}
-          className="w-full px-4 pb-4 pt-1 text-left"
+          className="w-full cursor-pointer px-5 pb-5 pt-2 text-left"
         >
-          <p className="text-sm leading-relaxed text-surface-300">
+          <p className="font-body text-sm leading-relaxed text-cream-300">
             {combo.explanation}
           </p>
         </button>

@@ -1,15 +1,30 @@
-import { useState, useRef } from 'react'
-import { createPortal } from 'react-dom'
+import { useState, Fragment } from 'react'
+import { cn } from '../../lib/utils'
 import { useT } from '../../lib/i18n'
 import type { WizardState } from '../../lib/wizard-state'
 import type { ManaColor } from '../ManaSymbol'
 import type { ManaColorState } from '../../lib/wizard-state'
+import type { ScryfallCard } from '../../lib/scryfall/types'
+import { getCardImageUri, getCardName } from '../../lib/scryfall/types'
+import { ARCHETYPE_ART } from './StepTraits'
+
+/**
+ * Specimen Stepper.
+ *
+ * Horizontal hairline across the top. Cinzel Roman numerals above,
+ * JetBrains Mono labels below. Current step: ink-red numeral, cream label,
+ * short vertical slab descending from the hairline. Completed: cream-300,
+ * hairline solid. Future: cream-500, hairline dotted.
+ *
+ * No pills, no circles, no blue, no icons. Click completed steps to navigate
+ * back; future steps are inert.
+ */
 
 const STEPS = [
-  { num: 1, key: 'wizard.strategy' },
-  { num: 2, key: 'wizard.colors' },
-  { num: 3, key: 'wizard.coreCards' },
-  { num: 4, key: 'wizard.buildDeck' },
+  { num: 1, key: 'wizard.strategy', roman: 'I' },
+  { num: 2, key: 'wizard.colors', roman: 'II' },
+  { num: 3, key: 'wizard.coreCards', roman: 'III' },
+  { num: 4, key: 'wizard.buildDeck', roman: 'IV' },
 ] as const
 
 interface StepIndicatorProps {
@@ -17,6 +32,8 @@ interface StepIndicatorProps {
   maxStepReached: 1 | 2 | 3 | 4
   onStepClick: (step: 1 | 2 | 3 | 4) => void
   wizardState: WizardState
+  /** Called when the user clicks the seed card anchor — route opens the seed lightbox. */
+  onOpenSeed?: () => void
 }
 
 const MANA_SYMBOL_URL: Record<ManaColor, string> = {
@@ -27,33 +44,72 @@ const MANA_SYMBOL_URL: Record<ManaColor, string> = {
   G: 'https://svgs.scryfall.io/card-symbols/G.svg',
 }
 
-function useStepSummary(stepNum: number, state: WizardState): React.ReactNode[] | null {
+function useStepSummary(stepNum: number, state: WizardState): React.ReactNode | null {
   const t = useT()
 
   if (stepNum === 1) {
-    const items: React.ReactNode[] = []
-    if (state.selectedArchetypes.length > 0) {
-      items.push(
-        <span key="arch" className="flex flex-wrap gap-1">
-          {state.selectedArchetypes.map((id) => (
-            <span key={id} className="rounded bg-accent/20 px-1.5 py-0.5 text-accent">{t(`trait.${id}`)}</span>
-          ))}
-        </span>,
-      )
-    }
-    if (state.selectedTraits.length > 0) {
-      items.push(
-        <span key="traits" className="flex flex-wrap gap-1">
-          {state.selectedTraits.map((id) => (
-            <span key={id} className="rounded bg-surface-600 px-1.5 py-0.5 text-surface-300">{t(`trait.${id}`)}</span>
-          ))}
-        </span>,
-      )
-    }
-    if (state.format !== 'casual') {
-      items.push(<span key="fmt" className="text-surface-400">{state.format}</span>)
-    }
-    return items.length > 0 ? items : null
+    const hasArchetypes = state.selectedArchetypes.length > 0
+    const hasTraits = state.selectedTraits.length > 0
+    if (!hasArchetypes && !hasTraits) return null
+
+    return (
+      <>
+        {/* Mini archetype plates — small versions of the strategy cards
+            (art bg, title dominantly on top, no description). */}
+        {hasArchetypes && (
+          <div className="flex flex-wrap justify-center gap-1.5">
+            {state.selectedArchetypes.map((id) => {
+              const art = ARCHETYPE_ART[id]
+              return (
+                <div
+                  key={id}
+                  className="relative h-14 w-24 overflow-hidden border border-hairline-strong"
+                >
+                  {art && (
+                    <img
+                      src={art}
+                      alt=""
+                      className="absolute inset-0 h-full w-full object-cover brightness-[0.55]"
+                    />
+                  )}
+                  {/* Uniform scrim so the centered title is readable against
+                      any part of the art — a gradient would only darken one
+                      edge of the mini-card. */}
+                  <div
+                    aria-hidden="true"
+                    className="absolute inset-0 bg-ash-900/70"
+                  />
+                  <span className="absolute inset-0 flex items-center justify-center px-1 text-center font-display text-xs font-bold uppercase leading-none tracking-display text-cream-100">
+                    {t(`trait.${id}`)}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Trait tags — mono-tag, wrapped under the cards if present */}
+        {hasTraits && (
+          <div className="flex flex-wrap justify-center gap-1">
+            {state.selectedTraits.map((id) => (
+              <span
+                key={id}
+                className="font-mono text-mono-tag uppercase tracking-mono-tag text-cream-400"
+              >
+                {t(`trait.${id}`)}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Format marginalia (only if non-default) */}
+        {state.format !== 'casual' && (
+          <span className="font-mono text-mono-marginal uppercase tracking-mono-marginal text-ink-red-bright">
+            {state.format}
+          </span>
+        )}
+      </>
+    )
   }
 
   if (stepNum === 2) {
@@ -61,131 +117,238 @@ function useStepSummary(stepNum: number, state: WizardState): React.ReactNode[] 
     const selected = entries.filter(([, s]) => s === 'selected').map(([c]) => c)
     const maybe = entries.filter(([, s]) => s === 'maybe').map(([c]) => c)
     if (selected.length === 0 && maybe.length === 0) return null
-    const items: React.ReactNode[] = []
-    if (selected.length > 0) {
-      items.push(
-        <span key="sel" className="flex items-center gap-1">
-          {selected.map((c) => <img key={c} src={MANA_SYMBOL_URL[c]} alt={c} className="h-4 w-4" />)}
-        </span>,
-      )
-    }
-    if (maybe.length > 0) {
-      items.push(
-        <span key="maybe" className="flex items-center gap-1 opacity-50">
-          {maybe.map((c) => <img key={c} src={MANA_SYMBOL_URL[c]} alt={c} className="h-4 w-4" />)}
-          <span className="text-surface-500">?</span>
-        </span>,
-      )
-    }
-    return items
+
+    return (
+      <>
+        {/* Large color icons — much bigger than the inline tag version */}
+        {selected.length > 0 && (
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            {selected.map((c) => (
+              <img key={c} src={MANA_SYMBOL_URL[c]} alt={c} className="h-12 w-12" />
+            ))}
+          </div>
+        )}
+        {maybe.length > 0 && (
+          <div className="flex flex-wrap items-center justify-center gap-2 opacity-60">
+            <span className="font-mono text-mono-marginal uppercase tracking-mono-marginal text-cream-500">
+              maybe
+            </span>
+            {maybe.map((c) => (
+              <img key={c} src={MANA_SYMBOL_URL[c]} alt={c} className="h-7 w-7" />
+            ))}
+          </div>
+        )}
+      </>
+    )
   }
 
   if (stepNum === 3) {
     if (state.selectedComboIndex == null || !state.coreCombos[state.selectedComboIndex]) return null
     const combo = state.coreCombos[state.selectedComboIndex]
-    return [<span key="combo" className="text-surface-200">{combo.name}</span>]
+    return (
+      <span className="font-mono text-mono-label uppercase tracking-mono-label text-cream-100">
+        {combo.name}
+      </span>
+    )
   }
 
   return null
 }
 
-export function StepIndicator({ currentStep, maxStepReached, onStepClick, wizardState }: StepIndicatorProps) {
+export function StepIndicator({ currentStep, maxStepReached, onStepClick, wizardState, onOpenSeed }: StepIndicatorProps) {
   const t = useT()
+  const seed = wizardState.seedCard
 
   return (
-    <div className="flex items-center gap-1 sm:gap-2">
-      {STEPS.map(({ num, key }, i) => {
+    <div className="flex w-full max-w-3xl items-start">
+      {seed && <SeedAnchor seed={seed} onOpen={onOpenSeed} />}
+      {STEPS.map(({ num, key, roman }, i) => {
         const isActive = num === currentStep
         const isReachable = num <= maxStepReached
         const isCompleted = num < currentStep
+        const hasNext = i < STEPS.length - 1
+        const connectorReached = num < currentStep
 
         return (
-          <div key={num} className="flex items-center gap-1 sm:gap-2">
-            <StepButton
+          <Fragment key={num}>
+            <StepMarker
               num={num}
+              roman={roman}
               label={t(key)}
               isActive={isActive}
-              isReachable={isReachable}
               isCompleted={isCompleted}
+              isReachable={isReachable}
               wizardState={wizardState}
               onClick={() => {
                 if (isReachable && !isActive) onStepClick(num as 1 | 2 | 3 | 4)
               }}
             />
-            {i < STEPS.length - 1 && (
-              <div className={`h-px w-3 sm:w-6 ${num < maxStepReached ? 'bg-accent/50' : 'bg-surface-700'}`} />
+            {hasNext && (
+              <div
+                aria-hidden="true"
+                className={cn(
+                  // Connector rule sits at y=52 — aligns with the bottom
+                  // of the 40px numeral row inside the button's py-3
+                  // top padding (12 + 40 = 52), so the hairline sits in
+                  // the gap between numerals and labels.
+                  'mt-[52px] h-0 flex-1 min-w-4',
+                  connectorReached
+                    ? 'border-t border-solid border-cream-200'
+                    : 'border-t border-dotted border-cream-500/70',
+                )}
+              />
             )}
-          </div>
+          </Fragment>
         )
       })}
     </div>
   )
 }
 
-function StepButton({ num, label, isActive, isReachable, isCompleted, wizardState, onClick }: {
+function StepMarker({
+  num,
+  roman,
+  label,
+  isActive,
+  isCompleted,
+  isReachable,
+  wizardState,
+  onClick,
+}: {
   num: number
+  roman: string
   label: string
   isActive: boolean
-  isReachable: boolean
   isCompleted: boolean
+  isReachable: boolean
   wizardState: WizardState
   onClick: () => void
 }) {
   const [showTooltip, setShowTooltip] = useState(false)
-  const buttonRef = useRef<HTMLButtonElement>(null)
   const summary = useStepSummary(num, wizardState)
   const hasTooltip = isCompleted && summary !== null
 
   return (
     <>
       <button
-        ref={buttonRef}
         type="button"
         onClick={onClick}
-        disabled={!isReachable}
+        disabled={!isReachable || isActive}
         onMouseEnter={() => hasTooltip && setShowTooltip(true)}
         onMouseLeave={() => setShowTooltip(false)}
-        className={`flex items-center gap-1.5 rounded-full px-2 py-1.5 text-xs font-medium transition-all sm:gap-2 sm:px-3 sm:text-sm ${
-          isActive
-            ? 'bg-accent text-white'
-            : isReachable
-              ? 'bg-accent/20 text-accent hover:bg-accent/30 cursor-pointer'
-              : 'bg-surface-700/50 text-surface-500 cursor-default'
-        }`}
+        className={cn(
+          'group relative flex shrink-0 flex-col items-center gap-2 px-2.5 py-3 mx-2.5 sm:px-3 sm:mx-3',
+          'focus:outline-none focus-visible:outline-none',
+          'transition-colors duration-150',
+          'disabled:cursor-default',
+          isReachable && !isActive && 'cursor-pointer hover:bg-ash-800',
+          // Active state — subtle ash-800 wash + ink-red accents (numeral,
+          // signature slab below label). No bg fill; the red marks carry
+          // the "current step" signal per the original Specimen spec:
+          // "ink-red numeral, cream label, short vertical slab".
+          isActive && 'bg-ash-800/60',
+        )}
       >
-        <span className={`flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold ${
-          isCompleted ? 'bg-accent text-white' : isActive ? 'bg-white/20 text-white' : isReachable ? 'bg-accent/30 text-accent' : 'bg-surface-600 text-surface-400'
-        }`}>
-          {isCompleted ? '\u2713' : num}
-        </span>
-        <span className="hidden sm:inline">{label}</span>
-      </button>
+        {/* Roman numeral — uniformly large across all states. No size
+            change on selection; only the color shifts. Active step is
+            ink-red; completed/future use cream hierarchy. */}
+        <div className="flex h-[40px] items-center justify-center">
+          <span
+            className={cn(
+              'font-display font-bold leading-none tracking-display text-[2rem] transition-colors duration-150',
+              isActive && 'text-ink-red-bright',
+              isCompleted && !isActive && 'text-cream-200 group-hover:text-cream-100',
+              !isActive && !isCompleted && 'text-cream-500',
+            )}
+          >
+            {roman}
+          </span>
+        </div>
 
-      {showTooltip && hasTooltip && buttonRef.current && createPortal(
-        <StepTooltip anchorEl={buttonRef.current} summary={summary!} />,
-        document.body,
-      )}
+        {/* Mono label */}
+        <span
+          className={cn(
+            'hidden font-mono text-mono-label uppercase leading-none tracking-mono-label transition-colors duration-150 sm:inline',
+            isActive && 'text-cream-100',
+            isCompleted && !isActive && 'text-cream-200 group-hover:text-cream-100',
+            !isActive && !isCompleted && 'text-cream-500',
+          )}
+        >
+          {label}
+        </span>
+
+        {/* Signature slab — short ink-red mark below the label, centered.
+            Only on the active step. The punctuation that says "you are
+            here" without resorting to a full bg tint. */}
+        {isActive && (
+          <span
+            aria-hidden="true"
+            className="mt-1 h-[2px] w-6 bg-ink-red-bright"
+          />
+        )}
+
+        {/* Tooltip — absolutely positioned inside the `relative` button
+            so it auto-centers below the step without needing viewport
+            math. Portaling and `getBoundingClientRect` produced
+            off-center placement due to subtle ancestor layout quirks;
+            CSS handles it correctly. */}
+        {showTooltip && hasTooltip && (
+          <StepTooltip summary={summary} />
+        )}
+      </button>
     </>
   )
 }
 
-function StepTooltip({ anchorEl, summary }: { anchorEl: HTMLElement; summary: React.ReactNode[] }) {
-  const rect = anchorEl.getBoundingClientRect()
-  const left = rect.left + rect.width / 2
-  const top = rect.bottom + 8
-
+function StepTooltip({ summary }: { summary: React.ReactNode }) {
   return (
     <div
-      className="pointer-events-none fixed z-50 flex flex-col gap-1.5 rounded-lg border border-surface-600 bg-surface-800 px-3 py-2 text-xs shadow-xl"
+      className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 flex min-w-[240px] max-w-[340px] -translate-x-1/2 flex-col items-center gap-3 border border-hairline-strong bg-ash-800 px-4 py-3"
       style={{
-        left,
-        top,
-        transform: 'translateX(-50%)',
         animation: 'card-enter 120ms cubic-bezier(0.16, 1, 0.3, 1) both',
-        maxWidth: 240,
       }}
     >
       {summary}
+    </div>
+  )
+}
+
+/**
+ * Seed-card anchor that precedes the step markers when the wizard was
+ * launched from a "forge deck with this card" action. Not a step — it's
+ * a persistent reminder of the thesis card threading through all four
+ * steps. Clicking the thumbnail opens the seed lightbox (hosted by the
+ * route), which explains the card's role and offers a Remove action.
+ *
+ * Sized to roughly match the numeral+label stack of a step marker
+ * (~72px tall inside py-3 padding) so the row reads as visually even.
+ */
+function SeedAnchor({
+  seed,
+  onOpen,
+}: {
+  seed: ScryfallCard
+  onOpen?: () => void
+}) {
+  const imageUri = getCardImageUri(seed, 'small') ?? getCardImageUri(seed, 'normal')
+  const name = getCardName(seed)
+  return (
+    <div className="mr-3 flex shrink-0 items-center py-3 sm:mr-4">
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={name}
+        title={name}
+        className="h-[72px] w-[52px] shrink-0 cursor-pointer overflow-hidden border border-hairline-strong bg-ash-800 transition-colors hover:border-ink-red focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ink-red focus-visible:ring-offset-2 focus-visible:ring-offset-ash-900"
+      >
+        {imageUri && (
+          <img
+            src={imageUri}
+            alt=""
+            className="h-full w-full object-cover"
+          />
+        )}
+      </button>
     </div>
   )
 }

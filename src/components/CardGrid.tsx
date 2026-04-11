@@ -1,9 +1,8 @@
-import { useState, useRef, useCallback } from 'react'
-import { createPortal } from 'react-dom'
 import type { ScryfallCard } from '../lib/scryfall/types'
-import { getCardName, getCardTypeLine, getCardImageUri } from '../lib/scryfall/types'
+import { getCardName, getCardTypeLine } from '../lib/scryfall/types'
 import { CardImage } from './CardImage'
 import { HighlightText } from './HighlightText'
+import { OracleText } from './OracleText'
 import { useT } from '../lib/i18n'
 
 interface CardGridProps {
@@ -63,66 +62,29 @@ function SearchCardItem({ card, name, typeLine, oracleText, searchTerm, onCardCl
   searchTerm: string
   onCardClick?: (card: ScryfallCard) => void
 }) {
-  const [previewPos, setPreviewPos] = useState<{ x: number; y: number } | null>(null)
-  const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const previewUrl = getCardImageUri(card, 'normal')
-
-  const handleMouseEnter = useCallback((e: React.MouseEvent) => {
-    if (window.matchMedia('(hover: none)').matches) return
-    previewTimer.current = setTimeout(() => setPreviewPos({ x: e.clientX, y: e.clientY }), 400)
-  }, [])
-
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (previewPos) setPreviewPos({ x: e.clientX, y: e.clientY })
-  }, [previewPos])
-
-  const handleMouseLeave = useCallback(() => {
-    if (previewTimer.current) { clearTimeout(previewTimer.current); previewTimer.current = null }
-    setPreviewPos(null)
-  }, [])
-
   return (
     <div
-      className="group cursor-pointer"
+      className="group cursor-pointer border border-transparent transition-colors hover:border-hairline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ink-red focus-visible:ring-offset-2 focus-visible:ring-offset-ash-900"
       role="button"
       tabIndex={0}
-      onClick={() => { setPreviewPos(null); onCardClick?.(card) }}
+      onClick={() => onCardClick?.(card)}
       onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onCardClick?.(card) } }}
-      onMouseEnter={handleMouseEnter}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={handleMouseLeave}
-      style={{ boxShadow: 'var(--shadow-raised)' }}
       aria-label={name}
     >
       <CardImage card={card} />
       <div className="mt-1 space-y-0.5 px-1">
-        <p className="truncate text-xs font-medium text-surface-200">
+        <p className="truncate text-xs font-medium text-cream-200">
           <HighlightText text={name} term={searchTerm} />
         </p>
-        <p className="truncate text-[10px] text-surface-400">
+        <p className="truncate text-[10px] text-cream-400">
           <HighlightText text={typeLine} term={searchTerm} />
         </p>
         {oracleText && (
-          <p className="line-clamp-2 text-[10px] leading-tight text-surface-500">
-            <HighlightText text={oracleText} term={searchTerm} />
+          <p className="line-clamp-2 text-[10px] leading-tight text-cream-500">
+            <OracleText text={oracleText} term={searchTerm} />
           </p>
         )}
       </div>
-
-      {/* Hover card preview - desktop only */}
-      {previewPos && previewUrl && createPortal(
-        <div
-          className="pointer-events-none fixed z-[55]"
-          style={{
-            left: previewPos.x + 260 > window.innerWidth ? previewPos.x - 250 : previewPos.x + 16,
-            top: Math.max(8, Math.min(previewPos.y - 60, window.innerHeight - 380)),
-            animation: 'card-enter 150ms cubic-bezier(0.16, 1, 0.3, 1) both',
-          }}
-        >
-          <img src={previewUrl} alt="" className="w-[240px] rounded-xl shadow-2xl" style={{ aspectRatio: '488/680' }} />
-        </div>,
-        document.body,
-      )}
     </div>
   )
 }
@@ -132,8 +94,8 @@ export function CardGridSkeleton({ count = 10 }: { count?: number }) {
     <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
       {Array.from({ length: count }, (_, i) => (
         <div key={i} className="space-y-2">
-          <div className="aspect-[488/680] animate-pulse rounded-lg bg-surface-700" />
-          <div className="mx-auto h-3 w-3/4 animate-pulse rounded bg-surface-700" />
+          <div className="aspect-[488/680] animate-pulse bg-ash-800" />
+          <div className="mx-auto h-3 w-3/4 animate-pulse bg-ash-800" />
         </div>
       ))}
     </div>
