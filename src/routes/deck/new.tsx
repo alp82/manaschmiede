@@ -17,6 +17,7 @@ import {
   clearWizardState,
   clearWizardAux,
   isWizardStateDirty,
+  getFillColors,
 } from '../../lib/wizard-state'
 import { persistDeck } from '../../lib/deck-storage'
 import { generateDeckName } from '../../lib/deck-naming'
@@ -172,11 +173,14 @@ function NewDeckWizard() {
       selectedCombo?.name ||
       generateDeckName(state.selectedArchetypes, state.selectedTraits)
     const description = state.deckDescription || selectedCombo?.explanation || ''
+    const fillResult = getFillColors(state)
+    const colors = fillResult.ready && fillResult.colors?.length ? fillResult.colors : undefined
     persistDeck({
       id: deckId,
       name,
       description,
       format: state.format,
+      colors,
       cards: state.deckCards,
       sectionPlan: state.sectionPlan,
       sectionAssignments: state.sectionAssignments,

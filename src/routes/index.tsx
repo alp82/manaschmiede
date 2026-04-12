@@ -16,7 +16,7 @@ import { loadDecks, deleteDeck as deleteStoredDeck, type LocalDeck } from '../li
 import { useSampleDecks } from '../lib/useSampleDecks'
 import { useDeckSounds } from '../lib/sounds'
 import { useT } from '../lib/i18n'
-import type { ManaColor } from '../components/ManaSymbol'
+import { ManaSymbol, type ManaColor } from '../components/ManaSymbol'
 import type { ScryfallCard } from '../lib/scryfall/types'
 
 // Curated iconic MTG cards — rotated once per page load for the hero plate.
@@ -526,6 +526,16 @@ function HomePage() {
                         <span className="text-ink-red-bright">{FORMAT_LABELS[d.format]}</span>
                         <span className="h-px w-4 bg-hairline" aria-hidden="true" />
                         <span>{t('deck.cards', { count: totalCards })}</span>
+                        {d.colors && d.colors.length > 0 && (
+                          <>
+                            <span className="h-px w-4 bg-hairline" aria-hidden="true" />
+                            <span className="flex items-center gap-1">
+                              {d.colors.map((c) => (
+                                <ManaSymbol key={c} color={c} size="sm" selected />
+                              ))}
+                            </span>
+                          </>
+                        )}
                       </div>
                     </div>
                   </Link>

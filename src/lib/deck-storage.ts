@@ -1,3 +1,4 @@
+import type { ManaColor } from '../components/ManaSymbol'
 import type { DeckCard, DeckFormat } from './deck-utils'
 import type { DeckSection } from './section-plan'
 
@@ -8,6 +9,7 @@ export interface LocalDeck {
   name: string
   description?: string
   format: DeckFormat
+  colors?: ManaColor[]
   cards: DeckCard[]
   sectionPlan?: DeckSection[]
   sectionAssignments?: Record<string, string[]>

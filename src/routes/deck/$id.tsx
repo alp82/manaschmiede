@@ -19,6 +19,7 @@ import { useDeckChat } from '../../lib/useDeckChat'
 import { searchCards, getCardById, getCardInLang } from '../../lib/scryfall/client'
 import { loadDeck, persistDeck, type LocalDeck } from '../../lib/deck-storage'
 import { localizeDeckSection } from '../../lib/section-plan'
+import type { ManaColor } from '../../components/ManaSymbol'
 import type { ScryfallCard } from '../../lib/scryfall/types'
 import type { DeckCard, DeckZone } from '../../lib/deck-utils'
 import { getTotalCards, copyDecklistToClipboard, FORMAT_LABELS } from '../../lib/deck-utils'
@@ -165,6 +166,26 @@ function DeckPage() {
     const timer = setTimeout(() => persistDeck(deck), 500)
     return () => clearTimeout(timer)
   }, [deck])
+
+  // Derive deck colors from card data when all cards are resolved
+  useEffect(() => {
+    if (!deck || deck.cards.length === 0 || cardDataMap.size === 0) return
+    const allResolved = deck.cards.every((dc) => cardDataMap.has(dc.scryfallId))
+    if (!allResolved) return
+    const ORDER: ManaColor[] = ['W', 'U', 'B', 'R', 'G']
+    const colorSet = new Set<ManaColor>()
+    for (const dc of deck.cards) {
+      const card = cardDataMap.get(dc.scryfallId)
+      if (card) {
+        for (const c of card.color_identity) colorSet.add(c as ManaColor)
+      }
+    }
+    const derived = ORDER.filter((c) => colorSet.has(c))
+    const prev = deck.colors ?? []
+    if (derived.length !== prev.length || derived.some((c, i) => c !== prev[i])) {
+      setDeck((d) => (d ? { ...d, colors: derived.length > 0 ? derived : undefined } : d))
+    }
+  }, [deck?.cards, cardDataMap])
 
   // Fetch card data
   useEffect(() => {
