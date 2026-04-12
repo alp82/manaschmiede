@@ -1,8 +1,10 @@
+import { useState } from 'react'
 import type { ScryfallCard } from '../lib/scryfall/types'
 import { getCardName, getCardImageUri } from '../lib/scryfall/types'
 import type { DeckCard, DeckZone } from '../lib/deck-utils'
 import { cn } from '../lib/utils'
 import { useT } from '../lib/i18n'
+import { ConfirmModal } from './ConfirmModal'
 
 interface DeckCardListProps {
   cards: DeckCard[]
@@ -32,6 +34,7 @@ export function DeckCardList({
   onToggleLock,
 }: DeckCardListProps) {
   const t = useT()
+  const [pendingRemove, setPendingRemove] = useState<{ scryfallId: string; zone: DeckZone; name: string } | null>(null)
   const zoneCards = cards.filter((c) => c.zone === zone)
 
   if (zoneCards.length === 0) {
@@ -86,7 +89,7 @@ export function DeckCardList({
                 onClick={() => {
                   if (isLocked) return
                   if (dc.quantity <= 1) {
-                    if (confirm(t('cardlist.removeConfirm', { name }))) onRemoveCard(dc.scryfallId, dc.zone)
+                    setPendingRemove({ scryfallId: dc.scryfallId, zone: dc.zone, name })
                   } else {
                     onUpdateQuantity(dc.scryfallId, dc.zone, dc.quantity - 1)
                   }
@@ -162,7 +165,7 @@ export function DeckCardList({
               type="button"
               onClick={() => {
                 if (isLocked) return
-                if (confirm(t('cardlist.removeConfirm', { name }))) onRemoveCard(dc.scryfallId, dc.zone)
+                setPendingRemove({ scryfallId: dc.scryfallId, zone: dc.zone, name })
               }}
               disabled={isLocked}
               className={cn(
@@ -177,6 +180,18 @@ export function DeckCardList({
           </div>
         )
       })}
+      <ConfirmModal
+        open={pendingRemove !== null}
+        title={t('confirm.removeCardTitle')}
+        body={t('confirm.removeCardBody', { name: pendingRemove?.name ?? '' })}
+        confirmLabel={t('confirm.removeCardConfirm')}
+        cancelLabel={t('confirm.cancel')}
+        onConfirm={() => {
+          if (pendingRemove) onRemoveCard(pendingRemove.scryfallId, pendingRemove.zone)
+          setPendingRemove(null)
+        }}
+        onCancel={() => setPendingRemove(null)}
+      />
     </div>
   )
 }

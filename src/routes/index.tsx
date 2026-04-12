@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
+import { ConfirmModal } from '../components/ConfirmModal'
 import { parseAsInteger, parseAsString, parseAsStringLiteral, useQueryStates } from 'nuqs'
 import { Layout } from '../components/Layout'
 import { SearchInput } from '../components/SearchInput'
@@ -403,10 +404,18 @@ function HomePage() {
     setParams(patch)
   }, [params.filters, setParams])
 
+  const [pendingDeleteDeckId, setPendingDeleteDeckId] = useState<string | null>(null)
+
   function deleteDeck(deckId: string) {
-    if (!confirm(t('deck.deleteConfirm'))) return
-    deleteStoredDeck(deckId)
-    setDecks((prev) => prev.filter((d) => d.id !== deckId))
+    setPendingDeleteDeckId(deckId)
+  }
+
+  function confirmDeleteDeck() {
+    if (pendingDeleteDeckId) {
+      deleteStoredDeck(pendingDeleteDeckId)
+      setDecks((prev) => prev.filter((d) => d.id !== pendingDeleteDeckId))
+    }
+    setPendingDeleteDeckId(null)
   }
 
   function handleCardClick(card: ScryfallCard) {
@@ -659,6 +668,16 @@ function HomePage() {
           renderActions={renderLightboxActions}
         />
       )}
+
+      <ConfirmModal
+        open={pendingDeleteDeckId !== null}
+        title={t('confirm.deleteDeckTitle')}
+        body={t('confirm.deleteDeckBody')}
+        confirmLabel={t('confirm.deleteDeckConfirm')}
+        cancelLabel={t('confirm.cancel')}
+        onConfirm={confirmDeleteDeck}
+        onCancel={() => setPendingDeleteDeckId(null)}
+      />
     </Layout>
   )
 }

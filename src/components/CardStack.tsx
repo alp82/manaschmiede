@@ -1,9 +1,12 @@
 import { memo, useState, useRef, useCallback, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import type { ScryfallCard } from '../lib/scryfall/types'
+import { getCardName } from '../lib/scryfall/types'
 import { CardImage } from './CardImage'
 import { cn } from '../lib/utils'
 import { useDeckSounds } from '../lib/sounds'
+import { useT } from '../lib/i18n'
+import { ConfirmModal } from './ConfirmModal'
 
 interface CardStackProps {
   card: ScryfallCard
@@ -39,6 +42,8 @@ export const CardStack = memo(function CardStack({
   innerRef,
 }: CardStackProps) {
   const sounds = useDeckSounds()
+  const t = useT()
+  const [confirmRemove, setConfirmRemove] = useState(false)
   const extraCount = quantity <= 1 ? 0 : Math.min(quantity - 1, 3)
   const offset = extraCount * 3
 
@@ -142,7 +147,7 @@ export const CardStack = memo(function CardStack({
           }
           if ((e.key === 'Delete' || e.key === 'Backspace') && onRemove && !locked) {
             e.preventDefault()
-            handleRemoveWithExit()
+            setConfirmRemove(true)
           }
         }}
         aria-label={`${card.name}, ${quantity}x${locked ? ', locked' : ''}`}
@@ -271,7 +276,7 @@ export const CardStack = memo(function CardStack({
                   onClick={() => {
                     closeMenu()
                     sounds.uiClick()
-                    handleRemoveWithExit()
+                    setConfirmRemove(true)
                   }}
                   className="flex w-full items-center gap-2 px-4 py-2.5 text-left font-mono text-mono-label uppercase tracking-mono-label text-ink-red-bright transition-colors hover:bg-ash-800"
                 >
@@ -282,6 +287,19 @@ export const CardStack = memo(function CardStack({
           </>,
           document.body,
         )}
+
+      <ConfirmModal
+        open={confirmRemove}
+        title={t('confirm.removeCardTitle')}
+        body={t('confirm.removeCardBody', { name: getCardName(card) })}
+        confirmLabel={t('confirm.removeCardConfirm')}
+        cancelLabel={t('confirm.cancel')}
+        onConfirm={() => {
+          setConfirmRemove(false)
+          handleRemoveWithExit()
+        }}
+        onCancel={() => setConfirmRemove(false)}
+      />
     </>
   )
 })

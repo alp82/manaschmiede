@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Button } from './ui/Button'
 import { useDeckSounds } from '../lib/sounds'
@@ -45,8 +45,15 @@ export function ConfirmModal({
     onConfirm()
   }, [onConfirm, sounds])
 
+  const cancelRef = useRef<HTMLButtonElement>(null)
+  const prevFocusRef = useRef<Element | null>(null)
+
   useEffect(() => {
     if (!open) return
+    prevFocusRef.current = document.activeElement
+    // Focus the cancel button so Enter/Escape work from the modal,
+    // and keyboard events don't leak to the element that opened it.
+    requestAnimationFrame(() => cancelRef.current?.focus())
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') handleCancel()
       if (e.key === 'Enter') handleConfirm()
@@ -57,6 +64,7 @@ export function ConfirmModal({
     return () => {
       document.removeEventListener('keydown', onKey)
       document.body.style.overflow = prevOverflow
+      if (prevFocusRef.current instanceof HTMLElement) prevFocusRef.current.focus()
     }
   }, [open, handleCancel, handleConfirm])
 
@@ -88,7 +96,7 @@ export function ConfirmModal({
         <div className="mt-4 font-body text-sm leading-relaxed text-cream-300">{body}</div>
 
         <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-          <Button variant="secondary" size="md" onClick={handleCancel}>
+          <Button ref={cancelRef} variant="secondary" size="md" onClick={handleCancel}>
             {cancelLabel}
           </Button>
           <Button variant={confirmVariant} size="md" onClick={handleConfirm}>

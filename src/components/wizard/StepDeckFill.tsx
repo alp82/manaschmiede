@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import { ConfirmModal } from '../ConfirmModal'
 import { AiChat } from '../AiChat'
 import { BalanceAdvisor } from '../BalanceAdvisor'
 import { CardLightbox } from '../CardLightbox'
@@ -76,6 +77,7 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
 
   // Candidates: cards the user wants to propose adding
   const [candidates, setCandidates] = useState<ScryfallCard[]>([])
+  const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null)
   const sounds = useDeckSounds()
   const history = useDeckHistory(state.deckCards, dispatch)
 
@@ -602,10 +604,16 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
   }, [state.deckCards, history, dispatch])
 
   const handleRemoveCard = useCallback((scryfallId: string) => {
+    setPendingRemoveId(scryfallId)
+  }, [])
+
+  const confirmRemoveCard = useCallback(() => {
+    if (!pendingRemoveId) return
     history.snapshot()
-    const updated = state.deckCards.filter((c) => c.scryfallId !== scryfallId)
+    const updated = state.deckCards.filter((c) => c.scryfallId !== pendingRemoveId)
     dispatch({ type: 'SET_DECK', cards: updated })
-  }, [state.deckCards, history, dispatch])
+    setPendingRemoveId(null)
+  }, [pendingRemoveId, state.deckCards, history, dispatch])
 
   const findCardSection = useCallback((scryfallId: string): string | null => {
     for (const [sectionId, ids] of Object.entries(state.sectionAssignments)) {
@@ -662,7 +670,7 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
             <Button
               variant="destructive"
               size="sm"
-              onClick={() => { handleRemoveCard(card.id); setLightboxIndex(null); sounds.uiClick() }}
+              onClick={() => { setLightboxIndex(null); handleRemoveCard(card.id); sounds.uiClick() }}
               className="ml-auto"
             >
               {t('fill.remove')}
@@ -1400,6 +1408,16 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
           renderActions={renderLightboxActions}
         />
       )}
+
+      <ConfirmModal
+        open={pendingRemoveId !== null}
+        title={t('confirm.removeCardTitle')}
+        body={t('confirm.removeCardBody', { name: pendingRemoveId ? (cardDataMap.get(pendingRemoveId) ? getCardName(cardDataMap.get(pendingRemoveId)!) : pendingRemoveId) : '' })}
+        confirmLabel={t('confirm.removeCardConfirm')}
+        cancelLabel={t('confirm.cancel')}
+        onConfirm={confirmRemoveCard}
+        onCancel={() => setPendingRemoveId(null)}
+      />
     </div>
   )
 }

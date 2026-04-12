@@ -73,8 +73,7 @@ export interface Translations {
   'deck.yourDecks': string
   'deck.createFirst': string
   'deck.loadSamples': string
-  'deck.deleteConfirm': string
-  'deck.delete': string
+'deck.delete': string
   'deck.cards': string
   'deck.deckNotFound': string
   'deck.emptyDeck': string
@@ -222,8 +221,7 @@ export interface Translations {
 
   // DeckCardList
   'cardlist.noCards': string
-  'cardlist.removeConfirm': string
-  'cardlist.unlock': string
+'cardlist.unlock': string
   'cardlist.lock': string
 
   // Page title
@@ -242,6 +240,18 @@ export interface Translations {
   // Section/card preview states
   'deck.previewLabel': string
   'deck.queued': string
+
+  // Confirmation dialogs
+  'confirm.cancel': string
+  'confirm.removeCardTitle': string
+  'confirm.removeCardBody': string
+  'confirm.removeCardConfirm': string
+  'confirm.deleteDeckTitle': string
+  'confirm.deleteDeckBody': string
+  'confirm.deleteDeckConfirm': string
+  'confirm.resetWizardTitle': string
+  'confirm.resetWizardBody': string
+  'confirm.resetWizardConfirm': string
 
   // Generic actions (tooltips, button labels)
   'action.close': string

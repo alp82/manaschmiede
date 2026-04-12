@@ -191,11 +191,18 @@ function NewDeckWizard() {
     navigate({ to: '/deck/$id', params: { id: deckId } })
   }, [state, navigate])
 
+  const [confirmReset, setConfirmReset] = useState(false)
+
   const handleStartOver = useCallback(() => {
+    setConfirmReset(true)
+  }, [])
+
+  const doStartOver = useCallback(() => {
     dispatch({ type: 'RESET' })
     clearWizardAux()
     setUrlStep(1)
     setSeedParam(null)
+    setConfirmReset(false)
   }, [setUrlStep, setSeedParam])
 
   // Step transition animation
@@ -252,6 +259,16 @@ function NewDeckWizard() {
           confirmVariant="destructive"
           onConfirm={applyPendingSeed}
           onCancel={cancelPendingSeed}
+        />
+
+        <ConfirmModal
+          open={confirmReset}
+          title={t('confirm.resetWizardTitle')}
+          body={t('confirm.resetWizardBody')}
+          confirmLabel={t('confirm.resetWizardConfirm')}
+          cancelLabel={t('confirm.cancel')}
+          onConfirm={doStartOver}
+          onCancel={() => setConfirmReset(false)}
         />
 
         {seedLightboxOpen && state.seedCard && (

@@ -72,8 +72,7 @@ export const en: Translations = {
   'deck.yourDecks': 'Your Decks',
   'deck.createFirst': '+ Create First Deck',
   'deck.loadSamples': 'Load Sample Decks',
-  'deck.deleteConfirm': 'Really delete this deck?',
-  'deck.delete': 'Delete',
+'deck.delete': 'Delete',
   'deck.cards': '{count} cards',
   'deck.deckNotFound': 'Deck not found',
   'deck.emptyDeck': 'Empty Deck',
@@ -221,8 +220,7 @@ export const en: Translations = {
 
   // DeckCardList
   'cardlist.noCards': 'No cards in this zone',
-  'cardlist.removeConfirm': 'Remove {name}?',
-  'cardlist.unlock': 'Unlock card',
+'cardlist.unlock': 'Unlock card',
   'cardlist.lock': 'Lock card',
 
   // Page title
@@ -241,6 +239,18 @@ export const en: Translations = {
   // Section/card preview states
   'deck.previewLabel': 'Preview',
   'deck.queued': 'Queued',
+
+  // Confirmation dialogs
+  'confirm.cancel': 'Cancel',
+  'confirm.removeCardTitle': 'Remove Card',
+  'confirm.removeCardBody': 'Remove {name} from the deck?',
+  'confirm.removeCardConfirm': 'Remove',
+  'confirm.deleteDeckTitle': 'Delete Deck',
+  'confirm.deleteDeckBody': 'This will permanently delete the deck. This cannot be undone.',
+  'confirm.deleteDeckConfirm': 'Delete',
+  'confirm.resetWizardTitle': 'Reset Wizard',
+  'confirm.resetWizardBody': 'This will discard all your progress and start over from scratch.',
+  'confirm.resetWizardConfirm': 'Reset',
 
   // Generic actions
   'action.close': 'Close',

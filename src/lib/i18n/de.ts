@@ -72,8 +72,7 @@ export const de: Translations = {
   'deck.yourDecks': 'Deine Decks',
   'deck.createFirst': '+ Erstes Deck erstellen',
   'deck.loadSamples': 'Beispieldecks laden',
-  'deck.deleteConfirm': 'Dieses Deck wirklich löschen?',
-  'deck.delete': 'Löschen',
+'deck.delete': 'Löschen',
   'deck.cards': '{count} Karten',
   'deck.deckNotFound': 'Deck nicht gefunden',
   'deck.emptyDeck': 'Leeres Deck',
@@ -221,8 +220,7 @@ export const de: Translations = {
 
   // DeckCardList
   'cardlist.noCards': 'Keine Karten in dieser Zone',
-  'cardlist.removeConfirm': '{name} entfernen?',
-  'cardlist.unlock': 'Karte entsperren',
+'cardlist.unlock': 'Karte entsperren',
   'cardlist.lock': 'Karte sperren',
 
   // Page title
@@ -241,6 +239,18 @@ export const de: Translations = {
   // Section/card preview states
   'deck.previewLabel': 'Vorschau',
   'deck.queued': 'Vorgemerkt',
+
+  // Confirmation dialogs
+  'confirm.cancel': 'Abbrechen',
+  'confirm.removeCardTitle': 'Karte entfernen',
+  'confirm.removeCardBody': '{name} aus dem Deck entfernen?',
+  'confirm.removeCardConfirm': 'Entfernen',
+  'confirm.deleteDeckTitle': 'Deck löschen',
+  'confirm.deleteDeckBody': 'Das Deck wird endgültig gelöscht. Dies kann nicht rückgängig gemacht werden.',
+  'confirm.deleteDeckConfirm': 'Löschen',
+  'confirm.resetWizardTitle': 'Wizard zurücksetzen',
+  'confirm.resetWizardBody': 'Dein gesamter Fortschritt wird verworfen und du startest von vorne.',
+  'confirm.resetWizardConfirm': 'Zurücksetzen',
 
   // Generic actions
   'action.close': 'Schließen',
