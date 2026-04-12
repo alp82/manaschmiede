@@ -7,7 +7,7 @@
     "dev": "vite dev",
     "dev:convex": "convex dev --local --local-cloud-port 3220 --local-site-port 3221",
     "build": "vite build",
-    "start": "vite preview"
+    "start": "HOST=0.0.0.0 node .output/server/index.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",
@@ -21,6 +21,7 @@
     "clsx": "^2.1.1",
     "convex": "^1.34.1",
     "lucide-react": "^1.7.0",
+    "nitro": "3.0.260311-beta",
     "nuqs": "^2.8.9",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
