@@ -245,6 +245,7 @@ function NewDeckWizard() {
             currentStep={state.step}
             maxStepReached={state.maxStepReached}
             onStepClick={(step) => dispatch({ type: 'GO_TO_STEP', step })}
+            onNext={state.step < 4 ? handleNext : undefined}
             wizardState={state}
             onOpenSeed={() => setSeedLightboxOpen(true)}
           />

@@ -31,6 +31,7 @@ interface StepIndicatorProps {
   currentStep: 1 | 2 | 3 | 4
   maxStepReached: 1 | 2 | 3 | 4
   onStepClick: (step: 1 | 2 | 3 | 4) => void
+  onNext?: () => void
   wizardState: WizardState
   /** Called when the user clicks the seed card anchor — route opens the seed lightbox. */
   onOpenSeed?: () => void
@@ -155,7 +156,7 @@ function useStepSummary(stepNum: number, state: WizardState): React.ReactNode | 
   return null
 }
 
-export function StepIndicator({ currentStep, maxStepReached, onStepClick, wizardState, onOpenSeed }: StepIndicatorProps) {
+export function StepIndicator({ currentStep, maxStepReached, onStepClick, onNext, wizardState, onOpenSeed }: StepIndicatorProps) {
   const t = useT()
   const seed = wizardState.seedCard
 
@@ -165,6 +166,8 @@ export function StepIndicator({ currentStep, maxStepReached, onStepClick, wizard
       {STEPS.map(({ num, key, roman }, i) => {
         const isActive = num === currentStep
         const isReachable = num <= maxStepReached
+        const isNextStep = num === currentStep + 1
+        const isClickable = (isReachable && !isActive) || (isNextStep && !!onNext)
         const isCompleted = num < currentStep
         const hasNext = i < STEPS.length - 1
         const connectorReached = num < currentStep
@@ -177,10 +180,15 @@ export function StepIndicator({ currentStep, maxStepReached, onStepClick, wizard
               label={t(key)}
               isActive={isActive}
               isCompleted={isCompleted}
-              isReachable={isReachable}
+              isReachable={isReachable || isNextStep}
               wizardState={wizardState}
               onClick={() => {
-                if (isReachable && !isActive) onStepClick(num as 1 | 2 | 3 | 4)
+                if (!isClickable) return
+                if (isNextStep && onNext) {
+                  onNext()
+                } else {
+                  onStepClick(num as 1 | 2 | 3 | 4)
+                }
               }}
             />
             {hasNext && (
