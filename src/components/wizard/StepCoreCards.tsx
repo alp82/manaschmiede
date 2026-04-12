@@ -587,25 +587,9 @@ export function StepCoreCards({ state, dispatch, onNext, onBack, onReset }: Step
       )}
 
       <WizardNav>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between">
           <Button variant="secondary" size="lg" onClick={onBack}>
             {t('wizard.back')}
-          </Button>
-          <Button variant="ghost" size="md" onClick={onReset}>
-            {t('wizard.reset')}
-          </Button>
-        </div>
-        <div className="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            size="md"
-            onClick={() => {
-              dispatch({ type: 'SELECT_COMBO', index: -1 })
-              onNext()
-            }}
-          >
-            <span className="sm:hidden">{t('wizard.skip')}</span>
-            <span className="hidden sm:inline">{t('core.skipLong')}</span>
           </Button>
           <Button
             variant="primary"
@@ -614,6 +598,21 @@ export function StepCoreCards({ state, dispatch, onNext, onBack, onReset }: Step
             disabled={state.selectedComboIndex == null}
           >
             {t('core.nextBuildDeck')}
+          </Button>
+        </div>
+        <div className="flex items-center justify-center gap-6">
+          <Button variant="ghost" size="sm" onClick={onReset}>
+            {t('wizard.reset')}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              dispatch({ type: 'SELECT_COMBO', index: -1 })
+              onNext()
+            }}
+          >
+            {t('core.skipLong')}
           </Button>
         </div>
       </WizardNav>

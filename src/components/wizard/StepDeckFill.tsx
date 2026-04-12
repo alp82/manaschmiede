@@ -1380,19 +1380,21 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
 
       {/* Fixed bottom nav */}
       {createPortal(
-        <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-hairline bg-ash-900/95 px-4 py-4 backdrop-blur-sm">
-          <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
+        <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-hairline bg-ash-900/95 px-4 py-3 sm:py-4 backdrop-blur-sm">
+          <div className="mx-auto flex max-w-7xl flex-col gap-2">
+            <div className="flex items-center justify-between">
               <Button variant="secondary" size="lg" onClick={onBack}>
                 {t('wizard.back')}
               </Button>
-              <Button variant="ghost" size="md" onClick={onReset}>
+              <Button variant="primary" size="lg" onClick={onFinish} disabled={mainCount === 0}>
+                {t('fill.finishOpen')}
+              </Button>
+            </div>
+            <div className="flex items-center justify-center">
+              <Button variant="ghost" size="sm" onClick={onReset}>
                 {t('wizard.reset')}
               </Button>
             </div>
-            <Button variant="primary" size="lg" onClick={onFinish} disabled={mainCount === 0}>
-              {t('fill.finishOpen')}
-            </Button>
           </div>
         </div>,
         document.body,

@@ -33,11 +33,11 @@ const COLOR_KEYS: Record<ManaColor, string> = {
 // here now" rather than a generic red wash (which also collides with
 // the red mana tile).
 const COLOR_TINT_CLASS: Record<ManaColor, string> = {
-  W: 'bg-mana-white/15',
-  U: 'bg-mana-blue/20',
-  B: 'bg-mana-black/40',
-  R: 'bg-mana-red/20',
-  G: 'bg-mana-green/20',
+  W: 'bg-mana-white/10 sm:bg-mana-white/15',
+  U: 'bg-mana-blue/10 sm:bg-mana-blue/20',
+  B: 'bg-mana-black/25 sm:bg-mana-black/40',
+  R: 'bg-mana-red/10 sm:bg-mana-red/20',
+  G: 'bg-mana-green/10 sm:bg-mana-green/20',
 }
 
 export function StepColors({
@@ -113,7 +113,7 @@ export function StepColors({
         </header>
 
         {/* Primary color selector — forced single row */}
-        <div className="mt-20 flex items-start justify-between gap-2 sm:gap-4">
+        <div className="mt-20 flex items-start justify-between gap-1 sm:gap-4">
           {ALL_COLORS.map((color) => {
             const isSelected = colors[color] === 'selected'
             const isGoodFit = recommendedColors.has(color)
@@ -123,7 +123,7 @@ export function StepColors({
                 type="button"
                 onClick={() => toggleSelected(color)}
                 className={cn(
-                  'group relative flex flex-1 cursor-pointer flex-col items-center gap-3 pb-4 pt-10 outline-none transition-colors duration-150',
+                  'group relative flex min-w-0 flex-1 cursor-pointer flex-col items-center gap-2 pb-3 pt-6 outline-none transition-colors duration-150 sm:gap-3 sm:pb-4 sm:pt-10',
                   isSelected && COLOR_TINT_CLASS[color],
                 )}
               >
@@ -135,7 +135,7 @@ export function StepColors({
                 />
                 <span
                   className={cn(
-                    'font-mono text-mono-label uppercase leading-none tracking-mono-label transition-colors duration-150',
+                    'font-mono text-mono-marginal uppercase leading-none tracking-mono-marginal transition-colors duration-150 sm:text-mono-label sm:tracking-mono-label',
                     isSelected
                       ? 'text-cream-100'
                       : isGoodFit
@@ -186,6 +186,7 @@ export function StepColors({
           <Button
             variant="secondary"
             size="md"
+            className="whitespace-normal text-center"
             onClick={() => {
               dispatch({ type: 'CLEAR_COLORS' })
               onNext()
@@ -198,17 +199,19 @@ export function StepColors({
       </div>
 
       <WizardNav>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between">
           <Button variant="secondary" size="lg" onClick={onBack}>
             {t('wizard.back')}
           </Button>
-          <Button variant="ghost" size="md" onClick={onReset}>
+          <Button variant="primary" size="lg" onClick={onNext} disabled={!hasAnyColor}>
+            {t('colors.nextCoreCards')}
+          </Button>
+        </div>
+        <div className="flex items-center justify-center">
+          <Button variant="ghost" size="sm" onClick={onReset}>
             {t('wizard.reset')}
           </Button>
         </div>
-        <Button variant="primary" size="lg" onClick={onNext} disabled={!hasAnyColor}>
-          {t('colors.nextCoreCards')}
-        </Button>
       </WizardNav>
     </section>
   )

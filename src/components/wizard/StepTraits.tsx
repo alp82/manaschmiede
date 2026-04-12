@@ -385,26 +385,27 @@ export function StepTraits({
       </div>
 
       <WizardNav>
-        <div className="flex items-center gap-3">
-          {onBack && (
+        <div className="flex items-center justify-between">
+          {onBack ? (
             <Button variant="secondary" size="lg" onClick={onBack}>
               {t('wizard.back')}
             </Button>
-          )}
-          <Button variant="ghost" size="md" onClick={onReset}>
-            {t('wizard.reset')}
-          </Button>
-        </div>
-        <div className="flex items-center gap-3">
-          {onSkipToDeck && (
-            <Button variant="ghost" size="md" onClick={onSkipToDeck}>
-              <span className="sm:hidden">{t('wizard.skip')}</span>
-              <span className="hidden sm:inline">{t('strategy.skipLong')}</span>
-            </Button>
+          ) : (
+            <span />
           )}
           <Button variant="primary" size="lg" onClick={onNext} disabled={!hasSelections}>
             {t('strategy.nextColors')}
           </Button>
+        </div>
+        <div className="flex items-center justify-center gap-6">
+          <Button variant="ghost" size="sm" onClick={onReset}>
+            {t('wizard.reset')}
+          </Button>
+          {onSkipToDeck && (
+            <Button variant="ghost" size="sm" onClick={onSkipToDeck}>
+              {t('strategy.skipLong')}
+            </Button>
+          )}
         </div>
       </WizardNav>
       </div>
