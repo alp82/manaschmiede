@@ -156,7 +156,7 @@ export const de: Translations = {
   'core.suggestDifferent': 'Andere Kombos vorschlagen',
   'core.orSearch': 'Oder nach bestimmten Karten suchen',
   'core.searchPlaceholder': 'Nach Name, Keywords oder Fähigkeiten suchen...',
-  'core.suggestNewWithCard': 'Kombos mit dieser Karte vorschlagen',
+  'core.suggestNewWithCard': 'Neue Kombos mit dieser Karte vorschlagen',
   'core.skipLong': 'Überspringen - Karten manuell wählen',
   'core.nextBuildDeck': 'Weiter: Deck bauen',
   'core.prevBatch': 'Zurück',
