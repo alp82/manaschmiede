@@ -27,4 +27,24 @@ export default defineSchema({
   })
     .index('by_userId', ['userId'])
     .index('by_public', ['isPublic']),
+
+  llmUsageLogs: defineTable({
+    status: v.union(v.literal('pending'), v.literal('complete'), v.literal('error')),
+    action: v.string(),
+    provider: v.string(),
+    model: v.string(),
+    systemPrompt: v.string(),
+    inputMessages: v.array(
+      v.object({
+        role: v.string(),
+        content: v.string(),
+      }),
+    ),
+    outputText: v.optional(v.string()),
+    inputTokens: v.optional(v.number()),
+    outputTokens: v.optional(v.number()),
+    durationMs: v.optional(v.number()),
+    estimatedCostUsd: v.optional(v.number()),
+    error: v.optional(v.string()),
+  }).index('by_action', ['action']),
 })

@@ -1,5 +1,5 @@
 import type { ScryfallCard, ScryfallList, ScryfallAutocomplete, ScryfallSetList } from './types'
-import { HARD_FILTER_SCRYFALL_QUERY } from '../../../convex/lib/card-filters'
+import { HARD_FILTER_SCRYFALL_QUERY } from '../../../convex/lib/cardFilters'
 import { getCardRejectionReason } from '../card-validation'
 
 const SCRYFALL_BASE = 'https://api.scryfall.com'

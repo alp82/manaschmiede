@@ -5,11 +5,14 @@ import {
   Scripts,
 } from '@tanstack/react-router'
 import { QueryClientProvider, type QueryClient } from '@tanstack/react-query'
+import { ConvexProvider, ConvexReactClient } from 'convex/react'
 import { NuqsAdapter } from 'nuqs/adapters/tanstack-router'
 import { I18nProvider } from '../lib/i18n'
 import { ToastProvider } from '../components/ui/Toast'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import appCss from '../styles/app.css?url'
+
+const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string)
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient
@@ -54,17 +57,19 @@ function RootComponent() {
         />
       </head>
       <body className="bg-surface-900 text-surface-100 font-body min-h-screen antialiased">
-        <QueryClientProvider client={queryClient}>
-          <NuqsAdapter>
-            <I18nProvider>
-              <ToastProvider>
-                <ErrorBoundary>
-                  <Outlet />
-                </ErrorBoundary>
-              </ToastProvider>
-            </I18nProvider>
-          </NuqsAdapter>
-        </QueryClientProvider>
+        <ConvexProvider client={convex}>
+          <QueryClientProvider client={queryClient}>
+            <NuqsAdapter>
+              <I18nProvider>
+                <ToastProvider>
+                  <ErrorBoundary>
+                    <Outlet />
+                  </ErrorBoundary>
+                </ToastProvider>
+              </I18nProvider>
+            </NuqsAdapter>
+          </QueryClientProvider>
+        </ConvexProvider>
         <Scripts />
       </body>
     </html>

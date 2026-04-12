@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { ComboCard } from './ComboCard'
 import { SearchInput } from '../SearchInput'
 import { CardImage } from '../CardImage'
@@ -86,12 +86,9 @@ async function fetchAndResolveCombos(
     try {
       const result = await searchCards(query)
       const cards = result.data ?? []
-      for (const c of cards.slice(0, 15)) {
-        const parts = [c.name]
-        if (c.mana_cost) parts.push(c.mana_cost)
-        parts.push(`[${c.type_line}]`)
-        if (c.oracle_text) parts.push(c.oracle_text.slice(0, 150))
-        cardPoolText.push(parts.join(' - '))
+      for (const c of cards.slice(0, 10)) {
+        const type = c.type_line.replace(/ —.*/, '')
+        cardPoolText.push(`${c.name} (${c.mana_cost ?? '0'}) [${type}]`)
       }
     } catch {
       // Skip failed queries
@@ -326,21 +323,19 @@ export function StepCoreCards({ state, dispatch, onNext, onBack, onReset }: Step
         effectivePin,
       )
 
-      // Accept the first batch only when it both (a) produced valid combos
-      // AND (b) covered every maybe color. Either failure triggers one
-      // targeted retry with explicit feedback.
-      const coverageFailed = first.missingMaybes.length > 0
-      if (first.combos.length > 0 && !coverageFailed) {
+      // Accept the first batch if it produced any valid combos.
+      // The user can hit "suggest different" to reroll if quality is low.
+      if (first.combos.length > 0) {
         applyBatch(first.combos)
         setIsLoading(false)
         return
       }
 
-      // Retry with rejection feedback and/or missing-maybe coverage hint
+      // Zero valid combos — retry once with rejection feedback so the
+      // model avoids the same bad cards/combos.
       const shouldRetry =
         first.rejectedCards.length > 0 ||
-        first.rejectedCombos.length > 0 ||
-        coverageFailed
+        first.rejectedCombos.length > 0
       if (shouldRetry) {
         const second = await fetchAndResolveCombos(
           state,
@@ -348,7 +343,7 @@ export function StepCoreCards({ state, dispatch, onNext, onBack, onReset }: Step
           first.rejectedCards,
           first.rejectedCombos,
           effectivePin,
-          coverageFailed ? first.missingMaybes : undefined,
+          first.missingMaybes.length > 0 ? first.missingMaybes : undefined,
         )
 
         if (second.combos.length > 0) {
@@ -356,15 +351,6 @@ export function StepCoreCards({ state, dispatch, onNext, onBack, onReset }: Step
           setIsLoading(false)
           return
         }
-      }
-
-      // If coverage still failed but we have combos from the first batch,
-      // fall back to those — a partial batch beats no batch, and the user
-      // can hit "suggest different" to reroll.
-      if (first.combos.length > 0) {
-        applyBatch(first.combos)
-        setIsLoading(false)
-        return
       }
 
       setError(t('core.noValidCombos'))
@@ -375,8 +361,10 @@ export function StepCoreCards({ state, dispatch, onNext, onBack, onReset }: Step
     }
   }, [state.colors, state.selectedArchetypes, state.selectedTraits, state.customStrategy, state.format, state.budgetMin, state.budgetMax, state.rarityFilter, state.coreCombos, state.seedCard, locale, dispatch, t, currentFingerprint, previouslyRejected, applyBatch, comboBuffer])
 
+  const didFetch = useRef(false)
   useEffect(() => {
-    if (state.coreCombos.length === 0 && !isLoading) {
+    if (state.coreCombos.length === 0 && !didFetch.current) {
+      didFetch.current = true
       fetchCombos(false)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps

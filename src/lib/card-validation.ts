@@ -1,7 +1,7 @@
 import type { ScryfallCard } from './scryfall/types'
-import { getHardFilterRejectionReason } from '../../convex/lib/card-filters'
+import { getHardFilterRejectionReason } from '../../convex/lib/cardFilters'
 
-export { getHardFilterRejectionReason, isPlayableCard } from '../../convex/lib/card-filters'
+export { getHardFilterRejectionReason, isPlayableCard } from '../../convex/lib/cardFilters'
 
 export interface DeckFilters {
   colors: string[]

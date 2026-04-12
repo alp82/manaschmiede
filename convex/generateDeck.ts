@@ -1,42 +1,23 @@
 import { action } from './_generated/server'
+import type { ActionCtx } from './_generated/server'
 import { v } from 'convex/values'
 import { callAnthropic, callHaiku } from './lib/anthropic'
-import { HARD_FILTER_PROMPT_RULES } from './lib/card-filters'
-
+import { startLlmLog, completeLlmLog } from './lib/logLlmUsage'
 const SYSTEM_PROMPT = `You are an expert Magic: The Gathering casual deck builder.
 
 RULES:
-- ALWAYS exactly 60 cards in the main deck. Count all cards including lands. This is the most important rule.
-- Maximum 4 copies of any card (except basic lands: Plains, Island, Swamp, Mountain, Forest)
-- Include 22-26 lands. This is critical for a playable deck:
-  - Aggro decks (avg CMC < 2.5): 22 lands
-  - Midrange decks (avg CMC 2.5-3.5): 24 lands
-  - Control/ramp decks (avg CMC > 3.5): 25-26 lands
-  - NEVER go below 22 lands unless using extensive mana dorks
-- Focus on a clear theme or strategy with strong synergies
-- Build a good mana curve (mix of cheap and expensive cards)
-- Include removal (3-6 cards), card draw (3-5 cards), and synergy cards
-- Use ONLY real, existing Magic: The Gathering cards
-- Use ENGLISH card names (official Oracle names)
-- Make sure the land base supports all colors in the deck - each color needs proportional land support
+- ALWAYS exactly 60 cards in the main deck. Count all cards including lands.
+- Maximum 4 copies of any card (except basic lands)
+- Include 22-26 lands (aggro 22, midrange 24, control 25-26)
+- Focus on a clear theme with strong synergies
+- Good mana curve, include removal and card draw
+- Use ONLY real, existing Magic cards with ENGLISH Oracle names
+- Land base must support all colors proportionally
+- For 3+ colors, include mana-fixing artifacts
 
-HARD FILTER RULES (enforced automatically — violating suggestions are rejected):
-${HARD_FILTER_PROMPT_RULES}
+Cards are validated automatically after generation — invalid cards get rejected and re-requested. Focus on synergy and fun.
 
-HARD SYNERGY RULES (these are checked automatically - violations get rejected):
-- Do NOT suggest tribal payoff cards (e.g. "Dragon Tempest", "Goblin Chieftain", "Elvish Archdruid") unless the deck has at least 4 creatures of that tribe
-- Do NOT suggest cards whose triggered abilities reference a creature type that is not present in the deck (e.g. "whenever a Dragon enters" only belongs in a deck with Dragons)
-- Do NOT suggest "X matters" cards (artifact matters, enchantment matters, instant/sorcery matters) unless the deck has 4+ enablers of that type
-- Do NOT suggest cards that gate value on a keyword the deck lacks (e.g. "creatures you control with flying" only works if the deck has fliers)
-- Every card you suggest must have at least one ability that meaningfully triggers given the actual deck composition
-- For decks with 3+ colors, include 4–8 mana-fixing artifacts (Chromatic Lantern, Coalition Relic, signets, talismans). Basic lands alone cannot fix 3+ colors in a 60-card deck
-- For sacrifice strategies, provide at least 8 cheap sacrificeable creatures/tokens (fodder) paired with 4+ death-trigger or sacrifice-outlet payoffs. Do not include payoffs without fodder
-- For drain / mono-black value strategies, pair life-loss spells with creature recursion and black threats that scale with swamps. Do not default to "reanimate a fattie" — small recursion loops are the core
-- Equipment as a secondary theme does not require a voltron shell — midrange or ramp decks can run 2–4 equipment pieces as utility upgrades
-
-COUNTING:
-Before outputting, mentally sum all quantities. The total MUST be exactly 60.
-A typical split: 24 lands + 36 non-lands = 60. Verify your math.
+COUNTING: Sum all quantities. Must be exactly 60. Typical: 24 lands + 36 non-lands.
 
 OUTPUT FORMAT (JSON ONLY, no other text):
 {
@@ -89,11 +70,8 @@ async function scryfallSearch(query: string): Promise<string[]> {
     if (!res.ok) return []
     const data: ScryfallSearchResult = await res.json()
     return (data.data ?? []).map((c) => {
-      const parts = [c.name]
-      if (c.mana_cost) parts.push(c.mana_cost)
-      parts.push(`[${c.type_line}]`)
-      if (c.oracle_text) parts.push(c.oracle_text.slice(0, 100))
-      return parts.join(' - ')
+      const type = c.type_line.replace(/ —.*/, '') // "Creature" not "Creature — Elf Wizard"
+      return `${c.name} (${c.mana_cost ?? '0'}) [${type}]`
     })
   } catch {
     return []
@@ -196,7 +174,7 @@ async function buildCardPool(prompt: string): Promise<string> {
     // Rate limit: 100ms between requests
     await new Promise((r) => setTimeout(r, 100))
     const results = await scryfallSearch(query)
-    allCards.push(...results.slice(0, 100)) // top 100 per query
+    allCards.push(...results.slice(0, 50))
   }
 
   if (allCards.length === 0) return ''
@@ -204,8 +182,7 @@ async function buildCardPool(prompt: string): Promise<string> {
   // Deduplicate
   const unique = [...new Set(allCards)]
 
-  return `\n\nCARD POOL (real cards that match the theme - prefer picking from these, but you can add others you know exist):
-${unique.join('\n')}`
+  return `\n\nCARD POOL (prefer these, but you can suggest others):\n${unique.join('\n')}`
 }
 
 type ChatIntent = 'change' | 'question'
@@ -366,47 +343,19 @@ function enforceDeckSize(
   return deck
 }
 
-/**
- * Layer 3: Correction re-prompt - if wildly off, ask AI to fix it once.
- */
-const CORRECTION_PROMPT = `The deck you generated has {total} cards instead of exactly 60. Fix this and return the corrected deck with EXACTLY 60 cards total.
-
-Keep the same strategy and card choices but adjust quantities so the sum is exactly 60. Do not add or remove card types unless necessary.
-
-Return the corrected deck in the same JSON format.`
-
 async function generateWithEnforcement(
+  ctx: ActionCtx,
   systemPrompt: string,
   messages: Array<{ role: string; content: string }>,
   lockedCards?: Array<{ name: string; quantity: number }>,
 ): Promise<GeneratedDeck> {
-  const text = await callAnthropic(systemPrompt, messages)
-  let deck = parseResponse(text)
-  let total = deck.cards.reduce((s, c) => s + c.quantity, 0)
+  const model = 'claude-haiku-4-5-20251001'
+  const logId = await startLlmLog(ctx, 'chat.generate', model, systemPrompt, messages)
+  const result = await callAnthropic(systemPrompt, messages, { model, maxTokens: 4096 })
+  await completeLlmLog(ctx, logId, result)
+  const deck = parseResponse(result.text)
 
-  // Layer 3: If wildly off (more than 5 cards away), try one correction re-prompt
-  if (Math.abs(total - TARGET_SIZE) > 5) {
-    try {
-      const correctionMsg = CORRECTION_PROMPT.replace('{total}', String(total))
-      const correctedText = await callAnthropic(systemPrompt, [
-        ...messages,
-        { role: 'assistant', content: text },
-        { role: 'user', content: correctionMsg },
-      ])
-      const correctedDeck = parseResponse(correctedText)
-      const correctedTotal = correctedDeck.cards.reduce((s, c) => s + c.quantity, 0)
-
-      // Only use the correction if it's actually closer to 60
-      if (Math.abs(correctedTotal - TARGET_SIZE) < Math.abs(total - TARGET_SIZE)) {
-        deck = correctedDeck
-        total = correctedTotal
-      }
-    } catch {
-      // Correction failed, proceed with programmatic fix
-    }
-  }
-
-  // Layer 2: Programmatic enforcement always runs as final guarantee
+  // Programmatic enforcement: force exactly 60 cards, 4-copy rule, land padding
   return enforceDeckSize(deck, lockedCards)
 }
 
@@ -418,15 +367,16 @@ interface ChatResult {
   answer?: string
 }
 
-async function classifyIntent(messages: Array<{ role: string; content: string }>): Promise<ChatIntent> {
+async function classifyIntent(ctx: ActionCtx, messages: Array<{ role: string; content: string }>): Promise<ChatIntent> {
   const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user')
   if (!lastUserMsg) return 'change'
 
+  const inputMessages = [{ role: 'user', content: lastUserMsg.content }]
   try {
-    const result = await callHaiku(INTENT_CLASSIFIER_PROMPT, [
-      { role: 'user', content: lastUserMsg.content },
-    ])
-    const intent = result.trim().toLowerCase()
+    const logId = await startLlmLog(ctx, 'chat.classify', 'claude-haiku-4-5-20251001', INTENT_CLASSIFIER_PROMPT, inputMessages)
+    const result = await callHaiku(INTENT_CLASSIFIER_PROMPT, inputMessages)
+    await completeLlmLog(ctx, logId, result)
+    const intent = result.text.trim().toLowerCase()
     if (intent === 'question') return 'question'
     return 'change'
   } catch {
@@ -521,8 +471,8 @@ export const chat = action({
       ),
     ),
   },
-  handler: async (_ctx, args): Promise<ChatResult> => {
-    const intent = await classifyIntent(args.messages)
+  handler: async (ctx, args): Promise<ChatResult> => {
+    const intent = await classifyIntent(ctx, args.messages)
     const deckContext = buildDeckContext(
       args.currentCards,
       args.deckDescription,
@@ -531,8 +481,11 @@ export const chat = action({
 
     if (intent === 'question') {
       const systemPrompt = QUESTION_SYSTEM_PROMPT + deckContext
-      const answer = await callAnthropic(systemPrompt, args.messages)
-      return { intent: 'question', answer }
+      const qModel = 'claude-haiku-4-5-20251001'
+      const logId = await startLlmLog(ctx, 'chat.question', qModel, systemPrompt, args.messages)
+      const result = await callAnthropic(systemPrompt, args.messages, { model: qModel, maxTokens: 1024 })
+      await completeLlmLog(ctx, logId, result)
+      return { intent: 'question', answer: result.text }
     }
 
     // intent === 'change'
@@ -551,14 +504,15 @@ export const chat = action({
     }
 
     if (args.rejectedCards && args.rejectedCards.length > 0) {
-      systemPrompt += `\n\nPREVIOUSLY REJECTED CARDS - do not suggest these again:\n${args.rejectedCards.map((c) => `- ${c.name}: ${c.reason}`).join('\n')}`
+      const recent = args.rejectedCards.slice(-5)
+      systemPrompt += `\n\nPREVIOUSLY REJECTED CARDS - do not suggest these again:\n${recent.map((c) => `- ${c.name}: ${c.reason}`).join('\n')}`
     }
 
     if (args.currentCards && args.currentCards.length > 0) {
       systemPrompt += `\n\nIMPORTANT: When the user requests changes, always return the COMPLETE updated card list, not just the changes. The deck must ALWAYS have exactly 60 cards. If you remove cards, add others to stay at 60. Maintain the deck's color identity and land base.`
     }
 
-    const deck = await generateWithEnforcement(systemPrompt, args.messages, args.lockedCards)
+    const deck = await generateWithEnforcement(ctx, systemPrompt, args.messages, args.lockedCards)
     return { intent: 'change', deck }
   },
 })
@@ -568,28 +522,14 @@ export const chat = action({
 const SECTION_FILL_SYSTEM_PROMPT = `You are filling ONE SECTION of a Magic: The Gathering 60-card casual deck.
 
 RULES:
-- The sum of all card quantities MUST equal the target count specified
+- Card quantities MUST sum to the target count specified
 - Maximum 4 copies of any card (except basic lands)
-- Use ONLY real, existing Magic: The Gathering cards
-- Use ENGLISH card names (official Oracle names)
-- Pick cards that fit the section description and work well with the existing deck cards
+- Use ONLY real, existing Magic cards with ENGLISH Oracle names
+- Pick cards that fit the section description and synergize with existing deck cards
 - Do NOT duplicate cards already in the deck
+- Stay within the allowed color identity (see DECK CONTEXT)
 
-HARD FILTER RULES (enforced automatically — violating suggestions are rejected):
-${HARD_FILTER_PROMPT_RULES}
-
-HARD COLOR IDENTITY RULE (checked automatically - violations get rejected):
-- Every card you suggest MUST have a color identity that is a subset of the allowed colors listed under DECK CONTEXT.
-- "Color identity" includes mana symbols in cost AND in rules text (e.g. "Alzhan Charm" has color identity R/G/W and is illegal in a W/B deck).
-- Multicolor cards, charms, and hybrid cards that include ANY color outside the allowed list are forbidden. No exceptions. No "close enough".
-- Colorless and basic-land cards are always allowed regardless of the color list.
-
-HARD SYNERGY RULES (these are checked automatically - violations get rejected):
-- Do NOT suggest tribal payoff cards (e.g. "Dragon Tempest", "Goblin Chieftain", "Elvish Archdruid") unless the deck has at least 4 creatures of that tribe
-- Do NOT suggest cards whose triggered abilities reference a creature type that is not present in the deck (e.g. "whenever a Dragon enters" only belongs in a deck with Dragons)
-- Do NOT suggest "X matters" cards (artifact matters, enchantment matters, instant/sorcery matters) unless the deck has 4+ enablers of that type
-- Do NOT suggest cards that gate value on a keyword the deck lacks (e.g. "creatures you control with flying" only works if the deck has fliers)
-- Every card you suggest must have at least one ability that meaningfully triggers given the actual deck composition
+Cards are validated automatically — wrong colors, bad synergies, and invalid cards get rejected.
 
 OUTPUT FORMAT (JSON ONLY, no other text):
 {
@@ -654,24 +594,24 @@ async function buildSectionCardPool(
   const allCards: string[] = []
 
   // Use provided Scryfall hints
-  for (const hint of scryfallHints.slice(0, 3)) {
+  for (const hint of scryfallHints.slice(0, 2)) {
     await new Promise((r) => setTimeout(r, 100))
     const results = await scryfallSearch(`${hint}${colorFilter}`)
-    allCards.push(...results.slice(0, 50))
+    allCards.push(...results.slice(0, 30))
   }
 
   // Also search based on description keywords
   const descQueries = extractSearchQueries(description, colors)
-  for (const query of descQueries.slice(0, 2)) {
+  for (const query of descQueries.slice(0, 1)) {
     await new Promise((r) => setTimeout(r, 100))
     const results = await scryfallSearch(query)
-    allCards.push(...results.slice(0, 50))
+    allCards.push(...results.slice(0, 30))
   }
 
   if (allCards.length === 0) return ''
 
   const unique = [...new Set(allCards)]
-  return `\n\nCARD POOL (real cards matching this section's theme - prefer picking from these):\n${unique.join('\n')}`
+  return `\n\nCARD POOL (prefer these, but you can suggest others):\n${unique.join('\n')}`
 }
 
 export const fillSection = action({
@@ -692,7 +632,7 @@ export const fillSection = action({
       v.array(v.object({ name: v.string(), reason: v.string() })),
     ),
   },
-  handler: async (_ctx, args): Promise<SectionFillResult> => {
+  handler: async (ctx, args): Promise<SectionFillResult> => {
     const cardPool = await buildSectionCardPool(
       args.scryfallHints,
       args.colors,
@@ -728,16 +668,19 @@ export const fillSection = action({
     }
 
     if (args.rejectedCards && args.rejectedCards.length > 0) {
-      systemPrompt += `\n\nPREVIOUSLY REJECTED CARDS - do not suggest these again, the listed reasons are why:\n${args.rejectedCards.map((c) => `- ${c.name}: ${c.reason}`).join('\n')}`
+      const recent = args.rejectedCards.slice(-5)
+      systemPrompt += `\n\nPREVIOUSLY REJECTED CARDS - do not suggest these again:\n${recent.map((c) => `- ${c.name}: ${c.reason}`).join('\n')}`
     }
 
     const userMessage = `Fill the "${args.sectionName}" section with exactly ${args.targetCount} cards total (sum of quantities = ${args.targetCount}).\n\nSection description: ${args.sectionDescription}`
 
-    const text = await callAnthropic(systemPrompt, [
-      { role: 'user', content: userMessage },
-    ])
+    const inputMessages = [{ role: 'user', content: userMessage }]
+    const fillModel = 'claude-haiku-4-5-20251001'
+    const logId = await startLlmLog(ctx, 'fillSection', fillModel, systemPrompt, inputMessages)
+    const llmResult = await callAnthropic(systemPrompt, inputMessages, { model: fillModel, maxTokens: 1024 })
+    await completeLlmLog(ctx, logId, llmResult)
 
-    const result = parseSectionResponse(text)
+    const result = parseSectionResponse(llmResult.text)
 
     // Enforce target count - trim excess from end
     let total = result.cards.reduce((s, c) => s + c.quantity, 0)

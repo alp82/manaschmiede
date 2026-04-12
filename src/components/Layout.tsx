@@ -3,6 +3,7 @@ import { useI18n } from '../lib/i18n'
 import type { Locale } from '../lib/i18n'
 import { useSoundEnabled } from '../lib/sounds'
 import { Button } from './ui/Button'
+import { AiUsageLog } from './AiUsageLog'
 
 interface LayoutProps {
   children: ReactNode
@@ -50,7 +51,7 @@ export function Layout({ children }: LayoutProps) {
             <button
               type="button"
               onClick={() => setSoundEnabled(!soundEnabled)}
-              className="font-mono text-mono-label uppercase tracking-mono-label text-cream-400 transition-colors hover:text-cream-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ink-red focus-visible:ring-offset-2 focus-visible:ring-offset-ash-900"
+              className="cursor-pointer font-mono text-mono-label uppercase tracking-mono-label text-cream-400 transition-colors hover:text-cream-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ink-red focus-visible:ring-offset-2 focus-visible:ring-offset-ash-900"
               title={soundEnabled ? 'Mute sounds' : 'Enable sounds'}
               aria-pressed={soundEnabled}
             >
@@ -62,7 +63,7 @@ export function Layout({ children }: LayoutProps) {
             <button
               type="button"
               onClick={() => setLocale((locale === 'de' ? 'en' : 'de') as Locale)}
-              className="font-mono text-mono-label uppercase tracking-mono-label text-cream-400 transition-colors hover:text-cream-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ink-red focus-visible:ring-offset-2 focus-visible:ring-offset-ash-900"
+              className="cursor-pointer font-mono text-mono-label uppercase tracking-mono-label text-cream-400 transition-colors hover:text-cream-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ink-red focus-visible:ring-offset-2 focus-visible:ring-offset-ash-900"
               title={locale === 'de' ? 'Switch to English' : 'Zu Deutsch wechseln'}
             >
               {locale.toUpperCase()}
@@ -82,6 +83,8 @@ export function Layout({ children }: LayoutProps) {
       </header>
 
       <main className="mx-auto max-w-7xl px-4 py-8 pb-24 sm:px-6">{children}</main>
+
+      <AiUsageLog />
     </div>
   )
 }
