@@ -12,7 +12,7 @@
 
   /* Surface palette — REMAPPED to warm Specimen ash/cream so every legacy
      component using surface-* tokens instantly lands in the new language.
-     Values align with ash-*/cream-* below; keeping both token names for
+     Values align with the ash and cream scales below; keeping both token names for
      a transitional period, consolidate later. */
   --color-surface-900: oklch(0.14 0.008 55);   /* = ash-900 */
   --color-surface-800: oklch(0.18 0.008 55);   /* = ash-800 */
