@@ -3,12 +3,15 @@ import type { Translations } from './types'
 export const de: Translations = {
   // Nav
   'nav.cards': 'Karten',
+  'nav.decks': 'Decks',
   'nav.newDeck': '+ Neues Deck',
 
   'home.tagline': 'Eine Schmiede für Magic-Deckbauer. Wähle deine Strategie, deine Farben – die Presse erledigt den Rest.',
   'home.forgeDeck': 'Neues Deck Schmieden',
   'home.browseCatalog': 'katalog durchstöbern',
   'home.emptyHint': 'Noch keine Decks — schmiede dein erstes, oder lade die Beispielkollektion.',
+  'home.seeAllDecks': 'Alle Decks ansehen',
+  'home.searchHint': 'Tippe, um den Katalog zu durchsuchen.',
 
   // Search
   'search.placeholder': 'Karten suchen...',
@@ -20,6 +23,21 @@ export const de: Translations = {
   'search.welcomeSub': 'Suche nach Karten, um loszulegen',
   'search.cardSearch': 'Kartensuche',
   'search.searching': 'Suche...',
+
+  // Cards route
+  'cards.eyebrow': 'Katalog',
+  'cards.title': 'Kartensuche',
+
+  // Decks archive route
+  'decks.eyebrow': 'Archiv',
+  'decks.title': 'Deine Decks',
+  'decks.empty': 'Noch keine Decks. Schmiede dein erstes.',
+  'decks.variant.stacked': 'Gestapelte Platten',
+  'decks.variant.triptych': 'Triptychon',
+  'decks.variant.featured': 'Hauptwerk + Beiwerk',
+  'decks.variant.banner': 'Kunst-Banner',
+  'decks.noPreview': 'Keine Vorschau',
+  'decks.variantHint': 'Jedes Deck zeigt vier Vorschau-Stile — klicke auf eine Kachel, um das Deck zu öffnen.',
 
   // Filters
   'filter.allTypes': 'Alle Typen',
@@ -101,6 +119,10 @@ export const de: Translations = {
   'wizard.seedConflictBody': 'Du hast bereits einen Assistenten in Arbeit. Ein neues Deck mit {name} zu beginnen verwirft deine bisherigen Entscheidungen.',
   'wizard.seedConflictConfirm': 'Neu beginnen',
   'wizard.seedConflictCancel': 'Weiterarbeiten',
+  'wizard.finishBlockedTitle': 'Das Deck muss genau 60 Karten haben',
+  'wizard.finishBlockedBody': 'Dein Deck hat derzeit {count} Karten. Füge Karten hinzu oder entferne welche, bis du 60 erreichst.',
+  'wizard.finishBlockedContinueEditing': 'Weiter bearbeiten',
+  'wizard.cardCountOfTarget': '{count}/60',
 
   // Step 1: Colors
   'colors.title': 'Wähle deine Farben',
@@ -147,7 +169,7 @@ export const de: Translations = {
   'core.title': 'Kernkarten-Kombos',
   'core.subtitle': 'Wähle eine Kombo als Grundlage deines Decks, oder suche nach bestimmten Karten',
   'core.analyzing': 'Karten werden analysiert und Synergien gesucht...',
-  'core.noValidCombos': 'Es konnten keine gültigen Kartenkombinationen gefunden werden. Einige vorgeschlagene Karten waren Commander-exklusiv und mussten herausgefiltert werden. Versuche, deine Farben oder Strategie anzupassen, oder suche unten nach bestimmten Karten.',
+  'core.noValidCombos': 'Es konnten keine gültigen Kartenkombinationen gefunden werden. Einige vorgeschlagene Karten sind im 60-Karten-Casual-Format nicht legal und mussten herausgefiltert werden. Versuche, deine Farben oder Strategie anzupassen, oder suche unten nach bestimmten Karten.',
   'core.tryAgain': 'Erneut versuchen',
   'core.strategyChanged': 'Deine Strategie oder Farben haben sich geändert',
   'core.strategyChangedHint': 'Diese Kombos wurden für andere Einstellungen erstellt. Aktualisiere, um passende Vorschläge zu erhalten.',

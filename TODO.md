@@ -1,9 +1,5 @@
-* fertig button deaktivieren wenn nicht 60 karten
-* german cards
-* decks page
-* cards page
-* simulator extensions
 * step 4: search + add flow
+* simulator extensions
 * sound revamp
 * landing page copy + structure
 * better auth

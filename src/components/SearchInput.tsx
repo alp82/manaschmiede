@@ -53,6 +53,7 @@ export function SearchInput({ value, onChange, placeholder, autoFocus = false }:
         onChange={(e) => handleChange(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
+        aria-label={placeholder}
         className="w-full bg-transparent py-3 font-mono text-mono-label text-cream-100 placeholder-cream-400 focus:outline-none"
         // eslint-disable-next-line jsx-a11y/no-autofocus
         autoFocus={autoFocus}

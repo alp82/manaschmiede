@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useMemo } from 'react'
-import { getCardByName } from './scryfall/client'
+import { getCardByName, getLocalizedCardData } from './scryfall/client'
+import { useI18n } from './i18n'
 import { getCardRejectionReason } from './card-validation'
 import type { ScryfallCard } from './scryfall/types'
 import { getCardName } from './scryfall/types'
@@ -28,6 +29,7 @@ async function fillLands(
   resolvedCards: DeckCard[],
   resolvedMap: Map<string, { card: ScryfallCard; quantity: number }>,
   onCardDataUpdate: (card: ScryfallCard) => void,
+  scryfallLang: string,
 ): Promise<{ cards: DeckCard[]; added: Array<{ name: string; scryfallId: string; quantity: number; scryfallCard?: ScryfallCard }> }> {
   const totalCards = resolvedCards.reduce((s, c) => s + c.quantity, 0)
   if (totalCards >= TARGET_DECK_SIZE) return { cards: resolvedCards, added: [] }
@@ -60,11 +62,9 @@ async function fillLands(
     }
 
     // Resolve the land card data
-    try {
-      // Fetch card data directly by ID (not by name) to avoid promo printings
-      const landCard = await fetch(`https://api.scryfall.com/cards/${landId}`, {
-        headers: { 'User-Agent': 'Manaschmiede/0.1', Accept: 'application/json' },
-      }).then((r) => r.json()) as ScryfallCard
+    // Fetch card data directly by ID (not by name) to avoid promo printings
+    const landCard = await getLocalizedCardData(undefined, landId, undefined, undefined, scryfallLang)
+    if (landCard) {
       onCardDataUpdate(landCard)
       addedLands.push({
         name: getCardName(landCard),
@@ -72,7 +72,7 @@ async function fillLands(
         quantity: qty,
         scryfallCard: landCard,
       })
-    } catch {
+    } else {
       addedLands.push({ name: color + ' Land', scryfallId: landId, quantity: qty })
     }
   }
@@ -120,6 +120,7 @@ interface UseDeckChatOptions {
 }
 
 export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate, onCardDataUpdate, lockedCardIds, sectionAssignments, sectionLabels, initialMessages, onMessagesChange }: UseDeckChatOptions) {
+  const { scryfallLang } = useI18n()
   const [messages, setMessagesInternal] = useState<ChatMessage[]>(initialMessages ?? [])
   const [isLoading, setIsLoading] = useState(false)
   const [pending, setPending] = useState<PendingChanges | null>(null)
@@ -275,19 +276,17 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
                 if (rc) rc.quantity += card.quantity
               } else {
                 resolvedCards.push({ scryfallId: canonicalId, quantity: card.quantity, zone: 'main' })
-                try {
-                  const landCard = await fetch(`https://api.scryfall.com/cards/${canonicalId}`, {
-                    headers: { 'User-Agent': 'Manaschmiede/0.1', Accept: 'application/json' },
-                  }).then((r) => r.json()) as ScryfallCard
+                const landCard = await getLocalizedCardData(undefined, canonicalId, undefined, undefined, scryfallLang)
+                if (landCard) {
                   batchCardData.push(landCard)
                   resolvedMap.set(canonicalId, { card: landCard, quantity: card.quantity })
-                } catch { /* skip */ }
+                }
               }
               continue
             }
 
             try {
-              const scryfallCard = await getCardByName(card.name)
+              const scryfallCard = await getCardByName(card.name, scryfallLang)
               // Hard filter: skip stickers, Un-sets, oversized, digital-only, etc.
               // The AI shouldn't suggest these, but Scryfall-by-name can still
               // resolve them so we enforce it here as a safety net.
@@ -406,6 +405,7 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
           resolvedCards,
           resolvedMap,
           onCardDataUpdate,
+          scryfallLang,
         )
 
         // Update resolvedMap with any added lands
@@ -498,7 +498,7 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
     },
     // Everything volatile is read via refs; only stable callbacks need to
     // live in deps here.
-    [setMessages, onCardDataUpdate],
+    [setMessages, onCardDataUpdate, scryfallLang],
   )
 
   const applyChanges = useCallback(() => {

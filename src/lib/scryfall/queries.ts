@@ -1,5 +1,12 @@
 import { queryOptions } from '@tanstack/react-query'
-import { searchCards, autocompleteCards, getCardById, listSets } from './client'
+import {
+  searchCards,
+  autocompleteCards,
+  getCardById,
+  getLocalizedCardData,
+  listSets,
+} from './client'
+import type { ScryfallCard } from './types'
 
 const STALE_24H = 1000 * 60 * 60 * 24
 
@@ -37,6 +44,28 @@ export function cardByIdOptions(id: string, lang = 'en') {
     queryFn: () => getCardById(id, lang),
     staleTime: STALE_24H,
     enabled: !!id,
+  })
+}
+
+export function localizedCardOptions(params: {
+  id: string
+  set?: string
+  collectorNumber?: string
+  lang: string
+  existing?: ScryfallCard | null
+}) {
+  return queryOptions({
+    queryKey: scryfallKeys.card(params.id, params.lang),
+    queryFn: () =>
+      getLocalizedCardData(
+        params.existing,
+        params.id,
+        params.set,
+        params.collectorNumber,
+        params.lang,
+      ),
+    staleTime: STALE_24H,
+    enabled: !!params.id,
   })
 }
 

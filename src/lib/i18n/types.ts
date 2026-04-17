@@ -3,6 +3,7 @@ export type Locale = 'de' | 'en'
 export interface Translations {
   // Nav / Layout
   'nav.cards': string
+  'nav.decks': string
   'nav.newDeck': string
 
   // Home hero
@@ -10,6 +11,8 @@ export interface Translations {
   'home.forgeDeck': string
   'home.browseCatalog': string
   'home.emptyHint': string
+  'home.seeAllDecks': string
+  'home.searchHint': string
 
   // Search
   'search.placeholder': string
@@ -21,6 +24,21 @@ export interface Translations {
   'search.welcomeSub': string
   'search.cardSearch': string
   'search.searching': string
+
+  // Cards route
+  'cards.eyebrow': string
+  'cards.title': string
+
+  // Decks archive route
+  'decks.eyebrow': string
+  'decks.title': string
+  'decks.empty': string
+  'decks.variant.stacked': string
+  'decks.variant.triptych': string
+  'decks.variant.featured': string
+  'decks.variant.banner': string
+  'decks.noPreview': string
+  'decks.variantHint': string
 
   // Filters
   'filter.allTypes': string
@@ -102,6 +120,10 @@ export interface Translations {
   'wizard.seedConflictBody': string
   'wizard.seedConflictConfirm': string
   'wizard.seedConflictCancel': string
+  'wizard.finishBlockedTitle': string
+  'wizard.finishBlockedBody': string
+  'wizard.finishBlockedContinueEditing': string
+  'wizard.cardCountOfTarget': string
 
   // Step 1: Colors
   'colors.title': string

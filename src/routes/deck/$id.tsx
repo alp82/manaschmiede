@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { memo, useState, useCallback, useMemo, useEffect } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Layout } from '../../components/Layout'
 import { SearchInput } from '../../components/SearchInput'
 import { CardStack } from '../../components/CardStack'
@@ -17,8 +18,9 @@ import { useToast } from '../../components/ui/Toast'
 import { cn } from '../../lib/utils'
 import { analyzeDeck } from '../../lib/balance'
 import { useDeckChat } from '../../lib/useDeckChat'
-import { searchCards, getCardById, getCardInLang } from '../../lib/scryfall/client'
-import { loadDeck, persistDeck, type LocalDeck } from '../../lib/deck-storage'
+import { searchCards, getLocalizedCardData, getCardsCollection } from '../../lib/scryfall/client'
+import { scryfallKeys } from '../../lib/scryfall/queries'
+import { loadDeck, persistDeck, pickFeaturedCardIds, type LocalDeck } from '../../lib/deck-storage'
 import { localizeDeckSection } from '../../lib/section-plan'
 import type { ManaColor } from '../../components/ManaSymbol'
 import type { ScryfallCard } from '../../lib/scryfall/types'
@@ -119,6 +121,20 @@ const SectionLane = memo(function SectionLane({
   )
 })
 
+function CardLoadingSkeleton({ count = 12 }: { count?: number }) {
+  return (
+    <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+      {Array.from({ length: count }, (_, i) => (
+        <div
+          key={i}
+          className="aspect-[488/680] animate-pulse bg-ash-800"
+          aria-hidden="true"
+        />
+      ))}
+    </div>
+  )
+}
+
 export const Route = createFileRoute('/deck/$id')({
   // TODO: deck data lives in localStorage and loads post-mount, so a dynamic
   // title would require a route loader — static fallback for now.
@@ -136,11 +152,16 @@ function DeckPage() {
   const navigate = useNavigate()
   const toast = useToast()
   const { scryfallLang } = useI18n()
+  const queryClient = useQueryClient()
   const { id } = Route.useParams()
-  const [deck, setDeck] = useState<LocalDeck | null>(null)
-  const [deckName, setDeckName] = useState('')
-  const [deckDescription, setDeckDescription] = useState('')
+  const [deck, setDeck] = useState<LocalDeck | null>(() => loadDeck(id))
+  const [deckName, setDeckName] = useState(() => loadDeck(id)?.name ?? '')
+  const [deckDescription, setDeckDescription] = useState(() => loadDeck(id)?.description ?? '')
   const [cardDataMap, setCardDataMap] = useState<Map<string, ScryfallCard>>(new Map())
+  const [cardsLoading, setCardsLoading] = useState<boolean>(() => {
+    const d = loadDeck(id)
+    return !!d && d.cards.length > 0
+  })
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
   const [editing, setEditing] = useState(false)
   const [mobileTab, setMobileTab] = useState<MobileTab>('cards')
@@ -151,22 +172,14 @@ function DeckPage() {
   const [searchResults, setSearchResults] = useState<ScryfallCard[]>([])
   const [searching, setSearching] = useState(false)
 
-  // Load deck
-  useEffect(() => {
-    const loaded = loadDeck(id)
-    if (loaded) {
-      setDeck(loaded)
-      setDeckName(loaded.name)
-      setDeckDescription(loaded.description || '')
-    }
-  }, [id])
-
   // Auto-save
   useEffect(() => {
     if (!deck) return
-    const timer = setTimeout(() => persistDeck(deck), 500)
+    const timer = setTimeout(() => {
+      persistDeck({ ...deck, featuredCardIds: pickFeaturedCardIds(deck.cards, cardDataMap) })
+    }, 500)
     return () => clearTimeout(timer)
-  }, [deck])
+  }, [deck, cardDataMap])
 
   // Derive deck colors from card data when all cards are resolved
   useEffect(() => {
@@ -188,22 +201,80 @@ function DeckPage() {
     }
   }, [deck?.cards, cardDataMap])
 
-  // Fetch card data
+  // Fetch card data — one batched /cards/collection request for default
+  // prints, then per-card localization upgrades in the background. Results
+  // are mirrored into React Query's cache so remounts are instant.
   useEffect(() => {
-    if (!deck) return
-    for (const dc of deck.cards) {
-      const existing = cardDataMap.get(dc.scryfallId)
-      if (existing && existing.lang === scryfallLang) continue
-      const fetchCard = existing
-        ? getCardInLang(existing.set, existing.collector_number, scryfallLang)
-        : getCardById(dc.scryfallId)
-      fetchCard
-        .then((card: ScryfallCard) => {
-          setCardDataMap((prev) => new Map(prev).set(dc.scryfallId, card))
-        })
-        .catch(() => {})
+    if (!deck) {
+      setCardsLoading(false)
+      return
     }
-  }, [deck?.cards.length, scryfallLang])
+    const missingIds = deck.cards
+      .map((dc) => dc.scryfallId)
+      .filter((sid) => {
+        const existing = cardDataMap.get(sid)
+        return !existing || existing.lang !== scryfallLang
+      })
+    if (missingIds.length === 0) {
+      setCardsLoading(false)
+      return
+    }
+    let cancelled = false
+    setCardsLoading(true)
+
+    // Dedupe the batch request — a deck can include the same card id twice
+    // (e.g. tokens, basic lands duplicated across zones).
+    const uniqueMissing = Array.from(new Set(missingIds))
+
+    getCardsCollection(uniqueMissing)
+      .then((batch) => {
+        if (cancelled) return
+        if (batch.length > 0) {
+          setCardDataMap((prev) => {
+            const next = new Map(prev)
+            for (const card of batch) {
+              next.set(card.id, card)
+              queryClient.setQueryData(scryfallKeys.card(card.id, card.lang), card)
+              // Seed the active-locale key so remounts under the same locale
+              // hit the cache; localization upgrades below will overwrite
+              // this entry with the localized print when available.
+              queryClient.setQueryData(scryfallKeys.card(card.id, scryfallLang), card)
+            }
+            return next
+          })
+        }
+        // Fire per-card localization upgrades in the background. These hit
+        // the rate-limited queue but don't block the initial render.
+        if (scryfallLang !== 'en') {
+          for (const card of batch) {
+            if (cancelled) return
+            if (card.lang === scryfallLang) continue
+            getLocalizedCardData(card, card.id, card.set, card.collector_number, scryfallLang)
+              .then((localized) => {
+                if (cancelled || !localized || localized.lang !== scryfallLang) return
+                setCardDataMap((prev) => {
+                  const next = new Map(prev)
+                  next.set(card.id, localized)
+                  return next
+                })
+                queryClient.setQueryData(
+                  scryfallKeys.card(card.id, scryfallLang),
+                  localized,
+                )
+              })
+              .catch(() => {})
+          }
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setCardsLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [deck?.cards.length, scryfallLang, queryClient])
 
   // Search
   useEffect(() => {
@@ -566,13 +637,15 @@ function DeckPage() {
             />
           ))}
         </div>
-      ) : (
+      ) : deck.cards.length === 0 ? (
         <EmptyState
           title={t('deck.emptyDeck')}
           description={t('deck.emptyDeckSub')}
           className="min-h-[200px] py-16"
         />
-      )}
+      ) : cardsLoading || deckDisplay.length === 0 ? (
+        <CardLoadingSkeleton />
+      ) : null}
     </>
   )
 

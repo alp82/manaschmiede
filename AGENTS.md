@@ -5,6 +5,7 @@ Manaschmiede is a Magic: The Gathering deck builder.
 **Hard requirements:**
 * Great recommendations that synergize and are fun to play
 * Decks are balanced and great to play against each other
+* 60-card casual only — no Commander, no Limited, no other format
 
 It has a distinct visual
 language called **Specimen**. Every UI decision must conform to it. Read this

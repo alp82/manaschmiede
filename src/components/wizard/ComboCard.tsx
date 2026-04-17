@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import type { CoreCombo } from '../../lib/wizard-state'
 import type { ScryfallCard } from '../../lib/scryfall/types'
-import { getCardById } from '../../lib/scryfall/client'
+import { getLocalizedCardData } from '../../lib/scryfall/client'
 import { CardImage } from '../CardImage'
 import { CardLightbox } from '../CardLightbox'
 import { ManaSymbol, type ManaColor } from '../ManaSymbol'
@@ -43,12 +43,16 @@ export function ComboCard({ combo, selected, onSelect, renderLightboxActions }: 
         if (!card.scryfallId || !card.scryfallCard) continue
         if (card.scryfallCard.lang === scryfallLang) continue
         if (localizedCards.get(card.scryfallId)?.lang === scryfallLang) continue
-        try {
-          const localized = await getCardById(card.scryfallId)
-          if (cancelled) return
+        const localized = await getLocalizedCardData(
+          card.scryfallCard,
+          card.scryfallId,
+          card.scryfallCard.set,
+          card.scryfallCard.collector_number,
+          scryfallLang,
+        )
+        if (cancelled) return
+        if (localized && localized.lang === scryfallLang) {
           setLocalizedCards((prev) => new Map(prev).set(card.scryfallId!, localized))
-        } catch {
-          // fall back to original
         }
       }
     }

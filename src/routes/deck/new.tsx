@@ -19,13 +19,13 @@ import {
   isWizardStateDirty,
   getFillColors,
 } from '../../lib/wizard-state'
-import { persistDeck } from '../../lib/deck-storage'
+import { persistDeck, pickFeaturedCardIds } from '../../lib/deck-storage'
 import { generateDeckName } from '../../lib/deck-naming'
-import { getCardById } from '../../lib/scryfall/client'
+import { getLocalizedCardData } from '../../lib/scryfall/client'
 import { getCardName } from '../../lib/scryfall/types'
 import type { ScryfallCard } from '../../lib/scryfall/types'
 import { extractCostColors } from '../../lib/mana-cost-colors'
-import { useT } from '../../lib/i18n'
+import { useT, useI18n } from '../../lib/i18n'
 
 export const Route = createFileRoute('/deck/new')({
   head: () => ({
@@ -37,6 +37,7 @@ export const Route = createFileRoute('/deck/new')({
 function NewDeckWizard() {
   const navigate = useNavigate()
   const t = useT()
+  const { scryfallLang } = useI18n()
   const [state, dispatch] = useReducer(wizardReducer, undefined, initialWizardState)
 
   // Sync step to URL via nuqs
@@ -72,17 +73,17 @@ function NewDeckWizard() {
 
     let cancelled = false
     ;(async () => {
-      try {
-        const card = await getCardById(seedParam)
-        if (cancelled) return
-        if (isWizardStateDirty(state)) {
-          setPendingSeed(card)
-        } else {
-          dispatch({ type: 'SET_SEED_CARD', card, costColors: extractCostColors(card) })
-        }
-      } catch {
+      const card = await getLocalizedCardData(undefined, seedParam, undefined, undefined, scryfallLang)
+      if (cancelled) return
+      if (!card) {
         // Invalid / unreachable Scryfall ID — drop the param silently.
-        if (!cancelled) setSeedParam(null)
+        setSeedParam(null)
+        return
+      }
+      if (isWizardStateDirty(state)) {
+        setPendingSeed(card)
+      } else {
+        dispatch({ type: 'SET_SEED_CARD', card, costColors: extractCostColors(card) })
       }
     })()
 
@@ -164,7 +165,7 @@ function NewDeckWizard() {
     dispatch({ type: 'GO_TO_STEP', step: 4 })
   }, [])
 
-  const handleFinish = useCallback(() => {
+  const handleFinish = useCallback((cardDataMap: Map<string, ScryfallCard>) => {
     const deckId = crypto.randomUUID()
     const selectedCombo =
       state.selectedComboIndex != null ? state.coreCombos[state.selectedComboIndex] : undefined
@@ -184,6 +185,7 @@ function NewDeckWizard() {
       cards: state.deckCards,
       sectionPlan: state.sectionPlan,
       sectionAssignments: state.sectionAssignments,
+      featuredCardIds: pickFeaturedCardIds(state.deckCards, cardDataMap),
       createdAt: Date.now(),
       updatedAt: Date.now(),
     })

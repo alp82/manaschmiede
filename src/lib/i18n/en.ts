@@ -3,12 +3,15 @@ import type { Translations } from './types'
 export const en: Translations = {
   // Nav
   'nav.cards': 'Cards',
+  'nav.decks': 'Decks',
   'nav.newDeck': '+ New Deck',
 
   'home.tagline': 'A forge for Magic: the Gathering deckbuilders. Pick a strategy, choose your colors, let the press do the rest.',
   'home.forgeDeck': 'Forge a New Deck',
   'home.browseCatalog': 'browse the catalog',
   'home.emptyHint': 'No decks yet — forge your first, or load the sample catalog.',
+  'home.seeAllDecks': 'See all decks',
+  'home.searchHint': 'Type to browse the catalog.',
 
   // Search
   'search.placeholder': 'Search cards...',
@@ -20,6 +23,21 @@ export const en: Translations = {
   'search.welcomeSub': 'Search for cards to get started',
   'search.cardSearch': 'Card Search',
   'search.searching': 'Searching...',
+
+  // Cards route
+  'cards.eyebrow': 'Catalog',
+  'cards.title': 'Card search',
+
+  // Decks archive route
+  'decks.eyebrow': 'Archive',
+  'decks.title': 'Your decks',
+  'decks.empty': 'No decks yet. Forge your first.',
+  'decks.variant.stacked': 'Stacked plates',
+  'decks.variant.triptych': 'Triptych',
+  'decks.variant.featured': 'Featured + sidekicks',
+  'decks.variant.banner': 'Art banner',
+  'decks.noPreview': 'No preview',
+  'decks.variantHint': 'Each deck shows four preview styles — click any tile to open that deck.',
 
   // Filters
   'filter.allTypes': 'All Types',
@@ -101,6 +119,10 @@ export const en: Translations = {
   'wizard.seedConflictBody': 'You already have a wizard session in progress. Starting a new deck with {name} will discard your current choices.',
   'wizard.seedConflictConfirm': 'Start over',
   'wizard.seedConflictCancel': 'Keep working',
+  'wizard.finishBlockedTitle': 'Deck must be exactly 60 cards',
+  'wizard.finishBlockedBody': 'Your deck currently has {count} cards. Add or remove cards until you reach 60.',
+  'wizard.finishBlockedContinueEditing': 'Continue editing',
+  'wizard.cardCountOfTarget': '{count}/60',
 
   // Step 1: Colors
   'colors.title': 'Choose Your Colors',
@@ -147,7 +169,7 @@ export const en: Translations = {
   'core.title': 'Core Card Combos',
   'core.subtitle': 'Select a combo to build your deck around, or search for specific cards',
   'core.analyzing': 'Analyzing cards and finding synergies...',
-  'core.noValidCombos': 'Could not find valid card combinations. Some suggested cards were commander-exclusive and had to be filtered out. Try adjusting your colors or strategy, or search for specific cards below.',
+  'core.noValidCombos': 'Could not find valid card combinations. Some suggested cards are not legal in 60-card casual and had to be filtered out. Try adjusting your colors or strategy, or search for specific cards below.',
   'core.tryAgain': 'Try Again',
   'core.strategyChanged': 'Your strategy or colors have changed',
   'core.strategyChangedHint': 'These combos were generated for different settings. Refresh to get matching suggestions.',

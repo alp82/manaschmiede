@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { useLocation } from '@tanstack/react-router'
 import { useI18n } from '../lib/i18n'
 import type { Locale } from '../lib/i18n'
 import { useSoundEnabled } from '../lib/sounds'
@@ -23,10 +24,15 @@ interface LayoutProps {
 export function Layout({ children }: LayoutProps) {
   const { locale, setLocale, t } = useI18n()
   const [soundEnabled, setSoundEnabled] = useSoundEnabled()
+  const { pathname } = useLocation()
+  const navLinks: Array<{ to: string; label: string }> = [
+    { to: '/decks', label: t('nav.decks') },
+    { to: '/cards', label: t('nav.cards') },
+  ]
 
   return (
     <div className="min-h-screen bg-ash-900">
-      <header className="sticky top-0 z-20 border-b border-hairline bg-ash-900/95 backdrop-blur-sm">
+      <header className="sticky top-0 z-20 border-b border-hairline bg-ash-900/95">
         <div className="mx-auto flex max-w-7xl items-center px-4 py-3 sm:px-6">
           {/* Wordmark */}
           <a
@@ -38,12 +44,23 @@ export function Layout({ children }: LayoutProps) {
 
           {/* Nav */}
           <nav className="ml-6 hidden items-center gap-5 sm:flex">
-            <a
-              href="/"
-              className="font-mono text-mono-label uppercase tracking-mono-label text-cream-400 transition-colors hover:text-cream-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ink-red focus-visible:ring-offset-2 focus-visible:ring-offset-ash-900"
-            >
-              {t('nav.cards')}
-            </a>
+            {navLinks.map((link) => {
+              const isActive = pathname === link.to
+              return (
+                <a
+                  key={link.to}
+                  href={link.to}
+                  aria-current={isActive ? 'page' : undefined}
+                  className={`relative font-mono text-mono-label uppercase tracking-mono-label transition-colors hover:text-cream-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ink-red focus-visible:ring-offset-2 focus-visible:ring-offset-ash-900 ${
+                    isActive
+                      ? 'text-cream-100 after:absolute after:inset-x-0 after:-bottom-3 after:h-0.5 after:bg-ink-red'
+                      : 'text-cream-400'
+                  }`}
+                >
+                  {link.label}
+                </a>
+              )
+            })}
           </nav>
 
           {/* Utility rail (pushed right) */}

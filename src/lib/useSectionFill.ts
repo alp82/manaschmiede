@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react'
-import { getCardByName } from './scryfall/client'
+import { getCardByName, getLocalizedCardData } from './scryfall/client'
+import { useI18n } from './i18n'
 import type { ScryfallCard } from './scryfall/types'
 import { getCardName } from './scryfall/types'
 import type { DeckCard } from './deck-utils'
@@ -59,6 +60,7 @@ async function callFillSection(
   wizardState: WizardState,
   fillColors: string[],
   onCardDataUpdate: (card: ScryfallCard) => void,
+  scryfallLang: string,
   options: FillCallOptions = {},
 ): Promise<PreviewCard[]> {
   const archetypeLabels = wizardState.selectedArchetypes.map((id) => getTraitById(id)?.label || id)
@@ -90,7 +92,7 @@ async function callFillSection(
   const previewCards: PreviewCard[] = []
   for (const card of result.cards) {
     try {
-      const scryfallCard = await getCardByName(card.name)
+      const scryfallCard = await getCardByName(card.name, scryfallLang)
       onCardDataUpdate(scryfallCard)
       previewCards.push({
         name: getCardName(scryfallCard),
@@ -189,6 +191,7 @@ export function useSectionFill({
   const [sectionStates, setSectionStates] = useState<Record<string, SectionFillState>>({})
   const [fillProgress, setFillProgress] = useState<FillProgress | null>(null)
   const abortRef = useRef(false)
+  const { scryfallLang } = useI18n()
 
   // Refs for latest values - needed by fillAllRemaining to avoid stale closures
   const deckCardsRef = useRef(deckCards)
@@ -265,6 +268,7 @@ export function useSectionFill({
         wizardState,
         filters.colors,
         onCardDataUpdate,
+        scryfallLang,
         { deckComposition: compositionSummary },
       )
       const firstResult = validateSection(firstBatch, deckCardsRef.current, cardDataMapRef.current, filters)
@@ -278,6 +282,7 @@ export function useSectionFill({
           wizardState,
           filters.colors,
           onCardDataUpdate,
+          scryfallLang,
           { deckComposition: compositionSummary, rejectedCards: firstResult.rejected },
         )
         const retryResult = validateSection(retryBatch, deckCardsRef.current, cardDataMapRef.current, filters)
@@ -310,7 +315,7 @@ export function useSectionFill({
         error: err instanceof Error ? err.message : 'Failed to fill section',
       })
     }
-  }, [sections, wizardState, onCardDataUpdate, updateSection, getCurrentCardNames, buildFilters])
+  }, [sections, wizardState, onCardDataUpdate, updateSection, getCurrentCardNames, buildFilters, scryfallLang])
 
   /** Apply previewed cards from a section into the deck */
   const applySection = useCallback((sectionId: string) => {
@@ -355,12 +360,8 @@ export function useSectionFill({
 
       additions.push({ scryfallId: landId, quantity: qty })
 
-      try {
-        const landCard = await fetch(`https://api.scryfall.com/cards/${landId}`, {
-          headers: { 'User-Agent': 'Manaschmiede/0.1', Accept: 'application/json' },
-        }).then((r) => r.json()) as ScryfallCard
-        onCardDataUpdate(landCard)
-      } catch { /* skip */ }
+      const landCard = await getLocalizedCardData(undefined, landId, undefined, undefined, scryfallLang)
+      if (landCard) onCardDataUpdate(landCard)
     }
 
     const { merged, addedIds } = mergeCardsIntoDeck(
@@ -371,7 +372,7 @@ export function useSectionFill({
     onDeckUpdate(merged)
     onSectionAssign('lands', addedIds)
     updateSection('lands', { status: 'applied' })
-  }, [wizardState, onDeckUpdate, onCardDataUpdate, onSectionAssign, updateSection])
+  }, [wizardState, onDeckUpdate, onCardDataUpdate, onSectionAssign, updateSection, scryfallLang])
 
   /**
    * Fill all unfilled sections sequentially, auto-applying each.
@@ -450,6 +451,7 @@ export function useSectionFill({
           wizardState,
           filters.colors,
           onCardDataUpdate,
+          scryfallLang,
           { deckComposition: compositionSummary },
         )
         const firstResult = validateSection(firstBatch, accumulated, cardDataMapRef.current, filters)
@@ -462,6 +464,7 @@ export function useSectionFill({
             wizardState,
             filters.colors,
             onCardDataUpdate,
+            scryfallLang,
             { deckComposition: compositionSummary, rejectedCards: firstResult.rejected },
           )
           const retryResult = validateSection(retryBatch, accumulated, cardDataMapRef.current, filters)
@@ -508,7 +511,7 @@ export function useSectionFill({
     }
 
     setFillProgress(null)
-  }, [sections, sectionStates, wizardState, onCardDataUpdate, onDeckUpdate, onSectionAssign, updateSection, buildFilters])
+  }, [sections, sectionStates, wizardState, onCardDataUpdate, onDeckUpdate, onSectionAssign, updateSection, buildFilters, scryfallLang])
 
   const cancelFillAll = useCallback(() => {
     abortRef.current = true

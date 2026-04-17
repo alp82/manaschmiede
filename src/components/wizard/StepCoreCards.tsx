@@ -396,6 +396,7 @@ export function StepCoreCards({ state, dispatch, onNext, onBack, onReset }: Step
       setManualSearching(true)
       try {
         const escaped = manualSearch.replace(/[()]/g, '')
+        // Search results render in default (usually English) for rate-limit reasons; localization happens when the card is added or viewed in detail.
         const result = await searchCards(`(${escaped} or o:${escaped})${searchSuffix}`)
         const filtered = (result.data ?? [])
           .filter((c) => !getCardRejectionReason(c))

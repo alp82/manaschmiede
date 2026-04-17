@@ -9,10 +9,22 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as DecksRouteImport } from './routes/decks'
+import { Route as CardsRouteImport } from './routes/cards'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DeckNewRouteImport } from './routes/deck/new'
 import { Route as DeckIdRouteImport } from './routes/deck/$id'
 
+const DecksRoute = DecksRouteImport.update({
+  id: '/decks',
+  path: '/decks',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CardsRoute = CardsRouteImport.update({
+  id: '/cards',
+  path: '/cards',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -31,36 +43,58 @@ const DeckIdRoute = DeckIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/cards': typeof CardsRoute
+  '/decks': typeof DecksRoute
   '/deck/$id': typeof DeckIdRoute
   '/deck/new': typeof DeckNewRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/cards': typeof CardsRoute
+  '/decks': typeof DecksRoute
   '/deck/$id': typeof DeckIdRoute
   '/deck/new': typeof DeckNewRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/cards': typeof CardsRoute
+  '/decks': typeof DecksRoute
   '/deck/$id': typeof DeckIdRoute
   '/deck/new': typeof DeckNewRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/deck/$id' | '/deck/new'
+  fullPaths: '/' | '/cards' | '/decks' | '/deck/$id' | '/deck/new'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/deck/$id' | '/deck/new'
-  id: '__root__' | '/' | '/deck/$id' | '/deck/new'
+  to: '/' | '/cards' | '/decks' | '/deck/$id' | '/deck/new'
+  id: '__root__' | '/' | '/cards' | '/decks' | '/deck/$id' | '/deck/new'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  CardsRoute: typeof CardsRoute
+  DecksRoute: typeof DecksRoute
   DeckIdRoute: typeof DeckIdRoute
   DeckNewRoute: typeof DeckNewRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/decks': {
+      id: '/decks'
+      path: '/decks'
+      fullPath: '/decks'
+      preLoaderRoute: typeof DecksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cards': {
+      id: '/cards'
+      path: '/cards'
+      fullPath: '/cards'
+      preLoaderRoute: typeof CardsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -87,6 +121,8 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  CardsRoute: CardsRoute,
+  DecksRoute: DecksRoute,
   DeckIdRoute: DeckIdRoute,
   DeckNewRoute: DeckNewRoute,
 }

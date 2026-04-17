@@ -21,9 +21,9 @@ import { useDeckChat, type ChatMessage as DeckChatMessage } from '../../lib/useD
 import { useSectionFill } from '../../lib/useSectionFill'
 import { BASIC_LAND_ID_SET } from '../../lib/basic-lands'
 import { deriveSectionPlan, localizeDeckSection, pickSectionForCard } from '../../lib/section-plan'
-import { searchCards } from '../../lib/scryfall/client'
+import { searchCards, getLocalizedCardData } from '../../lib/scryfall/client'
 import { buildSearchFilterSuffix } from '../../lib/trait-mappings'
-import { useT } from '../../lib/i18n'
+import { useT, useI18n } from '../../lib/i18n'
 import type { ScryfallCard } from '../../lib/scryfall/types'
 import type { DeckCard } from '../../lib/deck-utils'
 import { isBasicLand } from '../../lib/deck-utils'
@@ -38,7 +38,7 @@ interface StepDeckFillProps {
   state: WizardState
   dispatch: React.Dispatch<WizardAction>
   onBack: () => void
-  onFinish: () => void
+  onFinish: (cardDataMap: Map<string, ScryfallCard>) => void
   onReset: () => void
 }
 
@@ -46,6 +46,7 @@ type MobileTab = 'cards' | 'chat' | 'stats'
 
 export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: StepDeckFillProps) {
   const t = useT()
+  const { scryfallLang } = useI18n()
   const [cardDataMap, setCardDataMap] = useState<Map<string, ScryfallCard>>(new Map())
   const [lightboxCards, setLightboxCards] = useState<ScryfallCard[]>([])
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
@@ -79,6 +80,7 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
   // Candidates: cards the user wants to propose adding
   const [candidates, setCandidates] = useState<ScryfallCard[]>([])
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null)
+  const [finishBlockedOpen, setFinishBlockedOpen] = useState(false)
   const sounds = useDeckSounds()
   const history = useDeckHistory(state.deckCards, dispatch)
 
@@ -371,18 +373,20 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
     if (missing.length === 0) return
 
     let cancelled = false
+    // TODO batch via /cards/collection if /decks loads slow at scale
     const fetchAll = async () => {
+      const results = await Promise.all(
+        missing.map(async (dc) => {
+          const card = await getLocalizedCardData(undefined, dc.scryfallId, undefined, undefined, scryfallLang)
+          return card ?? null
+        })
+      )
+      if (cancelled) return
       const fetched = new Map<string, ScryfallCard>()
-      for (const dc of missing) {
-        try {
-          const r = await fetch('https://api.scryfall.com/cards/' + dc.scryfallId, {
-            headers: { 'User-Agent': 'Manaschmiede/0.1', Accept: 'application/json' },
-          })
-          const card: ScryfallCard = await r.json()
-          fetched.set(card.id, card)
-        } catch { /* skip */ }
+      for (const card of results) {
+        if (card) fetched.set(card.id, card)
       }
-      if (!cancelled && fetched.size > 0) {
+      if (fetched.size > 0) {
         setCardDataMap((prev) => {
           const next = new Map(prev)
           for (const [id, card] of fetched) next.set(id, card)
@@ -392,7 +396,7 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
     }
     fetchAll()
     return () => { cancelled = true }
-  }, [state.deckCards.length])
+  }, [state.deckCards.length, scryfallLang])
 
   // ─── Search ──────────────────────────────────────────────────
 
@@ -465,6 +469,14 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
     }
     prevMainCount.current = mainCount
   }, [mainCount, sounds])
+
+  const handleFinishClick = () => {
+    if (mainCount !== 60) {
+      setFinishBlockedOpen(true)
+      return
+    }
+    onFinish(cardDataMap)
+  }
 
   // Build section card assignments for display
   type DeckDisplayCard = (typeof deckDisplay)[number]
@@ -811,7 +823,7 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
 
             {/* Preview cards — hairline-framed ink-red preview state */}
             {hasPreview && sState.previewCards && (
-              <div className="mt-4 border border-ink-red bg-ash-800/40 p-4">
+              <div className="mt-4 border border-ink-red p-4">
                 <div className="mb-3 flex items-baseline justify-between">
                   <span className="font-mono text-mono-marginal uppercase tracking-mono-marginal text-ink-red-bright">
                     {t('deck.previewLabel')}
@@ -918,7 +930,7 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
   }
 
   const candidatesBar = candidates.length > 0 && (
-    <div className="flex flex-wrap items-center gap-2 border border-ink-red bg-ash-800/40 p-3">
+    <div className="flex flex-wrap items-center gap-2 border border-ink-red p-3">
       <span className="font-mono text-mono-marginal uppercase tracking-mono-marginal text-ink-red-bright">
         {t('fill.candidates')}
       </span>
@@ -1012,7 +1024,7 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
 
       {/* Fill All progress */}
       {fillProgress && (
-        <div className="mb-6 flex items-center justify-between border border-ink-red bg-ash-800/40 px-4 py-3">
+        <div className="mb-6 flex items-center justify-between border border-ink-red px-4 py-3">
           <div className="flex items-center gap-3">
             <LoadingDots size="md" tone="bright" />
             <span className="font-mono text-mono-label uppercase tabular-nums tracking-mono-label text-cream-100">
@@ -1039,7 +1051,8 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
           {/* Core section */}
           {sectionCards['core']?.length > 0 && selectedCombo && (
             <div>
-              <div className="mb-6 border border-hairline bg-ash-800/40 px-4 py-3">
+              <div className="mb-6">
+                <span className="block h-px w-full bg-hairline mb-3" aria-hidden="true" />
                 <p className="font-display text-display-eyebrow uppercase tracking-eyebrow text-cream-100">
                   {selectedCombo.name}
                 </p>
@@ -1385,9 +1398,14 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
           <Button variant="secondary" size="lg" onClick={onBack}>
             {t('wizard.back')}
           </Button>
-          <Button variant="primary" size="lg" onClick={onFinish} disabled={mainCount === 0}>
-            {t('fill.finishOpen')}
-          </Button>
+          <div className="flex items-center gap-4">
+            <span className={`font-mono text-mono-marginal tabular-nums ${mainCount === 60 ? 'text-cream-100' : 'text-cream-400'}`}>
+              {t('wizard.cardCountOfTarget', { count: mainCount })}
+            </span>
+            <Button variant="primary" size="lg" onClick={handleFinishClick}>
+              {t('fill.finishOpen')}
+            </Button>
+          </div>
         </div>
         <div className="flex items-center justify-center">
           <Button variant="ghost" size="sm" onClick={onReset}>
@@ -1415,6 +1433,18 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
         cancelLabel={t('confirm.cancel')}
         onConfirm={confirmRemoveCard}
         onCancel={() => setPendingRemoveId(null)}
+      />
+
+      <ConfirmModal
+        open={finishBlockedOpen}
+        title={t('wizard.finishBlockedTitle')}
+        body={t('wizard.finishBlockedBody', { count: mainCount })}
+        confirmLabel={t('wizard.finishBlockedContinueEditing')}
+        cancelLabel={t('wizard.finishBlockedContinueEditing')}
+        confirmVariant="primary"
+        showCancel={false}
+        onConfirm={() => setFinishBlockedOpen(false)}
+        onCancel={() => setFinishBlockedOpen(false)}
       />
     </div>
   )

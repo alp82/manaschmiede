@@ -4,7 +4,8 @@ import type { ScryfallCard } from '../lib/scryfall/types'
 import { Button } from './ui/Button'
 import { useSimulation } from '../lib/simulation/use-simulation'
 import { loadDecks, type LocalDeck } from '../lib/deck-storage'
-import { getCardById } from '../lib/scryfall/client'
+import { getLocalizedCardData } from '../lib/scryfall/client'
+import { useI18n } from '../lib/i18n'
 import { FORMAT_LABELS } from '../lib/deck-utils'
 
 interface SimulationPanelProps {
@@ -15,6 +16,7 @@ interface SimulationPanelProps {
 }
 
 export function SimulationPanel({ deckId, deckName, cards, cardDataMap }: SimulationPanelProps) {
+  const { scryfallLang } = useI18n()
   const { state, run, cancel } = useSimulation()
   const [opponentId, setOpponentId] = useState<string>('mirror')
   const [opponentDeck, setOpponentDeck] = useState<LocalDeck | null>(null)
@@ -45,12 +47,8 @@ export function SimulationPanel({ deckId, deckName, cards, cardDataMap }: Simula
     async function fetchAll() {
       for (const dc of selected!.cards) {
         if (cancelled) return
-        try {
-          const card = await getCardById(dc.scryfallId)
-          newMap.set(dc.scryfallId, card)
-        } catch {
-          // Skip cards that fail to fetch
-        }
+        const card = await getLocalizedCardData(undefined, dc.scryfallId, undefined, undefined, scryfallLang)
+        if (card) newMap.set(dc.scryfallId, card)
       }
       if (!cancelled) {
         setOpponentCardData(newMap)
@@ -60,7 +58,7 @@ export function SimulationPanel({ deckId, deckName, cards, cardDataMap }: Simula
 
     fetchAll()
     return () => { cancelled = true }
-  }, [opponentId, savedDecks])
+  }, [opponentId, savedDecks, scryfallLang])
 
   const isMirror = opponentId === 'mirror'
 

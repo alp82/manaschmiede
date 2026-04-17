@@ -19,6 +19,7 @@ interface ConfirmModalProps {
   confirmLabel: string
   cancelLabel: string
   confirmVariant?: 'primary' | 'destructive'
+  showCancel?: boolean
   onConfirm: () => void
   onCancel: () => void
 }
@@ -30,6 +31,7 @@ export function ConfirmModal({
   confirmLabel,
   cancelLabel,
   confirmVariant = 'destructive',
+  showCancel = true,
   onConfirm,
   onCancel,
 }: ConfirmModalProps) {
@@ -46,17 +48,34 @@ export function ConfirmModal({
   }, [onConfirm, sounds])
 
   const cancelRef = useRef<HTMLButtonElement>(null)
+  const confirmRef = useRef<HTMLButtonElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const prevFocusRef = useRef<Element | null>(null)
 
   useEffect(() => {
     if (!open) return
     prevFocusRef.current = document.activeElement
-    // Focus the cancel button so Enter/Escape work from the modal,
-    // and keyboard events don't leak to the element that opened it.
-    requestAnimationFrame(() => cancelRef.current?.focus())
+    requestAnimationFrame(() => (cancelRef.current ?? confirmRef.current)?.focus())
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') handleCancel()
-      if (e.key === 'Enter') handleConfirm()
+      if (e.key === 'Escape') {
+        handleCancel()
+        return
+      }
+      if (e.key === 'Tab') {
+        const focusable = Array.from(
+          containerRef.current?.querySelectorAll('button') ?? [],
+        ) as HTMLElement[]
+        if (focusable.length === 0) return
+        const first = focusable[0]
+        const last = focusable[focusable.length - 1]
+        if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault()
+          first.focus()
+        } else if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault()
+          last.focus()
+        }
+      }
     }
     document.addEventListener('keydown', onKey)
     const prevOverflow = document.body.style.overflow
@@ -66,7 +85,7 @@ export function ConfirmModal({
       document.body.style.overflow = prevOverflow
       if (prevFocusRef.current instanceof HTMLElement) prevFocusRef.current.focus()
     }
-  }, [open, handleCancel, handleConfirm])
+  }, [open, handleCancel])
 
   if (!open) return null
 
@@ -81,8 +100,10 @@ export function ConfirmModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="confirm-modal-title"
+      aria-describedby="confirm-modal-body"
     >
       <div
+        ref={containerRef}
         className="w-full max-w-[520px] border border-hairline-strong bg-ash-900 p-6 sm:p-8"
         style={{ animation: 'card-enter 180ms cubic-bezier(0.16, 1, 0.3, 1) both' }}
       >
@@ -93,13 +114,15 @@ export function ConfirmModal({
           {title}
         </h2>
 
-        <div className="mt-4 font-body text-sm leading-relaxed text-cream-300">{body}</div>
+        <div id="confirm-modal-body" className="mt-4 font-body text-sm leading-relaxed text-cream-300">{body}</div>
 
         <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-          <Button ref={cancelRef} variant="secondary" size="md" onClick={handleCancel}>
-            {cancelLabel}
-          </Button>
-          <Button variant={confirmVariant} size="md" onClick={handleConfirm}>
+          {showCancel && (
+            <Button ref={cancelRef} variant="secondary" size="md" onClick={handleCancel}>
+              {cancelLabel}
+            </Button>
+          )}
+          <Button ref={confirmRef} variant={confirmVariant} size="md" onClick={handleConfirm}>
             {confirmLabel}
           </Button>
         </div>
