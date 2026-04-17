@@ -1,9 +1,12 @@
 # Manaschmiede — Agent Guide
 
-**Hard requirement: great deck and card recommendations that synergize and are
-fun to play.** Everything else is secondary.
+Manaschmiede is a Magic: The Gathering deck builder.
 
-Manaschmiede is a Magic: The Gathering deck builder. It has a distinct visual
+**Hard requirements:**
+* Great recommendations that synergize and are fun to play
+* Decks are balanced and great to play against each other
+
+It has a distinct visual
 language called **Specimen**. Every UI decision must conform to it. Read this
 file before writing or redesigning any UI.
 

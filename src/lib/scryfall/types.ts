@@ -16,6 +16,8 @@ export interface ScryfallCardFace {
   oracle_text?: string
   printed_text?: string
   colors?: string[]
+  power?: string
+  toughness?: string
   image_uris?: ScryfallImageUris
 }
 
@@ -34,6 +36,8 @@ export interface ScryfallCard {
   oracle_text?: string
   printed_text?: string
   colors?: string[]
+  power?: string
+  toughness?: string
   color_identity: string[]
   set: string
   set_name: string

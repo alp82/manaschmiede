@@ -7,6 +7,7 @@ import { CardImage } from '../../components/CardImage'
 import { CardLightbox } from '../../components/CardLightbox'
 import { DeckCardList } from '../../components/DeckCardList'
 import { BalanceAdvisor } from '../../components/BalanceAdvisor'
+import { SimulationPanel } from '../../components/SimulationPanel'
 import { AiChat } from '../../components/AiChat'
 import { Button } from '../../components/ui/Button'
 import { Tabs } from '../../components/ui/Tabs'
@@ -688,6 +689,7 @@ function DeckPage() {
               {mobileTab === 'stats' && (
                 <div id="tabpanel-stats" role="tabpanel" aria-labelledby="tab-stats" className="space-y-4">
                   <BalanceAdvisor analysis={analysis} />
+                  <SimulationPanel deckId={id} deckName={deckName} cards={deck.cards} cardDataMap={cardDataMap} />
                   <div className="border border-hairline bg-ash-800/40 p-3">
                     <DeckCardList
                       cards={deck.cards}
@@ -738,6 +740,7 @@ function DeckPage() {
                   {t('deck.paneBalance')}
                 </span>
                 <BalanceAdvisor analysis={analysis} />
+                <SimulationPanel deckId={id} deckName={deckName} cards={deck.cards} cardDataMap={cardDataMap} />
                 <div className="mt-3 min-h-0 flex-1 overflow-y-auto border border-hairline bg-ash-800/40 p-3">
                   <DeckCardList
                     cards={deck.cards}
