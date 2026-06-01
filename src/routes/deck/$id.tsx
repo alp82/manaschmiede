@@ -1,150 +1,40 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { memo, useState, useCallback, useMemo, useEffect } from 'react'
+import { useState, useCallback, useMemo, useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Layout } from '../../components/Layout'
-import { SearchInput } from '../../components/SearchInput'
-import { CardStack } from '../../components/CardStack'
-import { CardImage } from '../../components/CardImage'
 import { CardLightbox } from '../../components/CardLightbox'
 import { DeckCardList } from '../../components/DeckCardList'
-import { BalanceAdvisor } from '../../components/BalanceAdvisor'
 import { SimulationPanel } from '../../components/SimulationPanel'
-import { AiChat } from '../../components/AiChat'
+import { DeckEditor } from '../../components/deck/DeckEditor'
+import { SectionLane } from '../../components/deck/SectionLane'
 import { Button } from '../../components/ui/Button'
-import { Tabs } from '../../components/ui/Tabs'
-import { SectionLaneHeader } from '../../components/ui/SectionLaneHeader'
 import { EmptyState } from '../../components/ui/EmptyState'
+import { UndoRedoButtons } from '../../components/ui/UndoRedoButtons'
+import { DeckCardSkeleton } from '../../components/ui/DeckCardSkeleton'
 import { useToast } from '../../components/ui/Toast'
-import { cn } from '../../lib/utils'
 import { analyzeDeck } from '../../lib/balance'
 import { useDeckChat } from '../../lib/useDeckChat'
-import { searchCards, getLocalizedCardData, getCardsCollection } from '../../lib/scryfall/client'
-import { scryfallKeys } from '../../lib/scryfall/queries'
 import { loadDeck, persistDeck, pickFeaturedCardIds, type LocalDeck } from '../../lib/deck-storage'
-import { localizeDeckSection } from '../../lib/section-plan'
+import { pickSectionForCard } from '../../lib/section-plan'
+import { BASIC_LAND_ID_SET } from '../../lib/basic-lands'
+import { useDeckCardData } from '../../lib/use-deck-card-data'
+import { useDeckHistory } from '../../lib/use-deck-history'
+import { useSections, useSectionCards, buildLaneDescriptors, useDeckDisplay } from '../../lib/use-deck-sections'
 import type { ManaColor } from '../../components/ManaSymbol'
 import type { ScryfallCard } from '../../lib/scryfall/types'
 import type { DeckCard, DeckZone } from '../../lib/deck-utils'
-import { getTotalCards, copyDecklistToClipboard, FORMAT_LABELS } from '../../lib/deck-utils'
+import { getTotalCards, copyDecklistToClipboard, mergeCardsIntoDeck, deriveLockedIds, FORMAT_LABELS } from '../../lib/deck-utils'
 import { useT, useI18n } from '../../lib/i18n'
 import { useDeckSounds } from '../../lib/sounds'
 
-type DeckDisplayCard = DeckCard & { card: ScryfallCard }
-
-interface SectionLaneProps {
-  label: string
-  sectionLetter?: string
-  targetCount?: number
-  isCore?: boolean
-  isLands?: boolean
-  items: DeckDisplayCard[]
-  newCardIds: Set<string>
-  editing: boolean
-  onOpenLightbox: (card: ScryfallCard) => void
-  onToggleLock: (scryfallId: string) => void
-  onUpdateQuantity: (scryfallId: string, zone: DeckZone, qty: number) => void
-  onRemoveCard: (scryfallId: string, zone: DeckZone) => void
-}
-
-// TODO: unify with wizard/StepDeckFill SectionLane once the drift narrows —
-// that one carries a progress bar, preview/loading/error states, and fill
-// buttons that this view-mode lane does not need.
-const SectionLane = memo(function SectionLane({
-  label, sectionLetter, targetCount, isCore, isLands, items, newCardIds, editing,
-  onOpenLightbox, onToggleLock, onUpdateQuantity, onRemoveCard,
-}: SectionLaneProps) {
-  const [collapsed, setCollapsed] = useState(false)
-  const count = items.reduce((s, d) => s + d.quantity, 0)
-  const hasTarget = typeof targetCount === 'number' && targetCount > 0
-  const underFilled = hasTarget && count < targetCount!
-  const overFilled = hasTarget && count > targetCount!
-
-  return (
-    <div className={cn('relative', isCore && 'pl-3')}>
-      {/* Core section marker — ink-red slab on the left edge */}
-      {isCore && (
-        <span
-          aria-hidden="true"
-          className="absolute bottom-2 left-0 top-2 w-[3px] bg-ink-red"
-        />
-      )}
-
-      <SectionLaneHeader
-        letter={sectionLetter}
-        label={label}
-        collapsed={collapsed}
-        onToggle={() => setCollapsed(!collapsed)}
-        count={
-          hasTarget ? (
-            <span
-              className={cn(
-                'tabular-nums',
-                overFilled
-                  ? 'text-ink-red-bright'
-                  : underFilled
-                    ? 'text-cream-400'
-                    : 'text-cream-100',
-              )}
-            >
-              {count} / {targetCount}
-            </span>
-          ) : (
-            <span className="tabular-nums text-cream-300">{count}</span>
-          )
-        }
-      />
-
-      {!collapsed && (
-        <div
-          className={
-            isLands
-              ? 'grid grid-cols-4 gap-2 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8'
-              : 'grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6'
-          }
-        >
-          {items.map(({ card, quantity, locked, scryfallId }) => (
-            <CardStack
-              key={scryfallId}
-              card={card}
-              quantity={quantity}
-              locked={locked}
-              isNew={newCardIds.has(scryfallId)}
-              onClick={() => onOpenLightbox(card)}
-              onToggleLock={editing ? () => onToggleLock(scryfallId) : undefined}
-              onChangeQuantity={editing ? (qty) => onUpdateQuantity(scryfallId, 'main', qty) : undefined}
-              onRemove={editing ? () => onRemoveCard(scryfallId, 'main') : undefined}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  )
-})
-
-function CardLoadingSkeleton({ count = 12 }: { count?: number }) {
-  return (
-    <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
-      {Array.from({ length: count }, (_, i) => (
-        <div
-          key={i}
-          className="aspect-[488/680] animate-pulse bg-ash-800"
-          aria-hidden="true"
-        />
-      ))}
-    </div>
-  )
-}
-
 export const Route = createFileRoute('/deck/$id')({
   // TODO: deck data lives in localStorage and loads post-mount, so a dynamic
-  // title would require a route loader — static fallback for now.
+  // title would require a route loader - static fallback for now.
   head: () => ({
     meta: [{ title: 'Deck — Manaschmiede' }],
   }),
   component: DeckPage,
 })
-
-type MobileTab = 'cards' | 'chat' | 'stats'
 
 function DeckPage() {
   const t = useT()
@@ -158,19 +48,16 @@ function DeckPage() {
   const [deckName, setDeckName] = useState(() => loadDeck(id)?.name ?? '')
   const [deckDescription, setDeckDescription] = useState(() => loadDeck(id)?.description ?? '')
   const [cardDataMap, setCardDataMap] = useState<Map<string, ScryfallCard>>(new Map())
-  const [cardsLoading, setCardsLoading] = useState<boolean>(() => {
-    const d = loadDeck(id)
-    return !!d && d.cards.length > 0
-  })
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
   const [editing, setEditing] = useState(false)
-  const [mobileTab, setMobileTab] = useState<MobileTab>('cards')
   const [pdfGenerating, setPdfGenerating] = useState(false)
 
-  // Search (edit mode only)
-  const [search, setSearch] = useState('')
-  const [searchResults, setSearchResults] = useState<ScryfallCard[]>([])
-  const [searching, setSearching] = useState(false)
+  // In-memory undo/redo for edit mode (no aux persistence - `persist: false`).
+  const history = useDeckHistory(
+    deck?.cards ?? [],
+    (cards) => setDeck((d) => (d ? { ...d, cards, updatedAt: Date.now() } : d)),
+    { persist: false },
+  )
 
   // Auto-save
   useEffect(() => {
@@ -201,114 +88,47 @@ function DeckPage() {
     }
   }, [deck?.cards, cardDataMap])
 
-  // Fetch card data — one batched /cards/collection request for default
+  // Fetch card data - one batched /cards/collection request for default
   // prints, then per-card localization upgrades in the background. Results
   // are mirrored into React Query's cache so remounts are instant.
-  useEffect(() => {
-    if (!deck) {
-      setCardsLoading(false)
-      return
-    }
-    const missingIds = deck.cards
-      .map((dc) => dc.scryfallId)
-      .filter((sid) => {
-        const existing = cardDataMap.get(sid)
-        return !existing || existing.lang !== scryfallLang
-      })
-    if (missingIds.length === 0) {
-      setCardsLoading(false)
-      return
-    }
-    let cancelled = false
-    setCardsLoading(true)
-
-    // Dedupe the batch request — a deck can include the same card id twice
-    // (e.g. tokens, basic lands duplicated across zones).
-    const uniqueMissing = Array.from(new Set(missingIds))
-
-    getCardsCollection(uniqueMissing)
-      .then((batch) => {
-        if (cancelled) return
-        if (batch.length > 0) {
-          setCardDataMap((prev) => {
-            const next = new Map(prev)
-            for (const card of batch) {
-              next.set(card.id, card)
-              queryClient.setQueryData(scryfallKeys.card(card.id, card.lang), card)
-              // Seed the active-locale key so remounts under the same locale
-              // hit the cache; localization upgrades below will overwrite
-              // this entry with the localized print when available.
-              queryClient.setQueryData(scryfallKeys.card(card.id, scryfallLang), card)
-            }
-            return next
-          })
-        }
-        // Fire per-card localization upgrades in the background. These hit
-        // the rate-limited queue but don't block the initial render.
-        if (scryfallLang !== 'en') {
-          for (const card of batch) {
-            if (cancelled) return
-            if (card.lang === scryfallLang) continue
-            getLocalizedCardData(card, card.id, card.set, card.collector_number, scryfallLang)
-              .then((localized) => {
-                if (cancelled || !localized || localized.lang !== scryfallLang) return
-                setCardDataMap((prev) => {
-                  const next = new Map(prev)
-                  next.set(card.id, localized)
-                  return next
-                })
-                queryClient.setQueryData(
-                  scryfallKeys.card(card.id, scryfallLang),
-                  localized,
-                )
-              })
-              .catch(() => {})
-          }
-        }
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setCardsLoading(false)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [deck?.cards.length, scryfallLang, queryClient])
-
-  // Search
-  useEffect(() => {
-    if (search.length < 1) { setSearchResults([]); return }
-    const timer = setTimeout(async () => {
-      setSearching(true)
-      try {
-        const result = await searchCards(search)
-        setSearchResults(result.data?.slice(0, 12) ?? [])
-      } catch { setSearchResults([]) }
-      finally { setSearching(false) }
-    }, 400)
-    return () => clearTimeout(timer)
-  }, [search])
+  const { cardsLoading } = useDeckCardData(deck?.cards ?? [], cardDataMap, setCardDataMap, {
+    queryClient,
+    scryfallLang,
+  })
 
   // ─── Deck Mutations ──────────────────────────────────────────
 
   const addCard = useCallback((card: ScryfallCard) => {
     if (!deck) return
+    history.snapshot()
     setCardDataMap((prev) => new Map(prev).set(card.id, card))
     setDeck((prev) => {
       if (!prev) return prev
-      const cards = [...prev.cards]
-      const existing = cards.findIndex((c) => c.scryfallId === card.id && c.zone === 'main')
-      if (existing >= 0) {
-        cards[existing] = { ...cards[existing], quantity: cards[existing].quantity + 1 }
-      } else {
-        cards.push({ scryfallId: card.id, quantity: 1, zone: 'main' })
+      const { merged, addedIds } = mergeCardsIntoDeck(
+        prev.cards,
+        [{ scryfallId: card.id, quantity: 1 }],
+        (id) => BASIC_LAND_ID_SET.has(id),
+      )
+      // Auto-assign the card to its best-fit section so it doesn't land in the
+      // "unassigned" bucket - but only when the addition actually stuck (the
+      // 4-copy cap can drop it) and a section plan exists.
+      const plan = prev.sectionPlan ?? []
+      let sectionAssignments = prev.sectionAssignments
+      if (addedIds.includes(card.id) && plan.length > 0) {
+        const sectionId = pickSectionForCard(card, plan)
+        if (sectionId) {
+          const current = sectionAssignments?.[sectionId] ?? []
+          if (!current.includes(card.id)) {
+            sectionAssignments = { ...sectionAssignments, [sectionId]: [...current, card.id] }
+          }
+        }
       }
-      return { ...prev, cards, updatedAt: Date.now() }
+      return { ...prev, cards: merged, sectionAssignments, updatedAt: Date.now() }
     })
-  }, [deck])
+  }, [deck, history])
 
   const updateQuantity = useCallback((scryfallId: string, zone: DeckZone, quantity: number) => {
+    history.snapshot()
     setDeck((prev) => {
       if (!prev) return prev
       const cards = prev.cards.map((c) =>
@@ -316,15 +136,26 @@ function DeckPage() {
       )
       return { ...prev, cards, updatedAt: Date.now() }
     })
-  }, [])
+  }, [history])
 
   const removeCard = useCallback((scryfallId: string, zone: DeckZone) => {
+    history.snapshot()
     setDeck((prev) => {
       if (!prev) return prev
       const cards = prev.cards.filter((c) => !(c.scryfallId === scryfallId && c.zone === zone))
       return { ...prev, cards, updatedAt: Date.now() }
     })
-  }, [])
+  }, [history])
+
+  // DeckEditor's quantity/remove callbacks are zone-agnostic (main zone only);
+  // adapt them onto the zone-aware mutators the DeckCardList slot also uses.
+  const changeQuantityMain = useCallback((scryfallId: string, qty: number) => {
+    updateQuantity(scryfallId, 'main', qty)
+  }, [updateQuantity])
+
+  const removeCardMain = useCallback((scryfallId: string) => {
+    removeCard(scryfallId, 'main')
+  }, [removeCard])
 
   const updateDeckName = useCallback((name: string) => {
     setDeckName(name)
@@ -337,6 +168,7 @@ function DeckPage() {
   }, [])
 
   const toggleLock = useCallback((scryfallId: string) => {
+    history.snapshot()
     setDeck((prev) => {
       if (!prev) return prev
       const cards = prev.cards.map((c) =>
@@ -344,7 +176,7 @@ function DeckPage() {
       )
       return { ...prev, cards, updatedAt: Date.now() }
     })
-  }, [])
+  }, [history])
 
   // ─── AI Chat (edit mode) ────────────────────────────────────
 
@@ -370,13 +202,7 @@ function DeckPage() {
     setCardDataMap((prev) => new Map(prev).set(card.id, card))
   }, [])
 
-  const lockedCardIds = useMemo(() => {
-    const ids = new Set<string>()
-    for (const c of deck?.cards ?? []) {
-      if (c.locked) ids.add(c.scryfallId)
-    }
-    return ids
-  }, [deck?.cards])
+  const lockedCardIds = useMemo(() => deriveLockedIds(deck?.cards ?? []), [deck?.cards])
 
   const {
     messages,
@@ -428,147 +254,58 @@ function DeckPage() {
     return analyzeDeck(deck.cards, cardDataMap, 'casual', t)
   }, [deck?.cards, cardDataMap, t])
 
-  const deckDisplay = useMemo((): DeckDisplayCard[] => {
-    if (!deck) return []
-    return deck.cards
-      .filter((c) => c.zone === 'main')
-      .flatMap((dc) => {
-        const card = cardDataMap.get(dc.scryfallId)
-        if (!card) return []
-        return [{ ...dc, card }]
-      })
-  }, [deck?.cards, cardDataMap])
+  const deckDisplay = useDeckDisplay(deck?.cards ?? [], cardDataMap)
 
   const allScryfallCards = useMemo(() => deckDisplay.map((d) => d.card), [deckDisplay])
 
+  // Localized section plan (re-localized against the active locale; persisted
+  // plans freeze their labels at creation time).
+  const localizedPlan = useSections({ sectionPlan: deck?.sectionPlan ?? [], t })
+
   // Build section-based card groups
-  const sectionCards = useMemo(() => {
-    const plan = deck?.sectionPlan ?? []
-    const assignments = deck?.sectionAssignments ?? {}
-    const result: Record<string, DeckDisplayCard[]> = {}
-    const assigned = new Set<string>()
+  const sectionCards = useSectionCards({
+    deckDisplay,
+    sections: localizedPlan,
+    sectionAssignments: deck?.sectionAssignments ?? {},
+    lockedSource: lockedCardIds,
+    fallbackByType: true,
+  })
 
-    // Core (locked cards)
-    const core: DeckDisplayCard[] = []
-    for (const d of deckDisplay) {
-      if (d.locked) {
-        core.push(d)
-        assigned.add(d.scryfallId)
-      }
-    }
-    if (core.length > 0) result['core'] = core
-
-    // Section-assigned cards
-    for (const section of plan) {
-      if (section.id === 'lands') continue
-      const sectionIds = new Set(assignments[section.id] ?? [])
-      const cards: DeckDisplayCard[] = []
-      for (const d of deckDisplay) {
-        if (!assigned.has(d.scryfallId) && sectionIds.has(d.scryfallId)) {
-          cards.push(d)
-          assigned.add(d.scryfallId)
-        }
-      }
-      if (cards.length > 0) result[section.id] = cards
-    }
-
-    // Lands
-    const lands: DeckDisplayCard[] = []
-    const landAssignIds = new Set(assignments['lands'] ?? [])
-    for (const d of deckDisplay) {
-      if (!assigned.has(d.scryfallId) && (d.card.type_line.toLowerCase().includes('land') || landAssignIds.has(d.scryfallId))) {
-        lands.push(d)
-        assigned.add(d.scryfallId)
-      }
-    }
-    if (lands.length > 0) result['lands'] = lands
-
-    // Fallback: unassigned cards grouped by type (for decks without section metadata)
-    const unassigned: DeckDisplayCard[] = []
-    for (const d of deckDisplay) {
-      if (!assigned.has(d.scryfallId)) unassigned.push(d)
-    }
-
-    if (unassigned.length > 0) {
-      if (plan.length === 0) {
-        // No section plan - use type-based classification
-        const creatures: DeckDisplayCard[] = []
-        const spells: DeckDisplayCard[] = []
-        const support: DeckDisplayCard[] = []
-        for (const d of unassigned) {
-          const type = d.card.type_line.toLowerCase()
-          if (type.includes('creature')) creatures.push(d)
-          else if (type.includes('instant') || type.includes('sorcery')) spells.push(d)
-          else support.push(d)
-        }
-        if (creatures.length > 0) result['creatures'] = creatures
-        if (spells.length > 0) result['spells'] = spells
-        if (support.length > 0) result['support'] = support
-      } else {
-        result['unassigned'] = unassigned
-      }
-    }
-
-    return result
-  }, [deckDisplay, deck?.sectionPlan, deck?.sectionAssignments])
-
-  // Build ordered section list for display. Persisted section plans freeze
-  // their label/description at creation time, so we re-localize each entry
-  // against the active locale before rendering.
-  const orderedSections = useMemo(() => {
-    const plan = deck?.sectionPlan ?? []
-    const sections: { id: string; label: string; targetCount?: number }[] = []
-
-    if (sectionCards['core']) sections.push({ id: 'core', label: t('fill.laneCore') })
-
-    if (plan.length > 0) {
-      for (const s of plan) {
-        if (s.id !== 'lands' && sectionCards[s.id]) {
-          const localized = localizeDeckSection(s, t)
-          sections.push({ id: s.id, label: localized.label, targetCount: s.targetCount })
-        }
-      }
-    } else {
-      // Fallback labels
-      if (sectionCards['creatures']) sections.push({ id: 'creatures', label: t('fill.laneCreatures') })
-      if (sectionCards['spells']) sections.push({ id: 'spells', label: t('fill.laneSpells') })
-      if (sectionCards['support']) sections.push({ id: 'support', label: t('fill.laneSupport') })
-    }
-
-    if (sectionCards['unassigned']) sections.push({ id: 'unassigned', label: t('fill.unassigned') })
-    if (sectionCards['lands']) {
-      const landsPlan = plan.find((p) => p.id === 'lands')
-      sections.push({ id: 'lands', label: t('fill.laneLands'), targetCount: landsPlan?.targetCount })
-    }
-
-    return sections
-  }, [deck?.sectionPlan, sectionCards, t])
-
-  const newSearchResults = useMemo(() => {
-    const deckIds = new Set(deck?.cards.map((c) => c.scryfallId) ?? [])
-    return searchResults.filter((c) => !deckIds.has(c.id))
-  }, [searchResults, deck?.cards])
+  // Build the ordered lane list for view mode: core first, then plan sections
+  // (or type-fallback labels when the plan is empty), then leftover, then lands.
+  const lanes = useMemo(
+    () => buildLaneDescriptors(localizedPlan, sectionCards, t, { fallbackByType: true }),
+    [localizedPlan, sectionCards, t],
+  )
 
   const openLightbox = useCallback((card: ScryfallCard) => {
     const idx = allScryfallCards.findIndex((c) => c.id === card.id)
     if (idx >= 0) { setLightboxIndex(idx); sounds.cardOpen() }
   }, [allScryfallCards, sounds])
 
-  const renderLightboxActions = useCallback(
+  // "Forge with this card" - opens a fresh wizard seeded by this card. Used by
+  // both the view-mode lightbox and the edit-mode (DeckEditor) lightbox.
+  const forgeWithCard = useCallback((card: ScryfallCard) => {
+    sounds.uiClick()
+    navigate({ to: '/deck/new', search: { seed: card.id } })
+  }, [navigate, sounds])
+
+  const renderViewLightboxActions = useCallback(
     (card: ScryfallCard) => (
-      <Button
-        variant="primary"
-        size="md"
-        className="w-full"
-        onClick={() => {
-          sounds.uiClick()
-          navigate({ to: '/deck/new', search: { seed: card.id } })
-        }}
-      >
+      <Button variant="primary" size="md" className="w-full" onClick={() => forgeWithCard(card)}>
         {t('wizard.forgeWithCard')}
       </Button>
     ),
-    [navigate, sounds, t],
+    [forgeWithCard, t],
+  )
+
+  const renderEditLightboxActions = useCallback(
+    (card: ScryfallCard, close: () => void) => (
+      <Button variant="primary" size="md" className="w-full" onClick={() => { close(); forgeWithCard(card) }}>
+        {t('wizard.forgeWithCard')}
+      </Button>
+    ),
+    [forgeWithCard, t],
   )
 
   if (!deck) {
@@ -581,71 +318,20 @@ function DeckPage() {
 
   const mainCount = getTotalCards(deck.cards, 'main')
 
-  // ─── Card Grid Content ───────────────────────────────────────
-
-  const cardGridContent = (
+  // Edit-only rail: shaker + flat card list, fed to DeckEditor's cardListSlot.
+  const cardListSlot = (
     <>
-      {/* Search results (edit mode) */}
-      {editing && newSearchResults.length > 0 && (
-        <div className="mb-6">
-          <h4 className="mb-3 font-mono text-mono-label uppercase tracking-mono-label text-cream-300">
-            {t('fill.addToDeck')}
-          </h4>
-          <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5">
-            {newSearchResults.map((card) => (
-              <button
-                key={card.id}
-                type="button"
-                onClick={() => addCard(card)}
-                className="group relative overflow-hidden border border-hairline opacity-80 transition-all hover:-translate-y-1 hover:border-ink-red hover:opacity-100"
-              >
-                <CardImage card={card} size="normal" />
-                <span className="absolute inset-x-0 bottom-0 translate-y-full bg-ink-red py-1.5 text-center font-mono text-mono-tag uppercase tracking-mono-tag text-cream-100 transition-transform duration-150 group-hover:translate-y-0">
-                  + {t('deckPage.addOverlay')}
-                </span>
-
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {searching && (
-        <p className="py-4 text-center font-mono text-mono-tag uppercase tracking-mono-tag text-cream-500">
-          {t('search.searching')}
-        </p>
-      )}
-
-      {/* Section-based deck display */}
-      {orderedSections.length > 0 ? (
-        <div className="space-y-10">
-          {orderedSections.map((section, i) => (
-            <SectionLane
-              key={section.id}
-              label={section.label}
-              sectionLetter={String.fromCharCode(65 + i)}
-              targetCount={section.targetCount}
-              isCore={section.id === 'core'}
-              isLands={section.id === 'lands'}
-              items={sectionCards[section.id] ?? []}
-              newCardIds={newCardIds}
-              editing={editing}
-              onOpenLightbox={openLightbox}
-              onToggleLock={toggleLock}
-              onUpdateQuantity={updateQuantity}
-              onRemoveCard={removeCard}
-            />
-          ))}
-        </div>
-      ) : deck.cards.length === 0 ? (
-        <EmptyState
-          title={t('deck.emptyDeck')}
-          description={t('deck.emptyDeckSub')}
-          className="min-h-[200px] py-16"
+      <SimulationPanel deckId={id} deckName={deckName} cards={deck.cards} cardDataMap={cardDataMap} />
+      <div className="mt-3 border border-hairline bg-ash-800/40 p-3">
+        <DeckCardList
+          cards={deck.cards}
+          cardData={cardDataMap}
+          zone="main"
+          onUpdateQuantity={updateQuantity}
+          onRemoveCard={removeCard}
+          onToggleLock={toggleLock}
         />
-      ) : cardsLoading || deckDisplay.length === 0 ? (
-        <CardLoadingSkeleton />
-      ) : null}
+      </div>
     </>
   )
 
@@ -669,6 +355,7 @@ function DeckPage() {
                   onKeyDown={(e) => e.key.length === 1 && sounds.typing()}
                   className="mt-2 w-full border-0 border-b border-hairline bg-transparent font-display text-2xl uppercase tracking-display text-cream-100 focus:border-cream-200 focus:outline-none sm:text-display-section"
                   placeholder={t('deck.namePlaceholder')}
+                  aria-label={t('deck.namePlaceholder')}
                 />
                 <input
                   type="text"
@@ -677,6 +364,7 @@ function DeckPage() {
                   onKeyDown={(e) => e.key.length === 1 && sounds.typing()}
                   className="mt-3 w-full border-0 border-b border-hairline bg-transparent font-body text-sm italic text-cream-400 focus:border-cream-200 focus:outline-none"
                   placeholder={t('deck.descriptionPlaceholder')}
+                  aria-label={t('deck.descriptionPlaceholder')}
                 />
               </>
             ) : (
@@ -692,6 +380,17 @@ function DeckPage() {
           </div>
 
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+            {editing && (
+              <UndoRedoButtons
+                show={mainCount > 0}
+                canUndo={history.canUndo}
+                canRedo={history.canRedo}
+                onUndo={() => { history.undo(); sounds.uiClick() }}
+                onRedo={() => { history.redo(); sounds.uiClick() }}
+                undoLabel={t('action.undo')}
+                redoLabel={t('action.redo')}
+              />
+            )}
             <span className="font-mono text-mono-num tabular-nums text-cream-300">
               {t('deck.cards', { count: mainCount })}
             </span>
@@ -725,124 +424,73 @@ function DeckPage() {
         </header>
 
         {editing ? (
-          <>
-            {/* ========== EDIT MODE: MOBILE (< lg) ========== */}
-            <div className="lg:hidden">
-              <Tabs
-                className="mb-6"
-                value={mobileTab}
-                onChange={(id) => setMobileTab(id as MobileTab)}
-                items={[
-                  { id: 'cards', label: t('deck.paneCards'), panelId: 'tabpanel-cards' },
-                  { id: 'chat', label: t('deck.paneChat'), panelId: 'tabpanel-chat' },
-                  { id: 'stats', label: t('deck.paneStats'), panelId: 'tabpanel-stats' },
-                ]}
-              />
-
-              {mobileTab === 'cards' && (
-                <div id="tabpanel-cards" role="tabpanel" aria-labelledby="tab-cards" className="space-y-4">
-                  <SearchInput value={search} onChange={setSearch} placeholder={t('fill.searchPlaceholder')} />
-                  {cardGridContent}
-                </div>
-              )}
-
-              {mobileTab === 'chat' && (
-                <div id="tabpanel-chat" role="tabpanel" aria-labelledby="tab-chat" className="border border-hairline bg-ash-800/40" style={{ height: 'calc(100dvh - 240px)' }}>
-                  <AiChat
-                    messages={messages}
-                    pending={pending}
-                    onSend={sendMessage}
-                    onApply={applyChanges}
-                    onDiscard={discardChanges}
-                    isLoading={chatLoading}
-                  />
-                </div>
-              )}
-
-              {mobileTab === 'stats' && (
-                <div id="tabpanel-stats" role="tabpanel" aria-labelledby="tab-stats" className="space-y-4">
-                  <BalanceAdvisor analysis={analysis} />
-                  <SimulationPanel deckId={id} deckName={deckName} cards={deck.cards} cardDataMap={cardDataMap} />
-                  <div className="border border-hairline bg-ash-800/40 p-3">
-                    <DeckCardList
-                      cards={deck.cards}
-                      cardData={cardDataMap}
-                      zone="main"
-                      onUpdateQuantity={updateQuantity}
-                      onRemoveCard={removeCard}
-                      onToggleLock={toggleLock}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* ========== EDIT MODE: DESKTOP (>= lg) ========== */}
-            <div className="hidden lg:grid lg:grid-cols-12 lg:gap-4" style={{ height: 'calc(100dvh - 220px)' }}>
-              {/* Left: AI Chat */}
-              <div className="flex min-h-0 flex-col lg:col-span-3">
-                <span className="mb-2 font-mono text-mono-label uppercase tracking-mono-label text-cream-300">
-                  {t('deck.paneChat')}
-                </span>
-                <div className="min-h-0 flex-1 border border-hairline bg-ash-800/40">
-                  <AiChat
-                    messages={messages}
-                    pending={pending}
-                    onSend={sendMessage}
-                    onApply={applyChanges}
-                    onDiscard={discardChanges}
-                    isLoading={chatLoading}
-                  />
-                </div>
-              </div>
-
-              {/* Center: Card grid + search */}
-              <div className="flex min-h-0 flex-col lg:col-span-6">
-                <span className="mb-2 font-mono text-mono-label uppercase tracking-mono-label text-cream-300">
-                  {t('deck.paneCards')}
-                </span>
-                <SearchInput value={search} onChange={setSearch} placeholder={t('fill.searchPlaceholder')} />
-                <div className="mt-3 flex-1 overflow-y-auto border border-hairline bg-ash-800/40 p-4">
-                  {cardGridContent}
-                </div>
-              </div>
-
-              {/* Right: Balance + Card list */}
-              <div className="flex min-h-0 flex-col lg:col-span-3">
-                <span className="mb-2 font-mono text-mono-label uppercase tracking-mono-label text-cream-300">
-                  {t('deck.paneBalance')}
-                </span>
-                <BalanceAdvisor analysis={analysis} />
-                <SimulationPanel deckId={id} deckName={deckName} cards={deck.cards} cardDataMap={cardDataMap} />
-                <div className="mt-3 min-h-0 flex-1 overflow-y-auto border border-hairline bg-ash-800/40 p-3">
-                  <DeckCardList
-                    cards={deck.cards}
-                    cardData={cardDataMap}
-                    zone="main"
-                    onUpdateQuantity={updateQuantity}
-                    onRemoveCard={removeCard}
-                    onToggleLock={toggleLock}
-                  />
-                </div>
-              </div>
-            </div>
-          </>
+          <DeckEditor
+            editing
+            cards={deck.cards}
+            cardDataMap={cardDataMap}
+            sections={localizedPlan}
+            sectionCards={sectionCards}
+            lockedCardIds={lockedCardIds}
+            onAddCard={addCard}
+            onToggleLock={toggleLock}
+            onChangeQuantity={changeQuantityMain}
+            onRemoveCard={removeCardMain}
+            onUndo={history.undo}
+            onRedo={history.redo}
+            analysis={analysis}
+            cardsLoading={cardsLoading}
+            cardListSlot={cardListSlot}
+            renderExtraLightboxActions={renderEditLightboxActions}
+            chat={{
+              messages,
+              pending,
+              isLoading: chatLoading,
+              newCardIds,
+              sendMessage,
+              onApply: applyChanges,
+              onDiscard: discardChanges,
+            }}
+          />
         ) : (
-          /* ========== VIEW MODE — reading-mode airy ========== */
+          /* ========== VIEW MODE - reading-mode airy ========== */
           <div className="mx-auto w-full max-w-4xl space-y-12 pt-6">
-            {cardGridContent}
+            {lanes.length > 0 ? (
+              <div className="space-y-10">
+                {lanes.map((lane) => (
+                  <SectionLane
+                    key={lane.id}
+                    section={lane}
+                    items={sectionCards[lane.id] ?? []}
+                    newCardIds={newCardIds}
+                    editing={false}
+                    onOpenLightbox={openLightbox}
+                    onToggleLock={toggleLock}
+                    onChangeQuantity={changeQuantityMain}
+                    onRemoveCard={removeCardMain}
+                  />
+                ))}
+              </div>
+            ) : deck.cards.length === 0 ? (
+              <EmptyState
+                title={t('deck.emptyDeck')}
+                description={t('deck.emptyDeckSub')}
+                className="min-h-[200px] py-16"
+              />
+            ) : cardsLoading || deckDisplay.length === 0 ? (
+              <DeckCardSkeleton />
+            ) : null}
           </div>
         )}
       </div>
 
-      {/* Lightbox */}
-      {lightboxIndex !== null && allScryfallCards.length > 0 && (
+      {/* View-mode lightbox (edit mode owns its own inside DeckEditor) */}
+      {!editing && lightboxIndex !== null && allScryfallCards.length > 0 && (
         <CardLightbox
           cards={allScryfallCards}
           currentIndex={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
           onNavigate={setLightboxIndex}
-          renderActions={renderLightboxActions}
+          renderActions={renderViewLightboxActions}
         />
       )}
     </Layout>

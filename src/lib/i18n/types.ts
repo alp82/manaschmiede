@@ -185,11 +185,7 @@ export interface Translations {
   'core.nextBatch': string
 
   // Step 4: Deck Fill
-  'fill.yourDeck': string
-  'fill.cardsCount': string
-  'fill.candidates': string
   'fill.addToDeck': string
-  'fill.inYourDeck': string
   'fill.building': string
   'fill.searchPlaceholder': string
   'fill.clearFilters': string
@@ -209,7 +205,6 @@ export interface Translations {
   'fill.remove': string
   'fill.fillingProgress': string
   'fill.cancel': string
-  'fill.emptyPrompt': string
   'fill.unassigned': string
   'fill.cardsCountShort': string
   'fill.sectionCount': string

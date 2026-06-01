@@ -1,0 +1,239 @@
+import { memo, useRef, useState, type ReactNode } from 'react'
+import type { ScryfallCard } from '../../lib/scryfall/types'
+import type { DeckDisplayCard } from '../../lib/deck-utils'
+import type { SectionFillState } from '../../lib/useSectionFill'
+import { CardStack } from '../CardStack'
+import { SectionLaneHeader } from '../ui/SectionLaneHeader'
+import { LoadingDots } from '../ui/LoadingDots'
+import { ErrorBox } from '../ui/ErrorBox'
+import { Button } from '../ui/Button'
+import { cn } from '../../lib/utils'
+import { useT } from '../../lib/i18n'
+
+export interface SectionLaneDescriptor {
+  id: string
+  label: string
+  sectionLetter?: string
+  targetCount?: number
+  description?: string
+  isCore?: boolean
+  isLands?: boolean
+}
+
+/**
+ * The wizard's richer per-section progress + AI preview render. When this is
+ * passed (alongside `fillSlot`), the lane shows the progress bar, the
+ * preview/loading/error states, and apply/retry/discard actions.
+ */
+export interface SectionLaneState {
+  fillState: SectionFillState
+  onApplySection: () => void
+  onRetrySection: () => void
+  onDiscardSection: () => void
+}
+
+interface SectionLaneProps {
+  section: SectionLaneDescriptor
+  items: DeckDisplayCard[]
+  newCardIds: Set<string>
+  editing: boolean
+  onOpenLightbox: (card: ScryfallCard) => void
+  onToggleLock: (scryfallId: string) => void
+  onChangeQuantity: (scryfallId: string, qty: number) => void
+  onRemoveCard: (scryfallId: string) => void
+  /**
+   * Wizard-only: the fill action buttons rendered beneath the lane (fill
+   * section / top up / adjust lands). Rendered only when present.
+   */
+  fillSlot?: ReactNode
+  /**
+   * Wizard-only: per-section progress + AI preview/loading/error render.
+   * When present the lane shows the progress bar in its header and the
+   * preview state block.
+   */
+  sectionState?: SectionLaneState
+}
+
+/**
+ * Unified deck-section lane — a superset of the view-mode lane (deck view) and
+ * the fill-mode lane (wizard). Without `fillSlot`/`sectionState` it renders the
+ * read/edit lane: collapse toggle, count (with target + progress when
+ * `targetCount` is set), and edit-gated card controls. With them it renders the
+ * fill-mode lane: progress bar, AI preview/loading/error states, and the fill
+ * buttons supplied via `fillSlot`.
+ */
+export const SectionLane = memo(function SectionLane({
+  section,
+  items,
+  newCardIds,
+  editing,
+  onOpenLightbox,
+  onToggleLock,
+  onChangeQuantity,
+  onRemoveCard,
+  fillSlot,
+  sectionState,
+}: SectionLaneProps) {
+  const t = useT()
+  const [collapsed, setCollapsed] = useState(false)
+  const animatedCards = useRef(new Set<string>())
+
+  const { id: _id, label, sectionLetter, targetCount, description, isCore, isLands } = section
+  const count = items.reduce((s, d) => s + d.quantity, 0)
+  const hasTarget = typeof targetCount === 'number' && targetCount > 0
+  const underFilled = hasTarget && count < targetCount!
+  const overFilled = hasTarget && count > targetCount!
+  const fillPct = hasTarget ? Math.min(100, (count / targetCount!) * 100) : 0
+
+  const fillState = sectionState?.fillState
+  const isFilling = fillState?.status === 'loading'
+  const hasPreview = fillState?.status === 'preview'
+
+  return (
+    <div className={cn('relative', isCore && 'pl-3')}>
+      {/* Core section marker — ink-red slab on the left edge */}
+      {isCore && (
+        <span
+          aria-hidden="true"
+          className="absolute bottom-2 left-0 top-2 w-[3px] bg-ink-red"
+        />
+      )}
+
+      <SectionLaneHeader
+        letter={sectionLetter}
+        label={label}
+        description={!isCore ? description : undefined}
+        collapsed={collapsed}
+        onToggle={() => setCollapsed(!collapsed)}
+        controlsId={`section-body-${section.id}`}
+        progressPct={sectionState && hasTarget ? fillPct : undefined}
+        progressOver={overFilled}
+        count={
+          hasTarget ? (
+            <span
+              className={cn(
+                'tabular-nums',
+                overFilled
+                  ? 'text-ink-red-bright'
+                  : underFilled
+                    ? 'text-cream-400'
+                    : 'text-cream-100',
+              )}
+            >
+              {count} / {targetCount}
+            </span>
+          ) : (
+            <span className="tabular-nums text-cream-300">{count}</span>
+          )
+        }
+      />
+
+      {!collapsed && (
+        <div id={`section-body-${section.id}`}>
+          {/* Cards */}
+          {items.length > 0 && (
+            <div
+              className={
+                isLands
+                  ? 'grid grid-cols-4 gap-2 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8'
+                  : 'grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6'
+              }
+            >
+              {items.map(({ card, quantity, locked, scryfallId }, i) => {
+                const shouldAnimate = !animatedCards.current.has(scryfallId)
+                if (shouldAnimate) animatedCards.current.add(scryfallId)
+                return (
+                  <div
+                    key={scryfallId}
+                    style={
+                      shouldAnimate
+                        ? {
+                            animation: `card-enter 300ms cubic-bezier(0.22, 1.2, 0.36, 1) both`,
+                            animationDelay: `${i * 60}ms`,
+                          }
+                        : undefined
+                    }
+                  >
+                    <CardStack
+                      card={card}
+                      quantity={quantity}
+                      locked={locked}
+                      isNew={newCardIds.has(scryfallId)}
+                      onClick={() => onOpenLightbox(card)}
+                      onToggleLock={editing ? () => onToggleLock(scryfallId) : undefined}
+                      onChangeQuantity={editing ? (qty) => onChangeQuantity(scryfallId, qty) : undefined}
+                      onRemove={editing ? () => onRemoveCard(scryfallId) : undefined}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Preview cards — hairline-framed ink-red preview state */}
+          {hasPreview && fillState?.previewCards && sectionState && (
+            <div className="mt-4 border border-ink-red p-4">
+              <div className="mb-3 flex items-baseline justify-between">
+                <span className="font-mono text-mono-marginal uppercase tracking-mono-marginal text-ink-red-bright">
+                  {t('deck.previewLabel')}
+                </span>
+                <span className="font-mono text-mono-tag tabular-nums tracking-mono-tag text-cream-400">
+                  {t('fill.suggestionCount', { count: fillState.previewCards.length })}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 opacity-90 sm:grid-cols-3 md:grid-cols-4">
+                {fillState.previewCards.map((pc) => (
+                  pc.scryfallCard && (
+                    <CardStack
+                      key={pc.scryfallId}
+                      card={pc.scryfallCard}
+                      quantity={pc.quantity}
+                      onClick={() => pc.scryfallCard && onOpenLightbox(pc.scryfallCard)}
+                    />
+                  )
+                ))}
+              </div>
+              {fillState.explanation && (
+                <p className="mt-3 font-body text-sm italic text-cream-300">{fillState.explanation}</p>
+              )}
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Button variant="primary" size="sm" onClick={sectionState.onApplySection}>
+                  {t('chat.apply')}
+                </Button>
+                <Button variant="secondary" size="sm" onClick={sectionState.onRetrySection}>
+                  {t('core.suggestDifferent')}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={sectionState.onDiscardSection}>
+                  {t('chat.discard')}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Loading state */}
+          {isFilling && (
+            <div className="mt-3 flex items-center gap-3 py-3">
+              <LoadingDots size="md" tone="bright" />
+              <span className="font-mono text-mono-tag uppercase tracking-mono-tag text-cream-400">
+                {t('fill.building')}
+              </span>
+            </div>
+          )}
+
+          {/* Error state */}
+          {fillState?.status === 'error' && sectionState && (
+            <ErrorBox
+              className="mt-3"
+              message={fillState.error ?? ''}
+              onRetry={sectionState.onRetrySection}
+              retryLabel={t('core.tryAgain')}
+            />
+          )}
+
+          {/* Fill buttons (wizard) */}
+          {fillSlot && !isFilling && !hasPreview && !isCore && fillSlot}
+        </div>
+      )}
+    </div>
+  )
+})

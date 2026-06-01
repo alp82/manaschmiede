@@ -1,4 +1,5 @@
 import type { ScryfallCard } from './scryfall/types'
+import type { DeckSection } from './section-plan'
 
 export type DeckFormat = 'standard' | 'modern' | 'casual'
 export type DeckZone = 'main' | 'sideboard'
@@ -97,6 +98,123 @@ export function mergeCardsIntoDeck(
   }
 
   return { merged, addedIds }
+}
+
+/**
+ * Project a locked-id set onto a deck list. Returns a NEW array where each
+ * entry carries `locked: true` iff its scryfallId is in `lockedIds`, and the
+ * flag is cleared otherwise. Single source of truth for the lock flag so the
+ * `locked` field and the locked-id set can't drift.
+ */
+export function projectLocked(cards: DeckCard[], lockedIds: Set<string>): DeckCard[] {
+  return cards.map((c) => {
+    const locked = lockedIds.has(c.scryfallId)
+    const { locked: _drop, ...rest } = c
+    return locked ? { ...rest, locked: true } : rest
+  })
+}
+
+/** Collect the scryfallIds whose card carries a truthy `locked` flag. */
+export function deriveLockedIds(cards: DeckCard[]): Set<string> {
+  const ids = new Set<string>()
+  for (const c of cards) {
+    if (c.locked) ids.add(c.scryfallId)
+  }
+  return ids
+}
+
+export type DeckDisplayCard = DeckCard & { card: ScryfallCard }
+
+export interface BucketSectionCardsInput {
+  deckDisplay: DeckDisplayCard[]
+  sections: DeckSection[]
+  sectionAssignments: Record<string, string[]>
+  /** Ids treated as the locked core; precedence over section assignments. */
+  lockedSource: Set<string>
+  /** When true and the plan is empty, leftover cards split by card type. */
+  fallbackByType: boolean
+}
+
+/**
+ * Bucket a deck's display cards into the lanes the deck view renders: a 'core'
+ * lane for locked cards, one lane per non-land section id, a 'lands' lane, and
+ * a leftover lane. Each card lands in EXACTLY one bucket — locked wins over
+ * assignment, assignment wins over land-by-type, and anything still loose goes
+ * to either 'unassigned' or the type-split 'creatures'/'spells'/'support'
+ * buckets (only when `fallbackByType` and the plan is empty). Empty buckets are
+ * omitted from the result.
+ */
+export function bucketSectionCards(
+  input: BucketSectionCardsInput,
+): Record<string, DeckDisplayCard[]> {
+  const { deckDisplay, sections, sectionAssignments, lockedSource, fallbackByType } = input
+  const result: Record<string, DeckDisplayCard[]> = {}
+  const assigned = new Set<string>()
+
+  // Core (locked) cards — highest precedence.
+  const core: DeckDisplayCard[] = []
+  for (const d of deckDisplay) {
+    if (lockedSource.has(d.scryfallId)) {
+      core.push(d)
+      assigned.add(d.scryfallId)
+    }
+  }
+  if (core.length > 0) result['core'] = core
+
+  // Section-assigned cards (non-land sections).
+  for (const section of sections) {
+    if (section.id === 'lands') continue
+    const sectionIds = new Set(sectionAssignments[section.id] ?? [])
+    const cards: DeckDisplayCard[] = []
+    for (const d of deckDisplay) {
+      if (!assigned.has(d.scryfallId) && sectionIds.has(d.scryfallId)) {
+        cards.push(d)
+        assigned.add(d.scryfallId)
+      }
+    }
+    if (cards.length > 0) result[section.id] = cards
+  }
+
+  // Lands — by type line OR explicit assignment.
+  const lands: DeckDisplayCard[] = []
+  const landAssignIds = new Set(sectionAssignments['lands'] ?? [])
+  for (const d of deckDisplay) {
+    if (
+      !assigned.has(d.scryfallId) &&
+      (d.card.type_line.toLowerCase().includes('land') || landAssignIds.has(d.scryfallId))
+    ) {
+      lands.push(d)
+      assigned.add(d.scryfallId)
+    }
+  }
+  if (lands.length > 0) result['lands'] = lands
+
+  // Leftovers.
+  const unassigned: DeckDisplayCard[] = []
+  for (const d of deckDisplay) {
+    if (!assigned.has(d.scryfallId)) unassigned.push(d)
+  }
+
+  if (unassigned.length > 0) {
+    if (fallbackByType && sections.length === 0) {
+      const creatures: DeckDisplayCard[] = []
+      const spells: DeckDisplayCard[] = []
+      const support: DeckDisplayCard[] = []
+      for (const d of unassigned) {
+        const type = d.card.type_line.toLowerCase()
+        if (type.includes('creature')) creatures.push(d)
+        else if (type.includes('instant') || type.includes('sorcery')) spells.push(d)
+        else support.push(d)
+      }
+      if (creatures.length > 0) result['creatures'] = creatures
+      if (spells.length > 0) result['spells'] = spells
+      if (support.length > 0) result['support'] = support
+    } else {
+      result['unassigned'] = unassigned
+    }
+  }
+
+  return result
 }
 
 /** Generate a text decklist compatible with Arena/MTGO/Moxfield */

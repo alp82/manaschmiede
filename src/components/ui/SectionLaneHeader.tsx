@@ -23,6 +23,8 @@ interface SectionLaneHeaderProps {
   progressOver?: boolean
   collapsed: boolean
   onToggle: () => void
+  /** When supplied, sets aria-controls on the toggle button pointing at the collapsible body. */
+  controlsId?: string
   className?: string
 }
 
@@ -45,6 +47,7 @@ export function SectionLaneHeader({
   progressOver,
   collapsed,
   onToggle,
+  controlsId,
   className,
 }: SectionLaneHeaderProps) {
   return (
@@ -52,6 +55,7 @@ export function SectionLaneHeader({
       type="button"
       onClick={onToggle}
       aria-expanded={!collapsed}
+      aria-controls={controlsId}
       className={cn(
         'mb-3 flex w-full flex-col gap-1 border-b border-hairline pb-2 text-left',
         'cursor-pointer',

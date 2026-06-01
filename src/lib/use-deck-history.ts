@@ -1,67 +1,137 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useRef } from 'react'
 import type { DeckCard } from './deck-utils'
-import type { WizardAction } from './wizard-state'
 import { loadWizardAux, persistWizardAux } from './wizard-state'
 
 const MAX_HISTORY = 30
 
-export function useDeckHistory(
-  currentCards: DeckCard[],
-  dispatch: React.Dispatch<WizardAction>,
-) {
-  const initialized = useRef(false)
-  const past = useRef<DeckCard[][]>([])
-  const future = useRef<DeckCard[][]>([])
-  const lastSnapshot = useRef<string>('')
+export interface DeckHistoryState {
+  past: DeckCard[][]
+  future: DeckCard[][]
+  /** JSON key of the most recently snapshotted cards. */
+  lastSnapshot: string
+}
 
-  // Restore from localStorage on first render
-  if (!initialized.current) {
-    initialized.current = true
-    const aux = loadWizardAux()
-    if (aux.deckHistoryPast.length > 0) past.current = aux.deckHistoryPast
-    if (aux.deckHistoryFuture.length > 0) future.current = aux.deckHistoryFuture
+export interface DeckHistoryOpts {
+  /** When false, aux storage is never touched. */
+  persist?: boolean
+  maxHistory?: number
+}
+
+export interface DeckHistoryAux {
+  load: () => { deckHistoryPast: DeckCard[][]; deckHistoryFuture: DeckCard[][] }
+  persist: (data: { deckHistoryPast: DeckCard[][]; deckHistoryFuture: DeckCard[][] }) => void
+}
+
+export interface DeckHistoryCore {
+  state: DeckHistoryState
+  snapshot(currentCards: DeckCard[]): DeckHistoryState
+  undo(currentCards: DeckCard[]): { state: DeckHistoryState; cards: DeckCard[] | null }
+  redo(currentCards: DeckCard[]): { state: DeckHistoryState; cards: DeckCard[] | null }
+}
+
+/**
+ * Pure undo/redo core for the deck history. Owns the mutable past/future
+ * stacks and the snapshot/undo/redo math with zero React and zero direct
+ * storage access — persistence is delegated to the injected `aux`, and only
+ * when `persist` is on. `useDeckHistory` wraps this; the unit tests drive it
+ * directly.
+ */
+export function createDeckHistoryCore(
+  opts?: DeckHistoryOpts,
+  aux?: DeckHistoryAux,
+): DeckHistoryCore {
+  const persist = opts?.persist ?? false
+  const maxHistory = opts?.maxHistory ?? MAX_HISTORY
+
+  const state: DeckHistoryState = { past: [], future: [], lastSnapshot: '' }
+
+  // Restore stacks once on construction — only when persisting.
+  if (persist && aux) {
+    const loaded = aux.load()
+    if (loaded.deckHistoryPast.length > 0) state.past = loaded.deckHistoryPast
+    if (loaded.deckHistoryFuture.length > 0) state.future = loaded.deckHistoryFuture
   }
 
-  const persistStacks = useCallback(() => {
-    persistWizardAux({ deckHistoryPast: past.current, deckHistoryFuture: future.current })
-  }, [])
+  const persistStacks = () => {
+    if (!persist || !aux) return
+    aux.persist({ deckHistoryPast: state.past, deckHistoryFuture: state.future })
+  }
 
-  // Take a snapshot before a change - skip if identical to the last saved state
-  const snapshot = useCallback(() => {
+  const snapshot = (currentCards: DeckCard[]): DeckHistoryState => {
     const key = JSON.stringify(currentCards)
-    // Compare against the top of the undo stack to avoid duplicates
-    const topKey = past.current.length > 0 ? JSON.stringify(past.current[past.current.length - 1]) : ''
-    if (key === topKey || key === lastSnapshot.current) return
-    past.current.push(currentCards)
-    if (past.current.length > MAX_HISTORY) past.current.shift()
-    future.current = []
-    lastSnapshot.current = key
+    const topKey = state.past.length > 0 ? JSON.stringify(state.past[state.past.length - 1]) : ''
+    if (key === topKey || key === state.lastSnapshot) return state
+    state.past.push([...currentCards])
+    if (state.past.length > maxHistory) state.past.shift()
+    state.future = []
+    state.lastSnapshot = key
     persistStacks()
-  }, [currentCards, persistStacks])
+    return state
+  }
+
+  const undo = (currentCards: DeckCard[]): { state: DeckHistoryState; cards: DeckCard[] | null } => {
+    if (state.past.length === 0) return { state, cards: null }
+    state.future.push([...currentCards])
+    const prev = state.past.pop()!
+    state.lastSnapshot = JSON.stringify(prev)
+    persistStacks()
+    return { state, cards: prev }
+  }
+
+  const redo = (currentCards: DeckCard[]): { state: DeckHistoryState; cards: DeckCard[] | null } => {
+    if (state.future.length === 0) return { state, cards: null }
+    state.past.push([...currentCards])
+    const next = state.future.pop()!
+    state.lastSnapshot = JSON.stringify(next)
+    persistStacks()
+    return { state, cards: next }
+  }
+
+  return { state, snapshot, undo, redo }
+}
+
+const wizardAux: DeckHistoryAux = {
+  load: () => {
+    const aux = loadWizardAux()
+    return { deckHistoryPast: aux.deckHistoryPast, deckHistoryFuture: aux.deckHistoryFuture }
+  },
+  persist: persistWizardAux,
+}
+
+export function useDeckHistory(
+  currentCards: DeckCard[],
+  applyCards: (cards: DeckCard[]) => void,
+  opts?: { persist?: boolean },
+) {
+  const persist = opts?.persist ?? false
+  const coreRef = useRef<DeckHistoryCore | null>(null)
+  if (!coreRef.current) {
+    coreRef.current = createDeckHistoryCore(
+      { persist },
+      persist ? wizardAux : undefined,
+    )
+  }
+  const core = coreRef.current
+
+  const snapshot = useCallback(() => {
+    core.snapshot(currentCards)
+  }, [core, currentCards])
 
   const undo = useCallback(() => {
-    if (past.current.length === 0) return
-    future.current.push(currentCards)
-    const prev = past.current.pop()!
-    lastSnapshot.current = JSON.stringify(prev)
-    dispatch({ type: 'SET_DECK', cards: prev })
-    persistStacks()
-  }, [currentCards, dispatch, persistStacks])
+    const { cards } = core.undo(currentCards)
+    if (cards) applyCards(cards)
+  }, [core, currentCards, applyCards])
 
   const redo = useCallback(() => {
-    if (future.current.length === 0) return
-    past.current.push(currentCards)
-    const next = future.current.pop()!
-    lastSnapshot.current = JSON.stringify(next)
-    dispatch({ type: 'SET_DECK', cards: next })
-    persistStacks()
-  }, [currentCards, dispatch, persistStacks])
+    const { cards } = core.redo(currentCards)
+    if (cards) applyCards(cards)
+  }, [core, currentCards, applyCards])
 
   return {
     snapshot,
     undo,
     redo,
-    canUndo: past.current.length > 0,
-    canRedo: future.current.length > 0,
+    canUndo: core.state.past.length > 0,
+    canRedo: core.state.future.length > 0,
   }
 }

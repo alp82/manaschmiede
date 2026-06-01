@@ -184,11 +184,7 @@ export const de: Translations = {
   'core.nextBatch': 'Weiter',
 
   // Step 4: Deck Fill
-  'fill.yourDeck': 'Dein Deck',
-  'fill.cardsCount': '{count} / 60 Karten',
-  'fill.candidates': 'Kandidaten:',
   'fill.addToDeck': 'Zum Deck hinzufügen',
-  'fill.inYourDeck': 'In deinem Deck',
   'fill.building': 'Dein Deck wird gebaut...',
   'fill.searchPlaceholder': 'Suchen, filtern oder Karten hinzufügen...',
   'fill.clearFilters': 'Filter zurücksetzen',
@@ -208,7 +204,6 @@ export const de: Translations = {
   'fill.remove': 'Entfernen',
   'fill.fillingProgress': 'Fülle {current}/{total}',
   'fill.cancel': 'Abbrechen',
-  'fill.emptyPrompt': 'Klicke "Alle Sektionen füllen" oder fülle jede Sektion einzeln',
   'fill.unassigned': 'Weitere Karten',
   'fill.cardsCountShort': '{count} Karten',
   'fill.sectionCount': '{count} Sektionen',
