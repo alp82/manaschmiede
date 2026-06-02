@@ -6,6 +6,7 @@ import { CardLightbox } from '../../components/CardLightbox'
 import { DeckCardList } from '../../components/DeckCardList'
 import { SimulationPanel } from '../../components/SimulationPanel'
 import { DeckEditor } from '../../components/deck/DeckEditor'
+import { DeckIntentPanel } from '../../components/deck/DeckIntentPanel'
 import { SectionLane } from '../../components/deck/SectionLane'
 import { Button } from '../../components/ui/Button'
 import { EmptyState } from '../../components/ui/EmptyState'
@@ -15,15 +16,15 @@ import { useToast } from '../../components/ui/Toast'
 import { analyzeDeck } from '../../lib/balance'
 import { useDeckChat } from '../../lib/useDeckChat'
 import { loadDeck, persistDeck, pickFeaturedCardIds, type LocalDeck } from '../../lib/deck-storage'
+import { emptyIntent, deriveIntentFilters, buildChatIntentContext, type DeckIntent } from '../../lib/deck-intent'
 import { pickSectionForCard } from '../../lib/section-plan'
 import { BASIC_LAND_ID_SET } from '../../lib/basic-lands'
 import { useDeckCardData } from '../../lib/use-deck-card-data'
 import { useDeckHistory } from '../../lib/use-deck-history'
 import { useSections, useSectionCards, buildLaneDescriptors, useDeckDisplay } from '../../lib/use-deck-sections'
-import type { ManaColor } from '../../components/ManaSymbol'
 import type { ScryfallCard } from '../../lib/scryfall/types'
 import type { DeckCard, DeckZone } from '../../lib/deck-utils'
-import { getTotalCards, copyDecklistToClipboard, mergeCardsIntoDeck, deriveLockedIds, FORMAT_LABELS } from '../../lib/deck-utils'
+import { getTotalCards, copyDecklistToClipboard, mergeCardsIntoDeck, deriveLockedIds, deriveColorsFromCards, FORMAT_LABELS } from '../../lib/deck-utils'
 import { useT, useI18n } from '../../lib/i18n'
 import { useDeckSounds } from '../../lib/sounds'
 
@@ -73,15 +74,7 @@ function DeckPage() {
     if (!deck || deck.cards.length === 0 || cardDataMap.size === 0) return
     const allResolved = deck.cards.every((dc) => cardDataMap.has(dc.scryfallId))
     if (!allResolved) return
-    const ORDER: ManaColor[] = ['W', 'U', 'B', 'R', 'G']
-    const colorSet = new Set<ManaColor>()
-    for (const dc of deck.cards) {
-      const card = cardDataMap.get(dc.scryfallId)
-      if (card) {
-        for (const c of card.color_identity) colorSet.add(c as ManaColor)
-      }
-    }
-    const derived = ORDER.filter((c) => colorSet.has(c))
+    const derived = deriveColorsFromCards(deck.cards, cardDataMap)
     const prev = deck.colors ?? []
     if (derived.length !== prev.length || derived.some((c, i) => c !== prev[i])) {
       setDeck((d) => (d ? { ...d, colors: derived.length > 0 ? derived : undefined } : d))
@@ -204,6 +197,42 @@ function DeckPage() {
 
   const lockedCardIds = useMemo(() => deriveLockedIds(deck?.cards ?? []), [deck?.cards])
 
+  // ─── Deck Intent ────────────────────────────────────────────
+  // Persistent, user-authored, inert: the single source of truth for AI
+  // color/budget/rarity enforcement. Legacy decks (intent undefined) fall
+  // back to an empty intent and pre-seed from card colors in the panel.
+  const hasStoredIntent = deck?.intent != null
+  const intent = useMemo<DeckIntent>(() => deck?.intent ?? emptyIntent(), [deck?.intent])
+  const fallbackColors = useMemo(
+    () => deriveColorsFromCards(deck?.cards ?? [], cardDataMap),
+    [deck?.cards, cardDataMap],
+  )
+  // Single source of truth for intent edits. Functional setState so the
+  // colors-derivation effect can't clobber an in-flight edit; flows through
+  // the existing 500ms autosave.
+  const updateIntent = useCallback((next: DeckIntent) => {
+    setDeck((prev) => (prev ? { ...prev, intent: next, updatedAt: Date.now() } : prev))
+  }, [])
+
+  const intentFilters = useMemo(
+    () => ({ ...deriveIntentFilters(intent, fallbackColors), format: deck?.format }),
+    [intent, fallbackColors, deck?.format],
+  )
+  const intentContext = useMemo(
+    () => buildChatIntentContext(
+      intentFilters.colors,
+      intent.archetypes,
+      intent.traits,
+      {
+        customStrategy: intent.customStrategy || undefined,
+        format: deck?.format,
+        budgetMin: intent.budgetMin,
+        budgetMax: intent.budgetMax,
+      },
+    ),
+    [intentFilters.colors, intent.archetypes, intent.traits, intent.customStrategy, intent.budgetMin, intent.budgetMax, deck?.format],
+  )
+
   const {
     messages,
     isLoading: chatLoading,
@@ -219,6 +248,8 @@ function DeckPage() {
     onDeckUpdate: handleDeckUpdate,
     onCardDataUpdate: handleCardDataUpdate,
     lockedCardIds,
+    intentFilters,
+    intentContext,
   })
 
   // ─── PDF ─────────────────────────────────────────────────────
@@ -323,6 +354,7 @@ function DeckPage() {
     <>
       <SimulationPanel deckId={id} deckName={deckName} cards={deck.cards} cardDataMap={cardDataMap} />
       <div className="mt-3 border border-hairline bg-ash-800/40 p-3">
+        <p className="mb-2 font-mono text-mono-label uppercase tracking-mono-label text-cream-300">{t('deck.cardList')}</p>
         <DeckCardList
           cards={deck.cards}
           cardData={cardDataMap}
@@ -454,6 +486,13 @@ function DeckPage() {
         ) : (
           /* ========== VIEW MODE - reading-mode airy ========== */
           <div className="mx-auto w-full max-w-4xl space-y-12 pt-6">
+            <DeckIntentPanel
+              intent={intent}
+              format={deck.format}
+              onChange={updateIntent}
+              seedColors={fallbackColors}
+              hasStoredIntent={hasStoredIntent}
+            />
             {lanes.length > 0 ? (
               <div className="space-y-10">
                 {lanes.map((lane) => (

@@ -51,7 +51,7 @@ const TRIBAL_TYPES = [
   'Pirate', 'Skeleton', 'Giant', 'Hydra', 'Sphinx', 'Werewolf', 'Sliver',
   'Eldrazi', 'Treefolk', 'Ally', 'Ninja', 'Samurai', 'Monk', 'Assassin',
   'Phyrexian', 'Saproling', 'Spider', 'Snake', 'Cat', 'Bird',
-  'Wolf', 'Hound', 'Horror',
+  'Wolf', 'Hound', 'Horror', 'Nightmare',
 ] as const
 
 /**
@@ -186,9 +186,26 @@ export function findSynergyIssue(
   // ─── Tribal references ─────────────────────────────────────
   for (const type of TRIBAL_TYPES) {
     const lower = type.toLowerCase()
-    // Match the type as a word, optionally pluralized. Word boundaries on
-    // both sides keep "Dragonfly" / "Snakebite" from matching.
-    const pattern = new RegExp(`\\b${lower}s?\\b`, 'i')
+    // Fire only when the text GATES value on tribe members already existing,
+    // mirroring the card-type check below. Do NOT fire on grants ("is a Goblin",
+    // "becomes a Goblin in addition to its other types") or the non-gating
+    // conditional ("as long as it's a Goblin"). The lord alternatives cover both
+    // real templating families:
+    //   OLD lords:    "Other Goblins get +1/+1"                  (no "you control")
+    //   MODERN lords: "Other Goblin creatures you control get..." ("creatures" infix)
+    const pattern = new RegExp(
+      `\\b(?:` +
+        `(?:other|all|each)\\s+${lower}s?` +                  // Other Goblins / all Goblins / each Goblin
+        `|${lower}s?(?:\\s+creatures?)?\\s+you\\s+control` +   // Goblins you control / Goblin creatures you control
+        `|another\\s+${lower}` +                              // another Goblin
+        `|target\\s+${lower}s?` +                             // target Goblin(s)
+        `|for\\s+each\\s+${lower}` +                          // for each Goblin
+        `|whenever\\s+(?:a|an|another)\\s+${lower}` +         // whenever a/an/another Goblin
+        `|sacrifice\\s+(?:a|an)\\s+${lower}` +                // sacrifice a Goblin
+        `|${lower}\\s+spells?` +                              // Goblin spell(s)
+      `)\\b`,
+      'i',
+    )
     if (!pattern.test(text)) continue
 
     const have = composition.creatureTypes.get(type) ?? 0

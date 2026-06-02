@@ -125,6 +125,20 @@ export interface Translations {
   'wizard.finishBlockedContinueEditing': string
   'wizard.cardCountOfTarget': string
 
+  // Deck intent panel
+  'intent.eyebrow': string
+  'intent.title': string
+  'intent.colorsCommitted': string
+  'intent.archetypes': string
+  'intent.traits': string
+  'intent.strategy': string
+  'intent.budget': string
+  'intent.rarity': string
+  'intent.edit': string
+  'intent.done': string
+  'intent.legacyHint': string
+  'intent.inertNote': string
+
   // Step 1: Colors
   'colors.title': string
   'colors.subtitle': string
@@ -253,6 +267,7 @@ export interface Translations {
   'deck.paneCards': string
   'deck.paneBalance': string
   'deck.paneStats': string
+  'deck.cardList': string
 
   // Section/card preview states
   'deck.previewLabel': string

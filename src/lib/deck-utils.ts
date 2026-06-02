@@ -1,3 +1,4 @@
+import type { ManaColor } from '../components/ManaSymbol'
 import type { ScryfallCard } from './scryfall/types'
 import type { DeckSection } from './section-plan'
 
@@ -47,6 +48,28 @@ export const FORMAT_LABELS: Record<DeckFormat, string> = {
 
 export function isBasicLand(card: ScryfallCard): boolean {
   return card.type_line.includes('Basic Land')
+}
+
+const MANA_COLOR_ORDER: ManaColor[] = ['W', 'U', 'B', 'R', 'G']
+
+/**
+ * Derive a deck's color identity from its resolved cards: the WUBRG-ordered
+ * union of every resolved card's color_identity. Returns [] when the deck is
+ * empty, colorless, or no cards have resolved yet. Used both for the deck-view
+ * display colors and as the fallback allowed-color set for AI enforcement when
+ * the intent commits no colors.
+ */
+export function deriveColorsFromCards(
+  cards: DeckCard[],
+  cardDataMap: Map<string, ScryfallCard>,
+): ManaColor[] {
+  const colorSet = new Set<ManaColor>()
+  for (const dc of cards) {
+    const card = cardDataMap.get(dc.scryfallId)
+    if (!card) continue
+    for (const c of card.color_identity) colorSet.add(c as ManaColor)
+  }
+  return MANA_COLOR_ORDER.filter((c) => colorSet.has(c))
 }
 
 export function getTotalCards(cards: DeckCard[], zone?: DeckZone): number {

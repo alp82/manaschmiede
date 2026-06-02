@@ -124,6 +124,20 @@ export const en: Translations = {
   'wizard.finishBlockedContinueEditing': 'Continue editing',
   'wizard.cardCountOfTarget': '{count}/60',
 
+  // Deck intent panel
+  'intent.eyebrow': 'Deck Intent',
+  'intent.title': 'Intent',
+  'intent.colorsCommitted': 'Colors',
+  'intent.archetypes': 'Archetypes',
+  'intent.traits': 'Traits',
+  'intent.strategy': 'Strategy',
+  'intent.budget': 'Budget',
+  'intent.rarity': 'Rarity',
+  'intent.edit': 'Edit intent',
+  'intent.done': 'Done',
+  'intent.legacyHint': 'Pre-filled from this deck’s cards. Edit to steer the AI.',
+  'intent.inertNote': 'The AI honors this on every suggestion. Editing here never changes your cards.',
+
   // Step 1: Colors
   'colors.title': 'Choose Your Colors',
   'colors.subtitle': 'Select the colors you want to play',
@@ -252,6 +266,7 @@ export const en: Translations = {
   'deck.paneCards': 'Cards',
   'deck.paneBalance': 'Balance & filters',
   'deck.paneStats': 'Stats',
+  'deck.cardList': 'Deck List',
 
   // Section/card preview states
   'deck.previewLabel': 'Preview',

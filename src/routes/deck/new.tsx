@@ -20,6 +20,7 @@ import {
   getFillColors,
 } from '../../lib/wizard-state'
 import { projectLocked } from '../../lib/deck-utils'
+import { intentFromWizard } from '../../lib/deck-intent'
 import { persistDeck, pickFeaturedCardIds } from '../../lib/deck-storage'
 import { generateDeckName } from '../../lib/deck-naming'
 import { getLocalizedCardData } from '../../lib/scryfall/client'
@@ -183,6 +184,7 @@ function NewDeckWizard() {
       description,
       format: state.format,
       colors,
+      intent: intentFromWizard(state),
       cards: projectLocked(state.deckCards, new Set(state.lockedCardIds)),
       sectionPlan: state.sectionPlan,
       sectionAssignments: state.sectionAssignments,

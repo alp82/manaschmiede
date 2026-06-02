@@ -54,7 +54,13 @@ export function ManaSymbol({ color, size = 'md', selected, recommended, onClick 
 
   if (onClick) {
     return (
-      <button type="button" onClick={onClick} title={label} className={classes}>
+      <button
+        type="button"
+        onClick={onClick}
+        title={label}
+        className={classes}
+        {...(selected !== undefined ? { 'aria-pressed': selected } : {})}
+      >
         <img
           src={manaSymbolUrl(color)}
           alt={label}

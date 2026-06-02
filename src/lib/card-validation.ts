@@ -56,6 +56,24 @@ export function getFilterRejectionReason(card: ScryfallCard, filters: DeckFilter
   return null
 }
 
+/**
+ * Color/format/budget/rarity gate for an AI-suggested chat card.
+ *
+ * Locked cards bypass the gate entirely (the user pinned them, so no intent
+ * filter may evict them). Otherwise this delegates to getFilterRejectionReason
+ * with the already-resolved DeckFilters — when filters.colors is empty there's
+ * no color constraint, so the gate only rejects on a genuine color/format/
+ * budget/rarity mismatch. Pure: no deck composition, no synergy reasoning.
+ */
+export function getChatCardRejectionReason(
+  card: ScryfallCard,
+  filters: DeckFilters,
+  isLocked: boolean,
+): string | null {
+  if (isLocked) return null
+  return getFilterRejectionReason(card, filters)
+}
+
 /** Commander-specific set patterns */
 const COMMANDER_SET_PATTERNS = [
   /commander/i,

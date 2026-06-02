@@ -124,6 +124,20 @@ export const de: Translations = {
   'wizard.finishBlockedContinueEditing': 'Weiter bearbeiten',
   'wizard.cardCountOfTarget': '{count}/60',
 
+  // Deck intent panel
+  'intent.eyebrow': 'Deck-Absicht',
+  'intent.title': 'Absicht',
+  'intent.colorsCommitted': 'Farben',
+  'intent.archetypes': 'Archetypen',
+  'intent.traits': 'Eigenschaften',
+  'intent.strategy': 'Strategie',
+  'intent.budget': 'Budget',
+  'intent.rarity': 'Seltenheit',
+  'intent.edit': 'Absicht bearbeiten',
+  'intent.done': 'Fertig',
+  'intent.legacyHint': 'Aus den Karten dieses Decks vorausgefüllt. Bearbeite sie, um die KI zu lenken.',
+  'intent.inertNote': 'Die KI berücksichtigt dies bei jedem Vorschlag. Das Bearbeiten ändert deine Karten nie.',
+
   // Step 1: Colors
   'colors.title': 'Wähle deine Farben',
   'colors.subtitle': 'Wähle die Farben, mit denen du spielen möchtest',
@@ -252,6 +266,7 @@ export const de: Translations = {
   'deck.paneCards': 'Karten',
   'deck.paneBalance': 'Balance & Filter',
   'deck.paneStats': 'Statistik',
+  'deck.cardList': 'Deckliste',
 
   // Section/card preview states
   'deck.previewLabel': 'Vorschau',

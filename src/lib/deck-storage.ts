@@ -1,5 +1,6 @@
 import type { ManaColor } from '../components/ManaSymbol'
 import type { DeckCard, DeckFormat } from './deck-utils'
+import type { DeckIntent } from './deck-intent'
 import type { DeckSection } from './section-plan'
 import type { ScryfallCard } from './scryfall/types'
 
@@ -10,7 +11,10 @@ export interface LocalDeck {
   name: string
   description?: string
   format: DeckFormat
+  /** Card-derived color union — DISPLAY only, never the AI constraint. */
   colors?: ManaColor[]
+  /** User-authored, persistent, inert deck intent — the AI color/budget/rarity source of truth. */
+  intent?: DeckIntent
   cards: DeckCard[]
   sectionPlan?: DeckSection[]
   sectionAssignments?: Record<string, string[]>

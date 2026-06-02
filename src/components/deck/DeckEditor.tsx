@@ -36,7 +36,6 @@ interface DeckEditorChat {
   sendMessage: (text: string, options?: { targetSection?: string }) => void
   onApply: () => void
   onDiscard: () => void
-  quickActions?: QuickAction[]
 }
 
 interface DeckEditorFill {
@@ -232,6 +231,18 @@ export function DeckEditor({
       }),
     [sections, sectionCards, t, fill],
   )
+
+  // Quick action chips for AI chat — surfaced when analysis flags a fixable issue.
+  const quickActions = useMemo<QuickAction[]>(() => {
+    const actions: QuickAction[] = []
+    if (analysis?.warnings.some((w) => w.message.toLowerCase().includes('land'))) {
+      actions.push({ label: t('chat.quickFixMana'), message: 'Fix the mana base - adjust the land count and color distribution to match the spells.' })
+    }
+    if (analysis?.suggestions.some((s) => s.toLowerCase().includes('removal'))) {
+      actions.push({ label: t('chat.quickAddRemoval'), message: 'Add some removal spells to deal with opponent threats.' })
+    }
+    return actions.slice(0, 3)
+  }, [analysis, t])
 
   // ─── Handlers ────────────────────────────────────────────────
 
@@ -555,7 +566,7 @@ export function DeckEditor({
               onApply={chat.onApply}
               onDiscard={chat.onDiscard}
               isLoading={chat.isLoading}
-              quickActions={chat.quickActions}
+              quickActions={quickActions}
             />
           </div>
         )}
@@ -583,7 +594,7 @@ export function DeckEditor({
               onApply={chat.onApply}
               onDiscard={chat.onDiscard}
               isLoading={chat.isLoading}
-              quickActions={chat.quickActions}
+              quickActions={quickActions}
             />
           </div>
         </div>

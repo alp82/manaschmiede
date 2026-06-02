@@ -4,6 +4,7 @@ import { SearchInput } from '../SearchInput'
 import { CardImage } from '../CardImage'
 import { CardLightbox } from '../CardLightbox'
 import { buildScryfallQueriesFromTraits, buildSearchFilterSuffix, getTraitById, getOracleTermsForTraits } from '../../lib/trait-mappings'
+import { assembleQueries } from '../../../convex/lib/strategyQueries'
 import { WizardNav } from './WizardNav'
 import { Button } from '../ui/Button'
 import { LoadingDots } from '../ui/LoadingDots'
@@ -73,12 +74,60 @@ async function fetchAndResolveCombos(
   const oracleTerms = getOracleTermsForTraits(state.selectedTraits)
 
   // Build Scryfall queries from trait mappings
-  const queries = buildScryfallQueriesFromTraits(allTraitIds, activeColors, {
+  const traitQueries = buildScryfallQueriesFromTraits(allTraitIds, activeColors, {
     format: state.format,
     budgetMin: state.budgetMin,
     budgetMax: state.budgetMax,
     rarities: state.rarityFilter,
   })
+
+  // Convex client — hoisted above the Scryfall loop so the strategy parse can
+  // run before we fetch the pool. (api is the public-action reference object.)
+  const { ConvexHttpClient } = await import('convex/browser')
+  const { api } = await import('../../../convex/_generated/api')
+  const convexUrl = import.meta.env.VITE_CONVEX_URL as string
+  const client = new ConvexHttpClient(convexUrl)
+
+  // Honor free-text strategy: one Haiku round-trip turns it into on-theme
+  // Scryfall fragments that pull matching cards into the candidate pool. This
+  // is NOT parallel with the sequential rate-limited Scryfall loop below — it's
+  // one extra call up front; the loop is unchanged. A parse failure degrades to
+  // the trait-only pool.
+  //
+  // CLIENT-SIDE TIMEOUT: callHaiku uses bare fetch with no built-in timeout, so
+  // a stalled response would hang step-3 on the spinner indefinitely. We race
+  // the action against an 8s guard that resolves to { queries: [] }. On timeout
+  // the strategy queries are simply empty — combos still generate and the theme
+  // still reaches the suggest prompt via the customStrategy arg.
+  const STRATEGY_PARSE_TIMEOUT_MS = 8000
+  const parsed = state.customStrategy.trim() !== ''
+    ? await Promise.race([
+        client.action(api.suggestCombos.parseStrategy, {
+          customStrategy: state.customStrategy,
+          selectedColors: getSelectedColors(state.colors),
+          format: state.format,
+          language: locale,
+        }).catch(() => ({ queries: [] as string[] })),
+        new Promise<{ queries: string[] }>((resolve) =>
+          setTimeout(() => resolve({ queries: [] }), STRATEGY_PARSE_TIMEOUT_MS),
+        ),
+      ])
+    : { queries: [] as string[] }
+
+  // Scope strategy fragments to the deck's colors/format/budget/rarity. Note
+  // the suffix uses c<= (identity-within, "playable in these colors") — this is
+  // intentionally more permissive than buildScryfallQueriesFromTraits' c:, so
+  // the strategy pool stays broad; the suggest model makes the final pick.
+  const suffix = buildSearchFilterSuffix(activeColors, {
+    format: state.format,
+    budgetMin: state.budgetMin,
+    budgetMax: state.budgetMax,
+    rarities: state.rarityFilter,
+  })
+  const strategyQueries = parsed.queries.map((q) => q + suffix)
+
+  // Strategy queries are ordered first so the combined cap can't drop them.
+  const queries = assembleQueries(strategyQueries, traitQueries)
 
   // Fetch card pools from Scryfall
   const cardPoolText: string[] = []
@@ -91,7 +140,11 @@ async function fetchAndResolveCombos(
         cardPoolText.push(`${c.name} (${c.mana_cost ?? '0'}) [${type}]`)
       }
     } catch {
-      // Skip failed queries
+      // Intentional silent drop: a query that 4xx's (unknown Scryfall operator,
+      // untranslated/zero-result fragment) is dropped from the pool. This is not
+      // a swallowed bug — the theme still reaches the suggest model via the
+      // customStrategy prompt block, so a dropped strategy query degrades
+      // gracefully to the trait-only pool.
     }
     await new Promise((r) => setTimeout(r, 100))
   }
@@ -104,11 +157,6 @@ async function fetchAndResolveCombos(
   const traitLabels = state.selectedTraits.map((id) => getTraitById(id)?.label || id)
 
   // Call Convex action
-  const { ConvexHttpClient } = await import('convex/browser')
-  const { api } = await import('../../../convex/_generated/api')
-  const convexUrl = import.meta.env.VITE_CONVEX_URL as string
-  const client = new ConvexHttpClient(convexUrl)
-
   const result = await client.action(api.suggestCombos.suggest, {
     cardPool: uniquePool.join('\n'),
     selectedColors: getSelectedColors(state.colors),

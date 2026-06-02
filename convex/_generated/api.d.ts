@@ -12,7 +12,9 @@ import type * as decks from "../decks.js";
 import type * as generateDeck from "../generateDeck.js";
 import type * as lib_anthropic from "../lib/anthropic.js";
 import type * as lib_cardFilters from "../lib/cardFilters.js";
+import type * as lib_intentContext from "../lib/intentContext.js";
 import type * as lib_logLlmUsage from "../lib/logLlmUsage.js";
+import type * as lib_strategyQueries from "../lib/strategyQueries.js";
 import type * as llmUsageLogs from "../llmUsageLogs.js";
 import type * as suggestCombos from "../suggestCombos.js";
 
@@ -27,7 +29,9 @@ declare const fullApi: ApiFromModules<{
   generateDeck: typeof generateDeck;
   "lib/anthropic": typeof lib_anthropic;
   "lib/cardFilters": typeof lib_cardFilters;
+  "lib/intentContext": typeof lib_intentContext;
   "lib/logLlmUsage": typeof lib_logLlmUsage;
+  "lib/strategyQueries": typeof lib_strategyQueries;
   llmUsageLogs: typeof llmUsageLogs;
   suggestCombos: typeof suggestCombos;
 }>;

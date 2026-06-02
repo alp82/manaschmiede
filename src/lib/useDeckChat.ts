@@ -1,7 +1,8 @@
 import { useState, useCallback, useRef, useMemo } from 'react'
 import { getCardByName, getLocalizedCardData } from './scryfall/client'
 import { useI18n } from './i18n'
-import { getCardRejectionReason } from './card-validation'
+import { getCardRejectionReason, getChatCardRejectionReason, type DeckFilters } from './card-validation'
+import type { IntentContext } from '../../convex/lib/intentContext'
 import type { ScryfallCard } from './scryfall/types'
 import { getCardName } from './scryfall/types'
 import type { DeckCard } from './deck-utils'
@@ -117,9 +118,18 @@ interface UseDeckChatOptions {
   sectionLabels?: Record<string, string>
   initialMessages?: ChatMessage[]
   onMessagesChange?: (messages: ChatMessage[]) => void
+  /**
+   * Resolved color/budget/rarity filters the client-side gate enforces on suggestions.
+   * When omitted, the client color/budget/rarity gate does NOT run (the hard backstop
+   * is disabled). Both current callers pass it; a future caller omitting it loses
+   * enforcement silently.
+   */
+  intentFilters?: DeckFilters
+  /** Flat intent context sent to the AI so it suggests on-intent cards from the start. */
+  intentContext?: IntentContext
 }
 
-export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate, onCardDataUpdate, lockedCardIds, sectionAssignments, sectionLabels, initialMessages, onMessagesChange }: UseDeckChatOptions) {
+export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate, onCardDataUpdate, lockedCardIds, sectionAssignments, sectionLabels, initialMessages, onMessagesChange, intentFilters, intentContext }: UseDeckChatOptions) {
   const { scryfallLang } = useI18n()
   const [messages, setMessagesInternal] = useState<ChatMessage[]>(initialMessages ?? [])
   const [isLoading, setIsLoading] = useState(false)
@@ -142,6 +152,10 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
   sectionLabelsRef.current = sectionLabels
   const lockedCardIdsRef = useRef(lockedCardIds)
   lockedCardIdsRef.current = lockedCardIds
+  const intentFiltersRef = useRef(intentFilters)
+  intentFiltersRef.current = intentFilters
+  const intentContextRef = useRef(intentContext)
+  intentContextRef.current = intentContext
   const messagesRef = useRef(messages)
   messagesRef.current = messages
 
@@ -170,6 +184,8 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
       const sectionAssignments = sectionAssignmentsRef.current
       const sectionLabels = sectionLabelsRef.current
       const lockedCardIds = lockedCardIdsRef.current
+      const intentFilters = intentFiltersRef.current
+      const intentContext = intentContextRef.current
 
       const userMsg: ChatMessage = { role: 'user', content: text }
       const newMessages = [...messagesRef.current, userMsg]
@@ -252,6 +268,13 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
             deckComposition: currentCompositionSummary || undefined,
             rejectedCards: rejectedCards && rejectedCards.length > 0 ? rejectedCards : undefined,
             lockedCards,
+            colors: intentContext?.colors,
+            archetypes: intentContext?.archetypes,
+            traits: intentContext?.traits,
+            customStrategy: intentContext?.customStrategy,
+            budgetMin: intentContext?.budgetMin ?? undefined,
+            budgetMax: intentContext?.budgetMax ?? undefined,
+            format: intentContext?.format,
           })
 
           if (result.intent === 'question' && result.answer) {
@@ -340,8 +363,19 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
           const proposedComposition = analyzeComposition(proposedEntries)
           const rejected: Array<{ name: string; reason: string }> = []
           for (const [, { card }] of resolvedMap) {
+            const isLocked = lockedCardIds?.has(card.id) ?? false
             // Locked cards stay regardless - the user pinned them.
-            if (lockedCardIds?.has(card.id)) continue
+            if (isLocked) continue
+            // Intent gate (color/budget/rarity) runs before synergy: no amount
+            // of synergy can legalize an off-intent card. Empty filters.colors
+            // means no color constraint, so this only fires on a real mismatch.
+            if (intentFilters) {
+              const filterIssue = getChatCardRejectionReason(card, intentFilters, isLocked)
+              if (filterIssue) {
+                rejected.push({ name: card.name, reason: filterIssue })
+                continue
+              }
+            }
             const issue = findSynergyIssue(card, proposedComposition)
             if (issue) rejected.push({ name: card.name, reason: issue.reason })
           }

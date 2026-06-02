@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { WizardNav } from './WizardNav'
 import { ConfirmModal } from '../ConfirmModal'
 import { DeckEditor } from '../deck/DeckEditor'
+import { SimulationPanel } from '../SimulationPanel'
+import { DeckCardList } from '../DeckCardList'
 import { Button } from '../ui/Button'
 import { UndoRedoButtons } from '../ui/UndoRedoButtons'
 import { analyzeDeck } from '../../lib/balance'
@@ -12,12 +14,14 @@ import { pickSectionForCard } from '../../lib/section-plan'
 import { buildSearchFilterSuffix } from '../../lib/trait-mappings'
 import { useT, useI18n } from '../../lib/i18n'
 import type { ScryfallCard } from '../../lib/scryfall/types'
-import type { DeckCard } from '../../lib/deck-utils'
+import type { DeckCard, DeckZone } from '../../lib/deck-utils'
 import { isBasicLand, projectLocked, mergeCardsIntoDeck, getTotalCards } from '../../lib/deck-utils'
 import { getCardName } from '../../lib/scryfall/types'
 import type { DeckSection } from '../../lib/section-plan'
 import type { WizardState, WizardAction } from '../../lib/wizard-state'
-import { getActiveColors } from '../../lib/wizard-state'
+import { getActiveColors, getSelectedColors } from '../../lib/wizard-state'
+import { buildChatIntentContext } from '../../lib/deck-intent'
+import type { DeckFilters } from '../../lib/card-validation'
 import { useDeckSounds } from '../../lib/sounds'
 import { useDeckHistory } from '../../lib/use-deck-history'
 import { useDeckCardData } from '../../lib/use-deck-card-data'
@@ -205,6 +209,36 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
     return labels
   }, [sections])
 
+  // Allowed colors for AI enforcement = committed (selected) colors; fall back
+  // to active colors (selected + maybe) only when nothing is committed, so the
+  // wizard chat isn't fully unconstrained while colors are still being chosen.
+  const intentFilters = useMemo((): DeckFilters => {
+    const selected = getSelectedColors(state.colors)
+    const colors = selected.length > 0 ? selected : getActiveColors(state.colors)
+    return {
+      colors,
+      format: state.format,
+      budgetMin: state.budgetMin,
+      budgetMax: state.budgetMax,
+      rarities: state.rarityFilter,
+    }
+  }, [state.colors, state.format, state.budgetMin, state.budgetMax, state.rarityFilter])
+
+  const intentContext = useMemo(
+    () => buildChatIntentContext(
+      intentFilters.colors,
+      state.selectedArchetypes,
+      state.selectedTraits,
+      {
+        customStrategy: state.customStrategy || undefined,
+        format: state.format,
+        budgetMin: state.budgetMin,
+        budgetMax: state.budgetMax,
+      },
+    ),
+    [intentFilters.colors, state.selectedArchetypes, state.selectedTraits, state.customStrategy, state.format, state.budgetMin, state.budgetMax],
+  )
+
   const {
     messages,
     isLoading: chatLoading,
@@ -224,6 +258,8 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
     sectionLabels,
     initialMessages: state.chatMessages,
     onMessagesChange: handleChatMessagesChange,
+    intentFilters,
+    intentContext,
   })
 
   const applyChangesWithSound = useCallback(() => {
@@ -309,7 +345,7 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
 
   // ─── Card Data Fetching ──────────────────────────────────────
 
-  useDeckCardData(state.deckCards, cardDataMap, setCardDataMap, { scryfallLang })
+  const { cardsLoading } = useDeckCardData(state.deckCards, cardDataMap, setCardDataMap, { scryfallLang })
 
   // ─── Search suffix ───────────────────────────────────────────
 
@@ -373,18 +409,6 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
     }
     return [coreSection, ...sections]
   }, [selectedCombo, sections, coreCardCount, t])
-
-  // Quick action chips for AI chat
-  const quickActions = useMemo(() => {
-    const actions: { label: string; message: string }[] = []
-    if (analysis?.warnings.some((w) => w.message.toLowerCase().includes('land'))) {
-      actions.push({ label: t('chat.quickFixMana'), message: 'Fix the mana base - adjust the land count and color distribution to match the spells.' })
-    }
-    if (analysis?.suggestions.some((s) => s.toLowerCase().includes('removal'))) {
-      actions.push({ label: t('chat.quickAddRemoval'), message: 'Add some removal spells to deal with opponent threats.' })
-    }
-    return actions.slice(0, 3)
-  }, [analysis, t])
 
   // Count how many sections still need filling
   const unfilledCount = sections.filter((s) => {
@@ -493,6 +517,38 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
 
   const ambientColors = useMemo(() => getActiveColors(state.colors), [state.colors])
 
+  // ─── Stats rail (Simulation + flat card list) ────────────────
+
+  // DeckCardList is zone-aware; the wizard's mutators are zone-agnostic (main
+  // only), so adapt them the way the edit route does (changeQuantityMain etc.).
+  const slotUpdateQuantity = useCallback((scryfallId: string, _zone: DeckZone, qty: number) => {
+    handleChangeQuantity(scryfallId, qty)
+  }, [handleChangeQuantity])
+
+  const slotRemoveCard = useCallback((scryfallId: string, _zone: DeckZone) => {
+    handleRemoveCard(scryfallId)
+  }, [handleRemoveCard])
+
+  // Both panels read the projected `cards` (carry `locked`) so DeckCardList can
+  // render the lock slab; raw state.deckCards don't carry that flag. deckId=""
+  // is a safe sentinel since the unsaved wizard deck isn't in storage.
+  const cardListSlot = (
+    <>
+      <SimulationPanel deckId="" deckName={state.deckName} cards={cards} cardDataMap={cardDataMap} />
+      <div className="mt-3 border border-hairline bg-ash-800/40 p-3">
+        <p className="mb-2 font-mono text-mono-label uppercase tracking-mono-label text-cream-300">{t('deck.cardList')}</p>
+        <DeckCardList
+          cards={cards}
+          cardData={cardDataMap}
+          zone="main"
+          onUpdateQuantity={slotUpdateQuantity}
+          onRemoveCard={slotRemoveCard}
+          onToggleLock={handleToggleLock}
+        />
+      </div>
+    </>
+  )
+
   // ─── Render ──────────────────────────────────────────────────
 
   return (
@@ -549,6 +605,8 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
         onUndo={history.undo}
         onRedo={history.redo}
         analysis={analysis}
+        cardsLoading={cardsLoading}
+        cardListSlot={cardListSlot}
         ambientColors={ambientColors}
         searchSuffix={searchSuffix}
         desktopBottomGap={72}
@@ -561,7 +619,6 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
           sendMessage,
           onApply: applyChangesWithSound,
           onDiscard: discardChanges,
-          quickActions,
         }}
         fill={{
           getSectionState,

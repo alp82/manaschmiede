@@ -3,6 +3,7 @@ import type { ActionCtx } from './_generated/server'
 import { v } from 'convex/values'
 import { callAnthropic, callHaiku } from './lib/anthropic'
 import { startLlmLog, completeLlmLog } from './lib/logLlmUsage'
+import { buildIntentContextPrompt, colorFilterClause } from './lib/intentContext'
 const SYSTEM_PROMPT = `You are an expert Magic: The Gathering casual deck builder.
 
 RULES:
@@ -165,8 +166,8 @@ function extractSearchQueries(prompt: string, colors?: string[]): string[] {
   return queries.slice(0, 4) // max 4 searches
 }
 
-async function buildCardPool(prompt: string): Promise<string> {
-  const queries = extractSearchQueries(prompt)
+async function buildCardPool(prompt: string, colors?: string[]): Promise<string> {
+  const queries = extractSearchQueries(prompt, colors)
   if (queries.length === 0) return ''
 
   const allCards: string[] = []
@@ -470,6 +471,15 @@ export const chat = action({
         }),
       ),
     ),
+    // Deck intent — the user-authored color/archetype/budget constraints that
+    // the AI must honor on every suggestion. Rarity is intentionally not sent.
+    colors: v.optional(v.array(v.string())),
+    archetypes: v.optional(v.array(v.string())),
+    traits: v.optional(v.array(v.string())),
+    customStrategy: v.optional(v.string()),
+    budgetMin: v.optional(v.number()),
+    budgetMax: v.optional(v.number()),
+    format: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<ChatResult> => {
     const intent = await classifyIntent(ctx, args.messages)
@@ -495,9 +505,23 @@ export const chat = action({
       lastUserMsg?.content || '',
     ].join(' ')
 
-    const cardPool = await buildCardPool(searchContext)
+    // Narrow the card pool to the allowed colors so the AI is steered toward
+    // on-color cards from the start (the client gate is the hard backstop).
+    const cardPool = await buildCardPool(searchContext, args.colors)
 
     let systemPrompt = SYSTEM_PROMPT + cardPool + deckContext
+
+    // Shared deck-context block — the same HARD CONSTRAINT block fillSection
+    // emits, so chat suggestions honor the deck's intent identically.
+    systemPrompt += buildIntentContextPrompt({
+      colors: args.colors ?? [],
+      archetypes: args.archetypes ?? [],
+      traits: args.traits ?? [],
+      customStrategy: args.customStrategy,
+      format: args.format,
+      budgetMin: args.budgetMin,
+      budgetMax: args.budgetMax,
+    })
 
     if (args.deckComposition) {
       systemPrompt += `\n\nDECK COMPOSITION (use this to avoid dead cards):\n${args.deckComposition}`
@@ -509,7 +533,7 @@ export const chat = action({
     }
 
     if (args.currentCards && args.currentCards.length > 0) {
-      systemPrompt += `\n\nIMPORTANT: When the user requests changes, always return the COMPLETE updated card list, not just the changes. The deck must ALWAYS have exactly 60 cards. If you remove cards, add others to stay at 60. Maintain the deck's color identity and land base.`
+      systemPrompt += `\n\nIMPORTANT: When the user requests changes, always return the COMPLETE updated card list, not just the changes. The deck must ALWAYS have exactly 60 cards. If you remove cards, add others to stay at 60.`
     }
 
     const deck = await generateWithEnforcement(ctx, systemPrompt, args.messages, args.lockedCards)
@@ -590,7 +614,7 @@ async function buildSectionCardPool(
   colors: string[],
   description: string,
 ): Promise<string> {
-  const colorFilter = colors.length > 0 ? ` c:${colors.join('').toLowerCase()}` : ''
+  const colorFilter = colorFilterClause(colors)
   const allCards: string[] = []
 
   // Use provided Scryfall hints
@@ -641,22 +665,16 @@ export const fillSection = action({
 
     let systemPrompt = SECTION_FILL_SYSTEM_PROMPT + cardPool
 
-    // Add deck context
-    const colorNames: Record<string, string> = {
-      W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green',
-    }
-    systemPrompt += `\n\nDECK CONTEXT:`
-    if (args.colors.length > 0) {
-      const colorList = args.colors.map((c) => colorNames[c] || c).join(', ')
-      const colorCodes = args.colors.join('')
-      systemPrompt += `\nAllowed colors (HARD CONSTRAINT): ${colorList} [${colorCodes}]`
-      systemPrompt += `\nOnly suggest cards whose color identity is a subset of {${colorCodes}}. Anything outside this set - including multicolor cards that touch other colors - will be rejected.`
-    }
-    if (args.archetypes.length > 0) systemPrompt += `\nArchetypes: ${args.archetypes.join(', ')}`
-    if (args.traits.length > 0) systemPrompt += `\nTraits: ${args.traits.join(', ')}`
-    if (args.customStrategy) systemPrompt += `\nStrategy: ${args.customStrategy}`
-    if (args.format && args.format !== 'casual') systemPrompt += `\nFormat: ${args.format}`
-    if (args.budgetLimit != null) systemPrompt += `\nBudget: max $${args.budgetLimit.toFixed(2)} per card`
+    // Shared deck-context block — byte-identical to chat()'s, so the two AI
+    // paths constrain colors/archetypes/traits/strategy/budget the same way.
+    systemPrompt += buildIntentContextPrompt({
+      colors: args.colors,
+      archetypes: args.archetypes,
+      traits: args.traits,
+      customStrategy: args.customStrategy,
+      format: args.format,
+      budgetMax: args.budgetLimit,
+    })
 
     if (args.deckComposition) {
       systemPrompt += `\n\nDECK COMPOSITION (use this to avoid dead cards):\n${args.deckComposition}`
