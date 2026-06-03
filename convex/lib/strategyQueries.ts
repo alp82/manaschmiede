@@ -146,3 +146,20 @@ export function assembleQueries(
 ): string[] {
   return [...new Set([...strategyQueries, ...traitQueries])].slice(0, MAX_TOTAL_QUERIES)
 }
+
+/**
+ * Scope the strategy fragments to the deck's colors, then merge them with the
+ * already-scoped trait queries into the final candidate list.
+ *
+ * Assumes strategyQueries is already capped at MAX_STRATEGY_QUERIES upstream;
+ * relies on assembleQueries for the strategy-first ordering + MAX_TOTAL_QUERIES
+ * cap. An empty strategy yields a trait-only pool identical to today.
+ */
+export function buildStrategyTraitPool(
+  strategyQueries: string[],
+  traitQueries: string[],
+  colorFilter: string,
+): string[] {
+  const scopedStrategy = strategyQueries.map((q) => q + colorFilter)
+  return assembleQueries(scopedStrategy, traitQueries)
+}

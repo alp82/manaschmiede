@@ -3,7 +3,10 @@ import type { ActionCtx } from './_generated/server'
 import { v } from 'convex/values'
 import { callAnthropic, callHaiku } from './lib/anthropic'
 import { startLlmLog, completeLlmLog } from './lib/logLlmUsage'
-import { buildIntentContextPrompt, colorFilterClause } from './lib/intentContext'
+import { buildIntentContextPrompt, colorFilterClause, colorCastableClause } from './lib/intentContext'
+import { extractSearchQueries, buildCombinedStrategy } from './lib/cardPoolQueries'
+import { buildStrategyTraitPool } from './lib/strategyQueries'
+import { parseStrategyQueries } from './lib/strategyParse'
 const SYSTEM_PROMPT = `You are an expert Magic: The Gathering casual deck builder.
 
 RULES:
@@ -79,95 +82,47 @@ async function scryfallSearch(query: string): Promise<string[]> {
   }
 }
 
-// Extract likely search queries from a user prompt
-function extractSearchQueries(prompt: string, colors?: string[]): string[] {
-  const queries: string[] = []
-  const lower = prompt.toLowerCase()
+// Persisted customStrategy is the deck's anchor theme. A long/conversational
+// live chat message contributes no theme but could, via the <=3-fragment parse
+// cap, displace persisted themes — so we trim+cap the live message before
+// folding it into the parse input. Best-effort: a genuine short new theme still
+// gets through; a runaway message degrades gracefully to the persisted anchor.
+const STRATEGY_PARSE_TIMEOUT_MS = 8000
+const LIVE_MESSAGE_PARSE_CAP = 240
 
-  // Color mapping
-  const colorMap: Record<string, string> = {
-    rot: 'r', red: 'r', schwarz: 'b', black: 'b',
-    blau: 'u', blue: 'u', gruen: 'g', grün: 'g', green: 'g',
-    weiss: 'w', weiß: 'w', white: 'w',
-  }
-
-  const detectedColors = new Set<string>()
-  for (const [word, code] of Object.entries(colorMap)) {
-    if (lower.includes(word)) detectedColors.add(code)
-  }
-  if (colors) colors.forEach((c) => detectedColors.add(c.toLowerCase()))
-
-  const colorFilter = detectedColors.size > 0
-    ? ` c:${Array.from(detectedColors).join('')}`
-    : ''
-
-  // Creature type / tribal detection
-  const tribalPatterns = [
-    'elf', 'elfen', 'elves', 'goblin', 'merfolk', 'meervolk', 'dragon', 'drachen',
-    'zombie', 'vampire', 'angel', 'engel', 'demon', 'daemon', 'knight', 'ritter',
-    'wizard', 'zauberer', 'warrior', 'krieger', 'soldier', 'soldat', 'beast',
-    'elemental', 'spirit', 'geist', 'faerie', 'dinosaur', 'dinosaurier',
-    'cat', 'katze', 'bird', 'vogel', 'snake', 'schlange', 'spider', 'spinne',
-    'rat', 'ratte', 'human', 'mensch', 'cleric', 'kleriker', 'rogue', 'schurke',
-    'shaman', 'schamane', 'druid', 'druide', 'pirate', 'skeleton', 'skelett',
-  ]
-
-  for (const tribe of tribalPatterns) {
-    if (lower.includes(tribe)) {
-      const englishTribe = tribe.replace(/en$/, '') // rough de->en
-      queries.push(`t:creature t:${englishTribe}${colorFilter}`)
-      break
-    }
-  }
-
-  // Theme detection
-  const themes: Record<string, string> = {
-    'lifegain': 'o:"gain life"',
-    'leben': 'o:"gain life"',
-    'token': 'o:"create" o:"token"',
-    'graveyard': 'o:graveyard',
-    'friedhof': 'o:graveyard',
-    'counter': 'o:"+1/+1 counter"',
-    'mill': 'o:mill',
-    'burn': 'o:"damage to" t:instant',
-    'aggro': 'cmc<=3 t:creature',
-    'control': 't:instant o:counter',
-    'ramp': 'o:"search your library" o:land',
-    'equipment': 't:equipment',
-    'enchantment': 't:enchantment',
-    'artifact': 't:artifact',
-    'flyer': 'o:flying t:creature',
-    'flieger': 'o:flying t:creature',
-    'removal': '(o:destroy OR o:exile) t:instant',
-    'sacrifice': 'o:"whenever" o:"dies"',
-    'sacrifice-payoff': 'o:"whenever a creature dies"',
-    'drain': 'o:"loses" o:"life" o:"gain"',
-    'mana fixing': 't:artifact o:"add" o:"mana of any color"',
-    'multicolor': 'id>=3 t:creature r>=rare',
-    'goodstuff': 't:artifact o:"add" o:"mana of any color"',
-  }
-
-  for (const [keyword, query] of Object.entries(themes)) {
-    if (lower.includes(keyword)) {
-      queries.push(`${query}${colorFilter}`)
-    }
-  }
-
-  // General creature search for the colors
-  if (colorFilter && queries.length === 0) {
-    queries.push(`t:creature${colorFilter}`)
-  }
-
-  // Always add a removal + utility search
-  if (colorFilter) {
-    queries.push(`(o:destroy OR o:exile OR o:damage) (t:instant OR t:sorcery)${colorFilter}`)
-  }
-
-  return queries.slice(0, 4) // max 4 searches
+// callHaiku uses bare fetch with no built-in timeout, so a stalled strategy
+// parse would hang the suggestion path. Race it against an 8s guard that
+// resolves to no fragments; the trait pool still carries the request.
+function withParseTimeout(p: Promise<{ queries: string[] }>): Promise<{ queries: string[] }> {
+  // Known caveat: on the timeout branch the losing parseStrategyQueries promise
+  // keeps running and its completeLlmLog may fire after the action returns,
+  // leaving an llmUsageLogs row in the pending state — acceptable since the
+  // parse rarely exceeds 8s.
+  return Promise.race([
+    p.catch(() => ({ queries: [] as string[] })),
+    new Promise<{ queries: string[] }>((resolve) =>
+      setTimeout(() => resolve({ queries: [] }), STRATEGY_PARSE_TIMEOUT_MS),
+    ),
+  ])
 }
 
-async function buildCardPool(prompt: string, colors?: string[]): Promise<string> {
-  const queries = extractSearchQueries(prompt, colors)
+async function buildCardPool(
+  ctx: ActionCtx,
+  prompt: string,
+  colors?: string[],
+  customStrategy?: string,
+): Promise<string> {
+  // Conditional parse: an empty strategy skips the Haiku call (no
+  // chatStrategyParse log) and yields a byte-identical trait-only pool.
+  const strategyInput = (customStrategy ?? '').trim()
+  const strategyQueries = strategyInput !== ''
+    ? (await withParseTimeout(
+        parseStrategyQueries(ctx, { customStrategy: strategyInput, selectedColors: colors ?? [] }, 'chatStrategyParse'),
+      )).queries
+    : []
+  const hasStrategy = strategyQueries.length > 0
+  const traitQueries = extractSearchQueries(prompt, colors, hasStrategy)
+  const queries = buildStrategyTraitPool(strategyQueries, traitQueries, colorCastableClause(colors ?? []))
   if (queries.length === 0) return ''
 
   const allCards: string[] = []
@@ -505,9 +460,13 @@ export const chat = action({
       lastUserMsg?.content || '',
     ].join(' ')
 
+    // Persisted strategy is the anchor; the live message is trimmed+capped so a
+    // long chat turn can add a short new theme without displacing it.
+    const combinedStrategy = buildCombinedStrategy(args.customStrategy, lastUserMsg?.content ?? '', LIVE_MESSAGE_PARSE_CAP)
+
     // Narrow the card pool to the allowed colors so the AI is steered toward
     // on-color cards from the start (the client gate is the hard backstop).
-    const cardPool = await buildCardPool(searchContext, args.colors)
+    const cardPool = await buildCardPool(ctx, searchContext, args.colors, combinedStrategy)
 
     let systemPrompt = SYSTEM_PROMPT + cardPool + deckContext
 
@@ -610,9 +569,11 @@ function parseSectionResponse(text: string): SectionFillResult {
 }
 
 async function buildSectionCardPool(
+  ctx: ActionCtx,
   scryfallHints: string[],
   colors: string[],
   description: string,
+  customStrategy?: string,
 ): Promise<string> {
   const colorFilter = colorFilterClause(colors)
   const allCards: string[] = []
@@ -624,9 +585,17 @@ async function buildSectionCardPool(
     allCards.push(...results.slice(0, 30))
   }
 
-  // Also search based on description keywords
-  const descQueries = extractSearchQueries(description, colors)
-  for (const query of descQueries.slice(0, 1)) {
+  // Also search based on the free-text strategy + description keywords.
+  const strat = (customStrategy ?? '').trim()
+  const strategyQueries = strat !== ''
+    ? (await withParseTimeout(
+        parseStrategyQueries(ctx, { customStrategy: strat, selectedColors: colors }, 'fillStrategyParse'),
+      )).queries
+    : []
+  const traitQueries = extractSearchQueries(description, colors, strategyQueries.length > 0)
+  const descQueries = buildStrategyTraitPool(strategyQueries, traitQueries, colorCastableClause(colors))
+  // slice(0,3) bounds a fill to <=2 hints + 3 desc = <=5 Scryfall calls.
+  for (const query of descQueries.slice(0, 3)) {
     await new Promise((r) => setTimeout(r, 100))
     const results = await scryfallSearch(query)
     allCards.push(...results.slice(0, 30))
@@ -658,9 +627,11 @@ export const fillSection = action({
   },
   handler: async (ctx, args): Promise<SectionFillResult> => {
     const cardPool = await buildSectionCardPool(
+      ctx,
       args.scryfallHints,
       args.colors,
       args.sectionDescription,
+      args.customStrategy,
     )
 
     let systemPrompt = SECTION_FILL_SYSTEM_PROMPT + cardPool

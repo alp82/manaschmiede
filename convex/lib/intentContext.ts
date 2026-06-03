@@ -73,3 +73,13 @@ export function buildIntentContextPrompt(ctx: IntentContext): string {
 export function colorFilterClause(colors: string[]): string {
   return colors.length > 0 ? ` c:${colors.join('').toLowerCase()}` : ''
 }
+
+/**
+ * Permissive castable-in (c<=) clause for STRATEGY queries — "playable in these
+ * colors" — vs the strict c: identity colorFilterClause uses for trait/hint
+ * scoping. Keeps the strategy pool broad; mirrors the StepCoreCards client
+ * intent. `['W','U'] -> ' c<=wu'`, `[] -> ''`.
+ */
+export function colorCastableClause(colors: string[]): string {
+  return colors.length > 0 ? ` c<=${colors.join('').toLowerCase()}` : ''
+}
