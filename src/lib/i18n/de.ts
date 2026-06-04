@@ -230,6 +230,8 @@ export const de: Translations = {
   'chat.send': 'Senden',
   'chat.noChanges': 'Keine Änderungen',
   'chat.cardSwap': 'Kartentausch',
+  'chat.cardAdd': 'Karte hinzufügen',
+  'chat.cardRemove': 'Karte entfernen',
   'chat.apply': 'Anwenden',
   'chat.discard': 'Verwerfen',
   'chat.quickFixMana': 'Manabasis korrigieren',

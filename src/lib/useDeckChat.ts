@@ -6,12 +6,15 @@ import type { IntentContext } from '../../convex/lib/intentContext'
 import type { ScryfallCard } from './scryfall/types'
 import { getCardName } from './scryfall/types'
 import type { DeckCard } from './deck-utils'
-import { BASIC_LAND_IDS, BASIC_LAND_NAMES } from './basic-lands'
+import { BASIC_LAND_IDS, BASIC_LAND_NAMES, BASIC_LAND_ID_SET } from './basic-lands'
+import { computeDeckDiff, applyDelta, resolveRemoveIds, enforceDeltaSize } from './deck-diff'
 import {
   analyzeComposition,
   findSynergyIssue,
   summarizeComposition,
 } from './synergy-validation'
+import type { CardChange } from './deck-chat-types'
+export type { CardChange } from './deck-chat-types'
 
 const TARGET_DECK_SIZE = 60
 
@@ -88,15 +91,6 @@ export interface ChatMessage {
   changesApplied?: boolean
 }
 
-export interface CardChange {
-  name: string
-  scryfallId: string
-  scryfallCard?: ScryfallCard
-  type: 'added' | 'removed' | 'changed'
-  oldQuantity: number
-  newQuantity: number
-}
-
 export interface PendingChanges {
   deckName: string
   description: string
@@ -111,7 +105,12 @@ interface UseDeckChatOptions {
   cards: DeckCard[]
   cardDataMap: Map<string, ScryfallCard>
   deckDescription: string
-  onDeckUpdate: (cards: DeckCard[], name?: string, description?: string) => void
+  /**
+   * Commit a proposed deck. `changes` carries the applied CardChange[] so the
+   * edit route can inherit sections per card (swaps inherit the removed card's
+   * section); the wizard handler ignores it and keeps its own section logic.
+   */
+  onDeckUpdate: (cards: DeckCard[], name?: string, description?: string, changes?: CardChange[]) => void
   onCardDataUpdate: (card: ScryfallCard) => void
   lockedCardIds?: Set<string>
   sectionAssignments?: Record<string, string[]>
@@ -193,7 +192,7 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
       setIsLoading(true)
 
       try {
-        // Build reverse lookup: scryfallId → section label
+        // Build reverse lookup: scryfallId -> section label
         const cardSectionLabel = new Map<string, string>()
         if (sectionAssignments && sectionLabels) {
           for (const [sectionId, ids] of Object.entries(sectionAssignments)) {
@@ -221,15 +220,19 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
         const convexUrl = import.meta.env.VITE_CONVEX_URL as string
         const client = new ConvexHttpClient(convexUrl)
 
-        // Build locked cards list for AI
+        // Build the locked-cards list for the AI straight from the locked-id
+        // set intersected with the deck, keyed on each card's English Oracle
+        // name (card.name, NOT the localized/printed name). Robust to
+        // multi-printing, split, alt-art, and localized cards - the AI only
+        // ever sees the canonical name the prompt instructs it to use.
         const lockedCards = lockedCardIds && lockedCardIds.size > 0
-          ? currentCards.filter((c) => {
-              const dc = cards.find((dc) => {
+          ? cards
+              .filter((dc) => dc.zone === 'main' && lockedCardIds.has(dc.scryfallId))
+              .map((dc) => {
                 const data = cardDataMap.get(dc.scryfallId)
-                return data && data.name === c.name
+                return data ? { name: data.name, quantity: dc.quantity } : null
               })
-              return dc && lockedCardIds.has(dc.scryfallId)
-            })
+              .filter((c): c is { name: string; quantity: number } => c !== null)
           : undefined
 
         // Snapshot the current deck composition so the AI sees what's in the deck
@@ -257,6 +260,13 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
               resolvedMap: Map<string, { card: ScryfallCard; quantity: number }>
               batchCardData: ScryfallCard[]
             }
+          | {
+              intent: 'delta'
+              explanation: string
+              resolvedCards: DeckCard[]
+              resolvedMap: Map<string, { card: ScryfallCard; quantity: number }>
+              batchCardData: ScryfallCard[]
+            }
 
         const callAndResolve = async (
           rejectedCards?: Array<{ name: string; reason: string }>,
@@ -279,6 +289,89 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
 
           if (result.intent === 'question' && result.answer) {
             return { intent: 'question', answer: result.answer }
+          }
+
+          // Delta: a small targeted edit. Resolve add[] to Scryfall data,
+          // map remove[] to deck ids by English identity (locked-skipped),
+          // apply the delta, and force exactly 60 - all on the current deck.
+          if (result.intent === 'delta' && result.delta) {
+            const delta = result.delta
+            const mainCards = cards.filter((c) => c.zone === 'main')
+            const batchCardData: ScryfallCard[] = []
+
+            const addCards: Array<{ scryfallId: string; card: ScryfallCard; quantity: number; isBasicLand: boolean }> = []
+            for (const entry of delta.add) {
+              // Canonical basic-land IDs avoid printing mismatches in the diff.
+              const canonicalId = BASIC_LAND_NAMES[entry.name]
+              if (canonicalId) {
+                const landCard = await getLocalizedCardData(undefined, canonicalId, undefined, undefined, scryfallLang)
+                if (landCard) {
+                  batchCardData.push(landCard)
+                  addCards.push({ scryfallId: canonicalId, card: landCard, quantity: entry.quantity, isBasicLand: true })
+                }
+                continue
+              }
+              try {
+                const scryfallCard = await getCardByName(entry.name, scryfallLang)
+                if (getCardRejectionReason(scryfallCard)) continue
+                batchCardData.push(scryfallCard)
+                addCards.push({
+                  scryfallId: scryfallCard.id,
+                  card: scryfallCard,
+                  quantity: entry.quantity,
+                  isBasicLand: BASIC_LAND_ID_SET.has(scryfallCard.id),
+                })
+              } catch {
+                // Skip unresolvable cards.
+              }
+            }
+
+            // Hard backstop: resolveRemoveIds drops any locked id, so applyDelta
+            // never evicts a pinned card.
+            const removeIds = resolveRemoveIds(
+              delta.remove,
+              mainCards,
+              cardDataMap,
+              lockedCardIds ?? new Set<string>(),
+            )
+
+            const applied = applyDelta(mainCards, removeIds, addCards, cardDataMap)
+            const colors = getColorIdentity(applied.resolvedMap)
+            const sizedCards = enforceDeltaSize(applied.resolvedCards, colors)
+
+            // Rebuild the resolved map against the post-enforcement list so any
+            // padded basic land (or trimmed copy) is reflected for validation
+            // and the diff.
+            const resolvedMap = new Map<string, { card: ScryfallCard; quantity: number }>()
+            for (const rc of sizedCards) {
+              const prior = applied.resolvedMap.get(rc.scryfallId)
+              if (prior) {
+                resolvedMap.set(rc.scryfallId, { card: prior.card, quantity: rc.quantity })
+                continue
+              }
+              // Cards the user already had are guaranteed to be in cardDataMap
+              // (the send is gated behind cardsLoading). Use the cached entry
+              // before fetching so padded/trimmed basics always appear in the
+              // ledger even when the localized fetch fails.
+              const cached = cardDataMap.get(rc.scryfallId)
+              if (cached) {
+                resolvedMap.set(rc.scryfallId, { card: cached, quantity: rc.quantity })
+                continue
+              }
+              const landCard = await getLocalizedCardData(undefined, rc.scryfallId, undefined, undefined, scryfallLang)
+              if (landCard) {
+                batchCardData.push(landCard)
+                resolvedMap.set(rc.scryfallId, { card: landCard, quantity: rc.quantity })
+              }
+            }
+
+            return {
+              intent: 'delta',
+              explanation: delta.explanation,
+              resolvedCards: sizedCards,
+              resolvedMap,
+              batchCardData,
+            }
           }
 
           const deckResult = result.deck
@@ -352,9 +445,14 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
 
         // Validate suggestions against the proposed deck composition. If the
         // AI inserted dead cards (e.g. tribal payoffs without the tribe),
-        // re-prompt once with explicit rejection feedback.
+        // re-prompt once with explicit rejection feedback. `judgeIds` scopes
+        // WHICH cards are judged (the composition is always the full deck): the
+        // change path judges every card, the delta path judges only the cards
+        // it added so an off-intent card already sitting in the deck doesn't
+        // trigger spurious retries that could alter the targeted edit.
         const validateProposed = (
           resolvedMap: Map<string, { card: ScryfallCard; quantity: number }>,
+          judgeIds?: Set<string>,
         ) => {
           const proposedEntries: Array<{ card: ScryfallCard; quantity: number }> = []
           for (const [, { card, quantity }] of resolvedMap) {
@@ -362,7 +460,8 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
           }
           const proposedComposition = analyzeComposition(proposedEntries)
           const rejected: Array<{ name: string; reason: string }> = []
-          for (const [, { card }] of resolvedMap) {
+          for (const [sid, { card }] of resolvedMap) {
+            if (judgeIds && !judgeIds.has(sid)) continue
             const isLocked = lockedCardIds?.has(card.id) ?? false
             // Locked cards stay regardless - the user pinned them.
             if (isLocked) continue
@@ -382,15 +481,53 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
           return rejected
         }
 
-        if (outcome.intent === 'change') {
-          const rejected = validateProposed(outcome.resolvedMap)
+        // Both change and delta resolve to a card map that the intent/synergy
+        // gate vets; on rejection we re-prompt once with the same machinery.
+        // Delta judges only the cards it added (the rest of the deck is the
+        // user's existing, deliberate choices).
+        if (outcome.intent === 'change' || outcome.intent === 'delta') {
+          const judgeIds =
+            outcome.intent === 'delta'
+              ? new Set(
+                  computeDeckDiff(cards, outcome.resolvedMap, cardDataMap)
+                    .filter((c) => c.type === 'added' || c.type === 'changed')
+                    .map((c) => c.scryfallId),
+                )
+              : undefined
+          const rejected = validateProposed(outcome.resolvedMap, judgeIds)
           if (rejected.length > 0) {
             const retry = await callAndResolve(rejected)
             if (abortRef.current) return
-            if (retry.intent === 'change') {
+            if (retry.intent === outcome.intent) {
               outcome = retry
             }
           }
+        }
+
+        // Delta: diff the (already exactly-60) resolved deck against the
+        // current deck and stage it. computeDeckDiff surfaces every add, cut,
+        // and quantity change - including whatever enforceDeltaSize trimmed or
+        // padded - as ledger rows. The op shown in the header is derived
+        // downstream from which change types are present.
+        if (outcome.intent === 'delta') {
+          for (const card of outcome.batchCardData) onCardDataUpdate(card)
+          if (abortRef.current) return
+
+          const changes = computeDeckDiff(cards, outcome.resolvedMap, cardDataMap)
+
+          // A delta leaves deck name/description untouched; empty strings are
+          // falsy so applyChanges preserves the existing values.
+          setPending({
+            deckName: '',
+            description: '',
+            explanation: outcome.explanation,
+            changes,
+            resolvedCards: outcome.resolvedCards,
+            targetSection: pendingTargetSection.current,
+          })
+          pendingTargetSection.current = undefined
+          setIsLoading(false)
+          return
         }
 
         // After possible retry, outcome must be 'change' to continue.
@@ -458,58 +595,9 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
           }
         }
 
-        // Compute diff between current deck and proposed deck
-        const currentMap = new Map<string, number>()
-        for (const c of cards.filter((c) => c.zone === 'main')) {
-          currentMap.set(c.scryfallId, c.quantity)
-        }
-
-        const changes: CardChange[] = []
-
-        // Added or changed cards
-        for (const [sid, { card, quantity }] of resolvedMap) {
-          const oldQty = currentMap.get(sid) || 0
-          if (oldQty === 0) {
-            changes.push({
-              name: getCardName(card),
-              scryfallId: sid,
-              scryfallCard: card,
-              type: 'added',
-              oldQuantity: 0,
-              newQuantity: quantity,
-            })
-          } else if (quantity !== oldQty) {
-            changes.push({
-              name: getCardName(card),
-              scryfallId: sid,
-              scryfallCard: card,
-              type: 'changed',
-              oldQuantity: oldQty,
-              newQuantity: quantity,
-            })
-          }
-        }
-
-        // Removed cards
-        for (const [sid, oldQty] of currentMap) {
-          if (!resolvedMap.has(sid)) {
-            const data = cardDataMap.get(sid)
-            changes.push({
-              name: data ? getCardName(data) : sid,
-              scryfallId: sid,
-              scryfallCard: data,
-              type: 'removed',
-              oldQuantity: oldQty,
-              newQuantity: 0,
-            })
-          }
-        }
-
-        // Lands are already in resolvedMap (updated at lines above) and
-        // thus already included in the diff from the main loop. No second pass needed.
-
-        // Filter out no-op changes (same quantity, same card)
-        const actualChanges = changes.filter((c) => c.oldQuantity !== c.newQuantity)
+        // Diff current vs proposed. Lands added by fillLands are already in
+        // resolvedMap, so they show up in the diff like any other change.
+        const actualChanges = computeDeckDiff(cards, resolvedMap, cardDataMap)
 
         setPending({
           deckName: deckResult.name,
@@ -537,7 +625,7 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
 
   const applyChanges = useCallback(() => {
     if (!pending) return
-    onDeckUpdate(pending.resolvedCards, pending.deckName, pending.description)
+    onDeckUpdate(pending.resolvedCards, pending.deckName, pending.description, pending.changes)
     const assistantMsg: ChatMessage = {
       role: 'assistant',
       content: pending.explanation ?? `${pending.deckName}: ${pending.description}`,

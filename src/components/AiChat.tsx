@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import type { ChatMessage, PendingChanges, CardChange } from '../lib/useDeckChat'
+import type { ChatMessage, PendingChanges } from '../lib/useDeckChat'
+import type { CardChange } from '../lib/deck-chat-types'
 import type { ScryfallCard } from '../lib/scryfall/types'
 import { getCardImageUri } from '../lib/scryfall/types'
 import { CardLightbox } from './CardLightbox'
@@ -260,7 +261,19 @@ export function AiChat({
           <div className="border border-ink-red bg-ash-800/40 p-4">
             <div className="mb-2 flex items-baseline justify-between gap-3">
               <p className="font-mono text-mono-label uppercase tracking-mono-label text-cream-100">
-                {t('chat.cardSwap')}
+                {(() => {
+                  const hasAdded = pending.changes.some((c) => c.type === 'added')
+                  const hasRemoved = pending.changes.some((c) => c.type === 'removed')
+                  const key =
+                    hasAdded && hasRemoved
+                      ? 'chat.cardSwap'
+                      : hasAdded
+                        ? 'chat.cardAdd'
+                        : hasRemoved
+                          ? 'chat.cardRemove'
+                          : 'chat.cardSwap'
+                  return t(key)
+                })()}
               </p>
               {(() => {
                 const added = pending.changes

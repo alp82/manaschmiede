@@ -13,6 +13,7 @@ import type * as generateDeck from "../generateDeck.js";
 import type * as lib_anthropic from "../lib/anthropic.js";
 import type * as lib_cardFilters from "../lib/cardFilters.js";
 import type * as lib_cardPoolQueries from "../lib/cardPoolQueries.js";
+import type * as lib_deltaPrompt from "../lib/deltaPrompt.js";
 import type * as lib_intentContext from "../lib/intentContext.js";
 import type * as lib_logLlmUsage from "../lib/logLlmUsage.js";
 import type * as lib_strategyParse from "../lib/strategyParse.js";
@@ -32,6 +33,7 @@ declare const fullApi: ApiFromModules<{
   "lib/anthropic": typeof lib_anthropic;
   "lib/cardFilters": typeof lib_cardFilters;
   "lib/cardPoolQueries": typeof lib_cardPoolQueries;
+  "lib/deltaPrompt": typeof lib_deltaPrompt;
   "lib/intentContext": typeof lib_intentContext;
   "lib/logLlmUsage": typeof lib_logLlmUsage;
   "lib/strategyParse": typeof lib_strategyParse;

@@ -15,6 +15,7 @@ import { DeckCardSkeleton } from '../../components/ui/DeckCardSkeleton'
 import { useToast } from '../../components/ui/Toast'
 import { analyzeDeck } from '../../lib/balance'
 import { useDeckChat } from '../../lib/useDeckChat'
+import type { CardChange } from '../../lib/deck-chat-types'
 import { loadDeck, persistDeck, pickFeaturedCardIds, type LocalDeck } from '../../lib/deck-storage'
 import { emptyIntent, deriveIntentFilters, buildChatIntentContext, type DeckIntent } from '../../lib/deck-intent'
 import { pickSectionForCard } from '../../lib/section-plan'
@@ -174,12 +175,75 @@ function DeckPage() {
   // ─── AI Chat (edit mode) ────────────────────────────────────
 
   const handleDeckUpdate = useCallback(
-    (newCards: DeckCard[], name?: string, description?: string) => {
+    (newCards: DeckCard[], name?: string, description?: string, changes?: CardChange[]) => {
       setDeck((prev) => {
         if (!prev) return prev
+
+        // Inherit section assignments for the applied change set: a swap's
+        // added card takes the removed card's section; a plain add is routed
+        // by pickSectionForCard. Mirrors the addCard section logic and the
+        // wizard's applyChangesWithSound pairing.
+        let sectionAssignments = prev.sectionAssignments
+        const plan = prev.sectionPlan ?? []
+        if (changes && changes.length > 0 && plan.length > 0) {
+          const next: Record<string, string[]> = {}
+          for (const [k, v] of Object.entries(sectionAssignments ?? {})) next[k] = [...v]
+
+          const removedIds = changes.filter((c) => c.type === 'removed').map((c) => c.scryfallId)
+          const addedChanges = changes.filter((c) => c.type === 'added')
+          const addedIds = addedChanges.map((c) => c.scryfallId)
+          const placed = new Set<string>()
+
+          // Swap pairs: for an unambiguous single-card swap the new card
+          // inherits the removed card's section. Multi-card swaps carry no
+          // reliable add->remove pairing, so those adds fall through to
+          // pickSectionForCard below rather than guessing by array index.
+          if (removedIds.length === 1 && addedIds.length > 0) {
+            const sectionForRemoved = new Map<string, string>()
+            for (const rid of removedIds) {
+              for (const [sectionId, ids] of Object.entries(next)) {
+                if (ids.includes(rid)) sectionForRemoved.set(rid, sectionId)
+              }
+            }
+            const pairCount = Math.min(removedIds.length, addedIds.length)
+            for (let i = 0; i < pairCount; i++) {
+              const sectionId = sectionForRemoved.get(removedIds[i])
+              if (sectionId) {
+                next[sectionId] = (next[sectionId] ?? [])
+                  .filter((id) => id !== removedIds[i])
+                  .concat(addedIds[i])
+                placed.add(addedIds[i])
+              }
+            }
+          }
+
+          // Drop any removed ids still lingering in assignments.
+          for (const rid of removedIds) {
+            for (const sectionId of Object.keys(next)) {
+              next[sectionId] = next[sectionId].filter((id) => id !== rid)
+            }
+          }
+
+          // Remaining additions: route by card role.
+          for (const change of addedChanges) {
+            const aid = change.scryfallId
+            if (placed.has(aid)) continue
+            const card = change.scryfallCard ?? cardDataMap.get(aid)
+            if (!card) continue
+            const pickedId = pickSectionForCard(card, plan)
+            if (pickedId) {
+              next[pickedId] = [...(next[pickedId] ?? []), aid]
+              placed.add(aid)
+            }
+          }
+
+          sectionAssignments = next
+        }
+
         return {
           ...prev,
           cards: newCards,
+          sectionAssignments,
           name: name || prev.name,
           description: description || prev.description,
           updatedAt: Date.now(),
@@ -188,7 +252,7 @@ function DeckPage() {
       if (name) setDeckName(name)
       if (description) setDeckDescription(description)
     },
-    [],
+    [cardDataMap],
   )
 
   const handleCardDataUpdate = useCallback((card: ScryfallCard) => {
@@ -251,6 +315,11 @@ function DeckPage() {
     intentFilters,
     intentContext,
   })
+
+  // Card data must be fully loaded before a send is allowed: a delta fired
+  // against a partially-loaded cardDataMap maps unresolved cards to their raw
+  // Scryfall UUID, causing resolveRemoveIds to silently drop the removal.
+  const chatIsLoading = chatLoading || cardsLoading
 
   // ─── PDF ─────────────────────────────────────────────────────
 
@@ -476,7 +545,7 @@ function DeckPage() {
             chat={{
               messages,
               pending,
-              isLoading: chatLoading,
+              isLoading: chatIsLoading,
               newCardIds,
               sendMessage,
               onApply: applyChanges,

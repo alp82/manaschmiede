@@ -7,6 +7,13 @@ import { buildIntentContextPrompt, colorFilterClause, colorCastableClause } from
 import { extractSearchQueries, buildCombinedStrategy } from './lib/cardPoolQueries'
 import { buildStrategyTraitPool } from './lib/strategyQueries'
 import { parseStrategyQueries } from './lib/strategyParse'
+import {
+  DELTA_SYSTEM_PROMPT,
+  buildDeltaUserMessage,
+  parseDeltaResponse,
+  type DeltaOp,
+  type DeltaResult,
+} from './lib/deltaPrompt'
 const SYSTEM_PROMPT = `You are an expert Magic: The Gathering casual deck builder.
 
 RULES:
@@ -106,6 +113,34 @@ function withParseTimeout(p: Promise<{ queries: string[] }>): Promise<{ queries:
   ])
 }
 
+/**
+ * Fetch a list of Scryfall queries and format the results as a deduplicated
+ * CARD POOL prompt block. Shared empty-guard + rate-limited fetch loop
+ * (sliceSize results per query) + Set dedup + the "CARD POOL (prefer
+ * these...)" format string. Returns '' when there are no queries or no
+ * results. Behavior-identical to the inline loops it replaced in buildCardPool
+ * (sliceSize 50) and buildSectionCardPool (30).
+ */
+async function buildCardPoolBlock(
+  queries: string[],
+  sliceSize: number,
+): Promise<string> {
+  if (queries.length === 0) return ''
+
+  const allCards: string[] = []
+  for (const query of queries) {
+    // Rate limit: 100ms between requests
+    await new Promise((r) => setTimeout(r, 100))
+    const results = await scryfallSearch(query)
+    allCards.push(...results.slice(0, sliceSize))
+  }
+
+  if (allCards.length === 0) return ''
+
+  const unique = [...new Set(allCards)]
+  return `\n\nCARD POOL (prefer these, but you can suggest others):\n${unique.join('\n')}`
+}
+
 async function buildCardPool(
   ctx: ActionCtx,
   prompt: string,
@@ -123,32 +158,18 @@ async function buildCardPool(
   const hasStrategy = strategyQueries.length > 0
   const traitQueries = extractSearchQueries(prompt, colors, hasStrategy)
   const queries = buildStrategyTraitPool(strategyQueries, traitQueries, colorCastableClause(colors ?? []))
-  if (queries.length === 0) return ''
-
-  const allCards: string[] = []
-  for (const query of queries) {
-    // Rate limit: 100ms between requests
-    await new Promise((r) => setTimeout(r, 100))
-    const results = await scryfallSearch(query)
-    allCards.push(...results.slice(0, 50))
-  }
-
-  if (allCards.length === 0) return ''
-
-  // Deduplicate
-  const unique = [...new Set(allCards)]
-
-  return `\n\nCARD POOL (prefer these, but you can suggest others):\n${unique.join('\n')}`
+  return buildCardPoolBlock(queries, 50)
 }
 
-type ChatIntent = 'change' | 'question'
+type ChatIntent = 'change' | 'question' | 'delta'
 
 const INTENT_CLASSIFIER_PROMPT = `Classify the user's latest message about their Magic: The Gathering deck into one of these intents:
 
-- "change": The user wants to modify their deck (add/remove/swap cards, change strategy, build a new deck, suggest improvements, make it more aggressive, etc.)
+- "delta": A small, targeted edit that names 1-3 specific cards to add, remove, or swap (e.g. "swap Lightning Bolt for Shock", "add 2 Counterspell", "cut Craw Wurm"). The deck stays the same except for those few cards.
+- "change": A broader rebuild or a vague direction with no specific cards (e.g. "make it more aggressive", "rebuild this as a control deck", "improve the mana base", "build me an Elf deck").
 - "question": The user is asking a question about their deck, a card, rules, strategy, or MTG in general. They do NOT want the deck modified.
 
-Respond with ONLY the intent word: "change" or "question". Nothing else.`
+Respond with ONLY the intent word: "delta", "change", or "question". Nothing else.`
 
 const QUESTION_SYSTEM_PROMPT = `You are an expert Magic: The Gathering advisor helping a player understand their 60-card casual deck.
 
@@ -321,6 +342,8 @@ interface ChatResult {
   deck?: GeneratedDeck
   // Present when intent === 'question'
   answer?: string
+  // Present when intent === 'delta'
+  delta?: DeltaResult
 }
 
 async function classifyIntent(ctx: ActionCtx, messages: Array<{ role: string; content: string }>): Promise<ChatIntent> {
@@ -334,6 +357,7 @@ async function classifyIntent(ctx: ActionCtx, messages: Array<{ role: string; co
     await completeLlmLog(ctx, logId, result)
     const intent = result.text.trim().toLowerCase()
     if (intent === 'question') return 'question'
+    if (intent === 'delta') return 'delta'
     return 'change'
   } catch {
     // Default to change on classification failure
@@ -389,6 +413,98 @@ function buildDeckContext(
   }
 
   return context
+}
+
+/** Shared arg shape for the chat action and the generateDelta helper. */
+interface ChatArgs {
+  messages: Array<{ role: string; content: string }>
+  currentCards?: Array<{ name: string; quantity: number; section?: string }>
+  deckDescription?: string
+  deckComposition?: string
+  rejectedCards?: Array<{ name: string; reason: string }>
+  lockedCards?: Array<{ name: string; quantity: number }>
+  colors?: string[]
+  archetypes?: string[]
+  traits?: string[]
+  customStrategy?: string
+  budgetMin?: number
+  budgetMax?: number
+  format?: string
+}
+
+// Add/remove/swap verbs that hint the delta op for prompt framing and let a
+// pure removal skip the (pointless) card-pool fetch. Best-effort heuristic only;
+// the actual remove/add split comes from the model response.
+const REMOVE_VERBS = /\b(remove|cut|drop|delete|take out|get rid of|entfern|raus|streich)/i
+const ADD_VERBS = /\b(add|include|put in|insert|run|hinzufüg|hinzufueg|aufnehm|einbau)/i
+
+function deriveDeltaOp(message: string): DeltaOp {
+  const wantsRemove = REMOVE_VERBS.test(message)
+  const wantsAdd = ADD_VERBS.test(message)
+  if (wantsRemove && !wantsAdd) return 'remove'
+  if (wantsAdd && !wantsRemove) return 'add'
+  return 'swap'
+}
+
+/**
+ * Plain helper (no action-from-action) that produces a single-card delta edit.
+ * One Haiku call wrapped with ctx + LLM-usage logging, mirroring how the chat
+ * handler uses generateWithEnforcement. Returns a parsed DeltaResult; never
+ * returns a full deck. The op is a pre-call hint - a pure removal skips the
+ * card pool since there are no replacements to source.
+ */
+async function generateDelta(ctx: ActionCtx, args: ChatArgs): Promise<DeltaResult> {
+  const lastUserMsg = [...args.messages].reverse().find((m) => m.role === 'user')
+  const userText = lastUserMsg?.content ?? ''
+  const op = deriveDeltaOp(userText)
+
+  const deckContext = buildDeckContext(
+    args.currentCards,
+    args.deckDescription,
+    args.lockedCards,
+  )
+
+  let systemPrompt = DELTA_SYSTEM_PROMPT
+
+  // A pure removal needs no card pool (nothing to add). Otherwise narrow the
+  // pool to on-color cards so the replacement/addition starts on-intent.
+  if (op !== 'remove') {
+    const searchContext = [args.deckDescription || '', userText].join(' ')
+    const combinedStrategy = buildCombinedStrategy(args.customStrategy, userText, LIVE_MESSAGE_PARSE_CAP)
+    const cardPool = await buildCardPool(ctx, searchContext, args.colors, combinedStrategy)
+    systemPrompt += cardPool
+  }
+
+  systemPrompt += deckContext
+
+  // Same hard-constraint block the full-deck path emits, so delta suggestions
+  // honor the deck's intent identically.
+  systemPrompt += buildIntentContextPrompt({
+    colors: args.colors ?? [],
+    archetypes: args.archetypes ?? [],
+    traits: args.traits ?? [],
+    customStrategy: args.customStrategy,
+    format: args.format,
+    budgetMin: args.budgetMin,
+    budgetMax: args.budgetMax,
+  })
+
+  if (args.deckComposition) {
+    systemPrompt += `\n\nDECK COMPOSITION (use this to avoid dead cards):\n${args.deckComposition}`
+  }
+
+  if (args.rejectedCards && args.rejectedCards.length > 0) {
+    const recent = args.rejectedCards.slice(-5)
+    systemPrompt += `\n\nPREVIOUSLY REJECTED CARDS - do not suggest these again:\n${recent.map((c) => `- ${c.name}: ${c.reason}`).join('\n')}`
+  }
+
+  const inputMessages = [{ role: 'user', content: buildDeltaUserMessage(op, userText) }]
+  const model = 'claude-haiku-4-5-20251001'
+  const logId = await startLlmLog(ctx, 'chat.delta', model, systemPrompt, inputMessages)
+  const result = await callAnthropic(systemPrompt, inputMessages, { model, maxTokens: 1024 })
+  await completeLlmLog(ctx, logId, result)
+
+  return parseDeltaResponse(result.text)
 }
 
 export const chat = action({
@@ -451,6 +567,11 @@ export const chat = action({
       const result = await callAnthropic(systemPrompt, args.messages, { model: qModel, maxTokens: 1024 })
       await completeLlmLog(ctx, logId, result)
       return { intent: 'question', answer: result.text }
+    }
+
+    if (intent === 'delta') {
+      const delta = await generateDelta(ctx, args)
+      return { intent: 'delta', delta }
     }
 
     // intent === 'change'
@@ -576,16 +697,11 @@ async function buildSectionCardPool(
   customStrategy?: string,
 ): Promise<string> {
   const colorFilter = colorFilterClause(colors)
-  const allCards: string[] = []
 
-  // Use provided Scryfall hints
-  for (const hint of scryfallHints.slice(0, 2)) {
-    await new Promise((r) => setTimeout(r, 100))
-    const results = await scryfallSearch(`${hint}${colorFilter}`)
-    allCards.push(...results.slice(0, 30))
-  }
+  // Color-scoped hints first (capped at 2).
+  const hintQueries = scryfallHints.slice(0, 2).map((hint) => `${hint}${colorFilter}`)
 
-  // Also search based on the free-text strategy + description keywords.
+  // Then the free-text strategy + description keyword queries.
   const strat = (customStrategy ?? '').trim()
   const strategyQueries = strat !== ''
     ? (await withParseTimeout(
@@ -594,17 +710,10 @@ async function buildSectionCardPool(
     : []
   const traitQueries = extractSearchQueries(description, colors, strategyQueries.length > 0)
   const descQueries = buildStrategyTraitPool(strategyQueries, traitQueries, colorCastableClause(colors))
+
   // slice(0,3) bounds a fill to <=2 hints + 3 desc = <=5 Scryfall calls.
-  for (const query of descQueries.slice(0, 3)) {
-    await new Promise((r) => setTimeout(r, 100))
-    const results = await scryfallSearch(query)
-    allCards.push(...results.slice(0, 30))
-  }
-
-  if (allCards.length === 0) return ''
-
-  const unique = [...new Set(allCards)]
-  return `\n\nCARD POOL (prefer these, but you can suggest others):\n${unique.join('\n')}`
+  const queries = [...hintQueries, ...descQueries.slice(0, 3)]
+  return buildCardPoolBlock(queries, 30)
 }
 
 export const fillSection = action({

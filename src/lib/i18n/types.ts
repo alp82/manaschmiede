@@ -231,6 +231,8 @@ export interface Translations {
   'chat.send': string
   'chat.noChanges': string
   'chat.cardSwap': string
+  'chat.cardAdd': string
+  'chat.cardRemove': string
   'chat.apply': string
   'chat.discard': string
   'chat.quickFixMana': string

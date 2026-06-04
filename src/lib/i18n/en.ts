@@ -230,6 +230,8 @@ export const en: Translations = {
   'chat.send': 'Send',
   'chat.noChanges': 'No changes',
   'chat.cardSwap': 'Card Swap',
+  'chat.cardAdd': 'Card Add',
+  'chat.cardRemove': 'Card Remove',
   'chat.apply': 'Apply',
   'chat.discard': 'Discard',
   'chat.quickFixMana': 'Fix mana base',
