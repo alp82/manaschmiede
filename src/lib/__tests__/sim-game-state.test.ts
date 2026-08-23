@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { runGame, runTurn, stateBasedActions } from '../simulation/game-state'
-import { emptyPool } from '../simulation/mana'
 import type { CardEffect, SimCard } from '../simulation/types'
 import {
   RIGGED_RNG,
@@ -101,7 +100,6 @@ describe('mana within a single turn', () => {
     )
     expect(creatures.map((p) => p.card.id)).toEqual(['bear-1'])
     expect(state.players[0].hand.map((c) => c.id)).toEqual(['bear-2'])
-    expect(state.players[0].manaPool).toEqual(emptyPool())
   })
 
   it('[R] taps only the land whose mana paid for the spell', () => {

@@ -4,11 +4,12 @@ import type {
   Keyword,
   ManaColor,
   ManaCost,
+  ManaSource,
   Permanent,
   PlayerState,
   SimCard,
 } from '../simulation/types'
-import { emptyPool } from '../simulation/mana'
+import { manaSources } from '../simulation/mana'
 
 /**
  * Shared fixtures for the `src/lib/simulation` suite.
@@ -49,7 +50,16 @@ export function simCard(overrides: Partial<SimCard> & { id: string }): SimCard {
   }
 }
 
-export function land(id: string, producesColors: ManaColor[]): SimCard {
+/**
+ * `isBasicLand` defaults to true because most fixtures want a basic. Pass false
+ * for a dual or any other nonbasic - ramp effects fetch on that flag, so a
+ * "basic" gain land is a trap for whoever reuses the fixture next.
+ */
+export function land(
+  id: string,
+  producesColors: ManaColor[],
+  isBasicLand = true,
+): SimCard {
   return simCard({
     id,
     cardType: 'land',
@@ -57,8 +67,18 @@ export function land(id: string, producesColors: ManaColor[]): SimCard {
     power: 0,
     toughness: 0,
     producesColors,
-    isBasicLand: true,
+    isBasicLand,
   })
+}
+
+/** The mana of a board holding one untapped land per entry in `lands`. */
+export function sourcesOf(...lands: SimCard[]): ManaSource[] {
+  return manaSources(lands.map((c) => permanent(c)))
+}
+
+/** The land names behind `sources` - what a payment is really about. */
+export function sourceNames(sources: readonly ManaSource[] | null): string[] | null {
+  return sources === null ? null : sources.map((s) => s.permanent.card.name)
 }
 
 export function forest(id = 'forest'): SimCard {
@@ -103,7 +123,6 @@ export function playerWith(battlefield: Permanent[]): PlayerState {
     battlefield,
     graveyard: [],
     landDropsRemaining: 1,
-    manaPool: emptyPool(),
   }
 }
 

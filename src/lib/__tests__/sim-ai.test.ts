@@ -1,39 +1,74 @@
 import { describe, expect, it } from 'vitest'
 import { chooseAttackers, chooseBlockers, chooseCasts } from '../simulation/ai'
-import { emptyPool } from '../simulation/mana'
-import type { ManaPool } from '../simulation/types'
-import { cost, nonCreature, permanent, simCard } from './sim-fixtures'
-
-function pool(colors: Partial<ManaPool['colors']>): ManaPool {
-  return { colors: { ...emptyPool().colors, ...colors }, colorless: 0 }
-}
+import {
+  cost,
+  forest,
+  land,
+  nonCreature,
+  permanent,
+  simCard,
+  sourceNames,
+  sourcesOf,
+} from './sim-fixtures'
 
 describe('chooseCasts', () => {
-  it('[R] reports the mana left after the cards it picked', () => {
+  it('[R] reports the lands that paid for what it picked', () => {
     const hand = [simCard({ id: 'bear', cost: cost(0, { G: 1 }) })]
+    const sources = sourcesOf(forest('a'), forest('b'), forest('c'))
 
-    const { indices, remaining } = chooseCasts(hand, pool({ G: 3 }), [], [])
+    const { indices, spent } = chooseCasts(hand, sources, [])
 
     expect(indices).toEqual([0])
-    expect(remaining).toEqual(pool({ G: 2 }))
+    expect(spent.map((p) => p.card.name)).toEqual(['a'])
   })
 
-  it('[R] reports an untouched pool when it casts nothing', () => {
+  it('[R] reports no lands spent when it casts nothing', () => {
     const hand = [simCard({ id: 'giant', cost: cost(5, { G: 1 }) })]
 
-    const { indices, remaining } = chooseCasts(hand, pool({ G: 1 }), [], [])
+    const { indices, spent } = chooseCasts(hand, sourcesOf(forest('a')), [])
 
     expect(indices).toEqual([])
-    expect(remaining).toEqual(pool({ G: 1 }))
+    expect(spent).toEqual([])
   })
 
-  it('[R] leaves the pool it was handed alone', () => {
-    const available = pool({ G: 2 })
+  it('[R] leaves the sources it was handed alone', () => {
+    const sources = sourcesOf(forest('a'), forest('b'))
     const hand = [simCard({ id: 'bear', cost: cost(0, { G: 1 }) })]
 
-    chooseCasts(hand, available, [], [])
+    chooseCasts(hand, sources, [])
 
-    expect(available).toEqual(pool({ G: 2 }))
+    expect(sourceNames(sources)).toEqual(['a', 'b'])
+  })
+
+  it('[R] casts a spell of either color off a single dual land', () => {
+    const dual = land('gainland', ['W', 'U'], false)
+
+    const wizard = chooseCasts(
+      [simCard({ id: 'wizard', cost: cost(0, { U: 1 }) })],
+      sourcesOf(dual),
+      [],
+    )
+    const cleric = chooseCasts(
+      [simCard({ id: 'cleric', cost: cost(0, { W: 1 }) })],
+      sourcesOf(dual),
+      [],
+    )
+
+    expect(wizard.indices).toEqual([0])
+    expect(cleric.indices).toEqual([0])
+  })
+
+  it('[R] spends a dual land on the spell that needs it', () => {
+    // The bear can be paid either way, so a Forest-first allocation would leave
+    // the wizard uncastable and the dual is the only blue source there is.
+    const hand = [
+      simCard({ id: 'bear', cost: cost(0, { G: 1 }) }),
+      simCard({ id: 'wizard', cost: cost(0, { U: 1 }) }),
+    ]
+
+    const { indices } = chooseCasts(hand, sourcesOf(forest('a'), land('dual', ['G', 'U'], false)), [])
+
+    expect([...indices].sort()).toEqual([0, 1])
   })
 })
 

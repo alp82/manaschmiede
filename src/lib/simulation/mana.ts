@@ -1,4 +1,4 @@
-import type { ManaCost, ManaColor, ManaPool, Permanent, SimCard } from './types'
+import type { ManaColor, ManaCost, ManaSource, Permanent } from './types'
 
 export const MANA_COLORS: ManaColor[] = ['W', 'U', 'B', 'R', 'G']
 const SYMBOL_RE = /\{([^}]+)\}/g
@@ -51,107 +51,100 @@ export function parseCost(costString: string): ManaCost {
   return { generic, colored, cmc }
 }
 
-export function emptyPool(): ManaPool {
-  return {
-    colors: { W: 0, U: 0, B: 0, R: 0, G: 0 },
-    colorless: 0,
+/** The mana sources an untapped battlefield offers. */
+export function manaSources(battlefield: Permanent[]): ManaSource[] {
+  const sources: ManaSource[] = []
+  for (const p of battlefield) {
+    if (p.card.cardType !== 'land' || p.tapped) continue
+    sources.push({ permanent: p, colors: p.card.producesColors })
   }
+  return sources
 }
 
-export function canPay(pool: ManaPool, cost: ManaCost): boolean {
+/** One entry per colored pip in `cost`, in `MANA_COLORS` order. */
+function coloredPips(cost: ManaCost): ManaColor[] {
+  const pips: ManaColor[] = []
   for (const color of MANA_COLORS) {
-    const needed = cost.colored[color] ?? 0
-    if (pool.colors[color] < needed) return false
+    for (let i = 0; i < (cost.colored[color] ?? 0); i++) pips.push(color)
   }
-
-  let totalAvailable = pool.colorless
-  for (const color of MANA_COLORS) {
-    totalAvailable += Math.max(0, pool.colors[color] - (cost.colored[color] ?? 0))
-  }
-
-  return totalAvailable >= cost.generic
+  return pips
 }
 
-export function payMana(pool: ManaPool, cost: ManaCost): boolean {
-  if (!canPay(pool, cost)) return false
-
-  for (const color of MANA_COLORS) {
-    const needed = cost.colored[color] ?? 0
-    pool.colors[color] -= needed
-  }
-
-  let genericLeft = cost.generic
-  const sorted = [...MANA_COLORS].sort((a, b) => pool.colors[b] - pool.colors[a])
-  for (const color of sorted) {
-    if (genericLeft <= 0) break
-    const pay = Math.min(pool.colors[color], genericLeft)
-    pool.colors[color] -= pay
-    genericLeft -= pay
-  }
-  if (genericLeft > 0) {
-    pool.colorless -= genericLeft
-  }
-
-  return true
+/** Source indices, least flexible first - the order a player spends them in. */
+function bySpendPreference(sources: readonly ManaSource[]): number[] {
+  return sources
+    .map((_, i) => i)
+    .sort((a, b) => sources[a].colors.length - sources[b].colors.length || a - b)
 }
 
 /**
- * The one mana an untapped land adds to the pool, or `null` for colorless.
+ * Assigns one source to each pip, or returns `null` if no assignment covers
+ * them all.
  *
- * Every land is worth exactly one mana. That invariant is what lets
- * `tapSpentLands` read a quantity of spent mana back as a set of lands.
+ * Handing each pip the first source that fits is not enough: a Forest and a
+ * Forest-or-Island paying {G}{U} fails that way, because the dual gets spent on
+ * the green pip. This is an augmenting-path matching instead, so a pip can take
+ * a source from an earlier pip as long as that pip can be re-housed.
  */
-function landOutput(card: SimCard): ManaColor | null {
-  return card.producesColors.length > 0 ? card.producesColors[0] : null
-}
+function matchPips(
+  sources: readonly ManaSource[],
+  pips: readonly ManaColor[],
+  order: readonly number[],
+): number[] | null {
+  const pipOfSource: number[] = new Array(sources.length).fill(-1)
+  const sourceOfPip: number[] = new Array(pips.length).fill(-1)
 
-/** The mana available from every untapped land on `battlefield`. */
-export function poolFromLands(battlefield: Permanent[]): ManaPool {
-  const pool = emptyPool()
-  for (const p of battlefield) {
-    if (p.card.cardType !== 'land' || p.tapped) continue
-    const color = landOutput(p.card)
-    if (color === null) {
-      pool.colorless += 1
-    } else {
-      pool.colors[color] += 1
+  function assign(pip: number, visited: boolean[]): boolean {
+    for (const s of order) {
+      if (visited[s] || !sources[s].colors.includes(pips[pip])) continue
+      visited[s] = true
+      if (pipOfSource[s] === -1 || assign(pipOfSource[s], visited)) {
+        pipOfSource[s] = pip
+        sourceOfPip[pip] = s
+        return true
+      }
     }
+    return false
   }
-  return pool
+
+  for (let pip = 0; pip < pips.length; pip++) {
+    if (!assign(pip, new Array(sources.length).fill(false))) return null
+  }
+  return sourceOfPip
 }
 
-/** The mana that `before` held and `after` doesn't - what the player spent. */
-export function poolSpent(before: ManaPool, after: ManaPool): ManaPool {
-  const spent = emptyPool()
-  spent.colorless = before.colorless - after.colorless
-  for (const color of MANA_COLORS) {
-    spent.colors[color] = before.colors[color] - after.colors[color]
+/**
+ * The sources that pay `cost`, or `null` when they can't.
+ *
+ * Colored pips are matched first because they are the constrained half; the
+ * generic part then takes whatever is left, cheapest land first, so the duals
+ * survive to pay for something only they can.
+ *
+ * `sources` is left untouched, and the returned entries are the very objects it
+ * held - a caller subtracting the spend from its own list can compare them by
+ * identity.
+ */
+export function payCost(
+  sources: readonly ManaSource[],
+  cost: ManaCost,
+): ManaSource[] | null {
+  const order = bySpendPreference(sources)
+  const matched = matchPips(sources, coloredPips(cost), order)
+  if (matched === null) return null
+
+  const spent = matched.map((i) => sources[i])
+  const used = new Set(matched)
+
+  let generic = cost.generic
+  for (const i of order) {
+    if (generic <= 0) break
+    if (used.has(i)) continue
+    spent.push(sources[i])
+    generic--
   }
+  if (generic > 0) return null
+
   return spent
-}
-
-/**
- * Taps the lands that produced `spent`, longest-serving lands first.
- *
- * One land is worth one mana, so a spend of two green is two green lands.
- * Lands already tapped are left alone - their mana was never in the pool.
- */
-export function tapSpentLands(battlefield: Permanent[], spent: ManaPool): void {
-  const owed: ManaPool = { colors: { ...spent.colors }, colorless: spent.colorless }
-
-  for (const p of battlefield) {
-    if (p.card.cardType !== 'land' || p.tapped) continue
-    const color = landOutput(p.card)
-
-    if (color === null) {
-      if (owed.colorless <= 0) continue
-      owed.colorless -= 1
-    } else {
-      if (owed.colors[color] <= 0) continue
-      owed.colors[color] -= 1
-    }
-    p.tapped = true
-  }
 }
 
 const BASIC_LAND_TYPES: Record<string, ManaColor> = {
@@ -162,14 +155,20 @@ const BASIC_LAND_TYPES: Record<string, ManaColor> = {
   forest: 'G',
 }
 
-const ANY_COLOR_PATTERN = /add one mana of any color|add \{w\}\{u\}\{b\}\{r\}\{g\}/i
-const SPECIFIC_MANA_PATTERNS: Record<string, RegExp> = {
-  W: /add \{w\}/i,
-  U: /add \{u\}/i,
-  B: /add \{b\}/i,
-  R: /add \{r\}/i,
-  G: /add \{g\}/i,
-}
+const ANY_COLOR_PATTERN =
+  /add one mana of any color|add \{w\}\{u\}\{b\}\{r\}\{g\}|in any combination of colors/i
+
+/**
+ * Everything an "add" ability adds, up to the end of its sentence.
+ *
+ * A land's colors can't be read off single `add {x}` matches: `"Add {W} or
+ * {U}."` names its second color three words after the word `add`, and a filter
+ * land names its colors in pairs. Reading the whole clause catches every form,
+ * and stopping at the sentence keeps the colors mentioned by an unrelated
+ * ability further down the card out of it.
+ */
+const ADD_CLAUSE_RE = /\badd\b([^.;\n]*)/gi
+const SYMBOL_COLOR_RE = /\{([wubrg])\}/gi
 
 export function parseLandColors(oracleText: string, typeLine: string): ManaColor[] {
   const colors = new Set<ManaColor>()
@@ -184,8 +183,10 @@ export function parseLandColors(oracleText: string, typeLine: string): ManaColor
     return ['W', 'U', 'B', 'R', 'G']
   }
 
-  for (const [color, re] of Object.entries(SPECIFIC_MANA_PATTERNS)) {
-    if (re.test(text)) colors.add(color as ManaColor)
+  for (const clause of text.matchAll(ADD_CLAUSE_RE)) {
+    for (const symbol of clause[1].matchAll(SYMBOL_COLOR_RE)) {
+      colors.add(symbol[1].toUpperCase() as ManaColor)
+    }
   }
 
   return [...colors]

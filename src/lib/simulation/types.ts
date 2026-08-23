@@ -6,9 +6,18 @@ export interface ManaCost {
   cmc: number
 }
 
-export interface ManaPool {
-  colors: Record<ManaColor, number>
-  colorless: number
+/**
+ * One untapped land and the colors it can tap for. An empty list is colorless.
+ *
+ * A land is worth one mana but not necessarily one color: a dual land is a
+ * single source whose color is chosen at the moment it pays for something.
+ * Counting the battlefield into a pool of colored mana would force that choice
+ * up front, before anything is known about what needs paying, so the
+ * battlefield stays a list of sources until a cost consumes them.
+ */
+export interface ManaSource {
+  permanent: Permanent
+  colors: readonly ManaColor[]
 }
 
 export type CardType =
@@ -97,7 +106,6 @@ export interface PlayerState {
   battlefield: Permanent[]
   graveyard: SimCard[]
   landDropsRemaining: number
-  manaPool: ManaPool
 }
 
 export type Phase = 'untap' | 'upkeep' | 'draw' | 'main1' | 'combat' | 'main2' | 'end'

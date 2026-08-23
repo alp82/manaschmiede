@@ -1,5 +1,11 @@
-import type { DeclaredAttacker, ManaColor, ManaPool, Permanent, SimCard } from './types'
-import { canPay, payMana, emptyPool, MANA_COLORS } from './mana'
+import type {
+  DeclaredAttacker,
+  ManaColor,
+  ManaSource,
+  Permanent,
+  SimCard,
+} from './types'
+import { MANA_COLORS, payCost } from './mana'
 import { canBlock, killedBeforeDealingDamage, lethalDamage } from './combat'
 
 export function shouldMulligan(hand: SimCard[], mulliganCount: number): boolean {
@@ -58,23 +64,20 @@ function isRemoval(card: SimCard): boolean {
 }
 
 /**
- * Picks what to cast from `hand` and reports the pool that is left over.
+ * Picks what to cast from `hand` and reports the lands that paid for it.
  *
- * The caller needs `remaining` as well as the indices: which lands end up
- * tapped depends on how this function chose to allocate the pool, and that
- * allocation isn't recoverable from the list of cards alone.
+ * The caller needs the lands as well as the indices: a dual land's color is
+ * decided by what it ends up paying for, so which lands are left untapped isn't
+ * recoverable from the list of cards alone.
  */
 export function chooseCasts(
   hand: SimCard[],
-  pool: ManaPool,
-  battlefield: Permanent[],
+  sources: readonly ManaSource[],
   opponentBoard: Permanent[],
-): { indices: number[]; remaining: ManaPool } {
+): { indices: number[]; spent: Permanent[] } {
   const indices: number[] = []
-  const remaining: ManaPool = {
-    colors: { ...pool.colors },
-    colorless: pool.colorless,
-  }
+  const spent: Permanent[] = []
+  let remaining = [...sources]
 
   type Candidate = { idx: number; card: SimCard; priority: number }
   const candidates: Candidate[] = []
@@ -82,7 +85,6 @@ export function chooseCasts(
   for (let i = 0; i < hand.length; i++) {
     const card = hand[i]
     if (card.cardType === 'land' || !card.cost) continue
-    if (!canPay(pool, card.cost)) continue
 
     let priority = 0
     if (isRemoval(card) && opponentBoard.length > 0) {
@@ -101,13 +103,16 @@ export function chooseCasts(
   })
 
   for (const { idx, card } of candidates) {
-    if (canPay(remaining, card.cost!)) {
-      payMana(remaining, card.cost!)
-      indices.push(idx)
-    }
+    const paid = payCost(remaining, card.cost!)
+    if (paid === null) continue
+
+    const used = new Set(paid)
+    remaining = remaining.filter((s) => !used.has(s))
+    for (const source of paid) spent.push(source.permanent)
+    indices.push(idx)
   }
 
-  return { indices, remaining }
+  return { indices, spent }
 }
 
 export function chooseAttackers(

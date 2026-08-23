@@ -7,7 +7,7 @@ import type {
   PlayerState,
   SimCard,
 } from './types'
-import { emptyPool, poolFromLands, poolSpent, tapSpentLands } from './mana'
+import { manaSources } from './mana'
 import { resolveCombat } from './combat'
 import { isDestroyedBySba } from './state-based-actions'
 import {
@@ -48,7 +48,6 @@ function createPlayer(deck: SimCard[], rng: () => number): PlayerState {
     battlefield: [],
     graveyard: [],
     landDropsRemaining: 1,
-    manaPool: emptyPool(),
   }
 }
 
@@ -225,32 +224,29 @@ function playCastCard(card: SimCard, player: PlayerState, state: GameState, acti
 }
 
 /**
- * Fills the mana pool, casts what the AI picks, and taps the lands that paid.
+ * Casts what the AI picks and taps the lands that paid for it.
  *
  * The lands are tapped before the cards resolve. A card resolving can put a
- * land onto the battlefield - a ramp effect does - and that land was never part
- * of the pool being accounted for, so it must not be swept up in the tapping.
+ * land onto the battlefield - a ramp effect does - and that land was never one
+ * of the sources being spent, so it must not be swept up in the tapping.
  */
 function runMainPhase(state: GameState): void {
   const active = state.activePlayer
   const player = state.players[active]
   const opponent = state.players[(1 - active) as 0 | 1]
 
-  const available = poolFromLands(player.battlefield)
-  const { indices, remaining } = chooseCasts(
+  const { indices, spent } = chooseCasts(
     player.hand,
-    available,
-    player.battlefield,
+    manaSources(player.battlefield),
     opponent.battlefield,
   )
-  player.manaPool = remaining
 
   const castCards: SimCard[] = []
   for (const idx of [...indices].sort((a, b) => b - a)) {
     castCards.push(player.hand.splice(idx, 1)[0])
   }
 
-  tapSpentLands(player.battlefield, poolSpent(available, remaining))
+  for (const p of spent) p.tapped = true
 
   for (const card of castCards) {
     playCastCard(card, player, state, active)
