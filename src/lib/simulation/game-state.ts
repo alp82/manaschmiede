@@ -144,10 +144,11 @@ function applyEffect(
     }
     case 'pump':
       if (action.target === 'self') {
-        // Temporary pump doesn't persist in sim, but we approximate by adding damage capacity
-        // This is handled implicitly by combat — we don't model end-of-turn cleanup
+        // A no-op, not an approximation: the sim has no end-of-turn cleanup, so
+        // a temporary buff would have nowhere to expire. See `EffectAction`.
       } else {
-        // Static team pump - add counters as approximation
+        // Static team pump - add counters as approximation. Unreachable today:
+        // nothing fires the `'static'` trigger this action arrives on.
         for (const p of player.battlefield) {
           if (p.card.cardType === 'creature') {
             p.counters += 1

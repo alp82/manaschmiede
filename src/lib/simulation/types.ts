@@ -46,8 +46,36 @@ export type Keyword =
   | 'flash'
   | 'hexproof'
 
+/**
+ * When an effect fires. Only two of these six round-trip today - an effect
+ * reaches the game only if `parseEffects` emits its trigger and `game-state`
+ * fires it:
+ *
+ * - `'etb'` and `'cast'` are emitted and fired. Everything the sim models runs
+ *   through these two.
+ * - `'static'` is emitted - by the lord pattern - but never fired, so lords do
+ *   nothing.
+ * - `'death'` and `'upkeep'` are fired but never emitted, so nothing listens.
+ * - `'attack'` is neither emitted nor fired.
+ *
+ * Closing a gap means a change on both sides: a pattern that emits the trigger
+ * and a `triggerEffects` call that fires it.
+ */
 export type EffectTrigger = 'etb' | 'death' | 'upkeep' | 'attack' | 'cast' | 'static'
 
+/**
+ * What an effect does. Four variants are inert and should not be read as
+ * modelled behaviour:
+ *
+ * - `pump` with `target: 'self'` is a deliberate no-op - the sim has no
+ *   end-of-turn cleanup, so a temporary buff has nowhere to expire.
+ * - `pump` with `target: 'team'` is applied, but only ever on the `'static'`
+ *   trigger, which nothing fires.
+ * - `counter_spell` is never emitted by `parseEffects` and applies as a bare
+ *   `break`.
+ * - `damage` with `target: 'any_creature'` is applied but unreachable from
+ *   `parseEffects`: the damage pattern always emits `target: 'opponent'`.
+ */
 export type EffectAction =
   | { type: 'draw'; count: number }
   | { type: 'gain_life'; amount: number }
