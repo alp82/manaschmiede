@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { runGame, runTurn, stateBasedActions } from '../simulation/game-state'
 import { emptyPool } from '../simulation/mana'
-import type { CardEffect } from '../simulation/types'
+import type { CardEffect, SimCard } from '../simulation/types'
 import {
   RIGGED_RNG,
   cost,
@@ -128,5 +128,66 @@ describe('mana within a single turn', () => {
       (p) => p.card.cardType === 'creature',
     )
     expect(creatures.map((p) => p.card.id)).toEqual(['drawer', 'bear-1'])
+  })
+})
+
+describe('ramp', () => {
+  // Only the first test reproduces issue #4; the rest guard behaviour the
+  // buggy version already had. See `parseDeck` in sim-parser.test.ts for the
+  // aliasing invariant that made the identity filter wrong.
+  const rampSpell = simCard({
+    id: 'rampant-growth',
+    cardType: 'sorcery',
+    cost: cost(1, { G: 1 }),
+    effects: [{ trigger: 'cast', action: { type: 'ramp', count: 1 } }],
+  })
+
+  const threeLandRamp = simCard({
+    id: 'three-land-ramp',
+    cardType: 'sorcery',
+    cost: cost(1, { G: 1 }),
+    effects: [{ trigger: 'cast', action: { type: 'ramp', count: 3 } }],
+  })
+
+  /** Player 0 holds `spell`, with a library of `count` references to one Forest. */
+  function stateWithAliasedForests(spell: SimCard, count: number) {
+    const state = stateWith([permanent(forest('a')), permanent(forest('b'))], [])
+    const shared = forest('library-forest')
+    state.players[0].library = Array.from({ length: count }, () => shared)
+    state.players[0].hand = [spell]
+    return state
+  }
+
+  it('[R] removes exactly one copy of the fetched basic land from the library', () => {
+    const state = stateWithAliasedForests(rampSpell, 20)
+
+    runTurn(state, RIGGED_RNG)
+
+    expect(state.players[0].library).toHaveLength(19)
+    expect(state.players[0].library.every((c) => c.id === 'library-forest')).toBe(true)
+  })
+
+  it('[R] puts the fetched basic land onto the battlefield', () => {
+    const state = stateWithAliasedForests(rampSpell, 20)
+
+    runTurn(state, RIGGED_RNG)
+
+    const lands = state.players[0].battlefield.filter((p) => p.card.cardType === 'land')
+    expect(lands.map((p) => p.card.id)).toEqual(['a', 'b', 'library-forest'])
+  })
+
+  it('[R] fetches one land per count and stops when the library runs dry', () => {
+    const state = stateWithAliasedForests(threeLandRamp, 2)
+
+    runTurn(state, RIGGED_RNG)
+
+    expect(state.players[0].library).toHaveLength(0)
+    const lands = state.players[0].battlefield.filter((p) => p.card.cardType === 'land')
+    expect(lands.map((p) => p.card.id)).toEqual([
+      'a',
+      'b',
+      'library-forest',
+      'library-forest',
+    ])
   })
 })

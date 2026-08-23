@@ -190,10 +190,12 @@ function applyEffect(
       break
     }
     case 'ramp': {
-      const basicLands = player.library.filter((c) => c.isBasicLand)
-      for (let i = 0; i < action.count && basicLands.length > 0; i++) {
-        const land = basicLands.pop()!
-        player.library = player.library.filter((c) => c !== land)
+      // Remove by index: `parseDeck` aliases the copies of a card, so an
+      // identity filter would take the whole playset out at once.
+      for (let i = 0; i < action.count; i++) {
+        const idx = player.library.findIndex((c) => c.isBasicLand)
+        if (idx === -1) break
+        const land = player.library.splice(idx, 1)[0]
         player.battlefield.push(makePermanent(land, true))
       }
       break
