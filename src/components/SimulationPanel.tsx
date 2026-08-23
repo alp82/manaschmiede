@@ -62,13 +62,38 @@ export function SimulationPanel({ deckId, deckName, cards, cardDataMap }: Simula
 
   const isMirror = opponentId === 'mirror'
 
-  const handleRun = useCallback(() => {
+  /**
+   * A run is a function of both decks *and* the seed, so the seed alone doesn't
+   * identify it. Edit a deck or switch opponents after a run and the same seed
+   * yields a different result - this key is what lets the UI notice.
+   */
+  const matchupKey = useMemo(
+    () => `${opponentId}|${deckSignature(cards)}|${deckSignature(opponentDeck?.cards)}`,
+    [opponentId, cards, opponentDeck],
+  )
+  const [ranMatchup, setRanMatchup] = useState<string | null>(null)
+
+  /**
+   * `seed` omitted means a fresh sample; passing the seed of a finished run
+   * reproduces it game for game, which is what makes a surprising result
+   * checkable and a bug report reproducible.
+   */
+  const handleRun = useCallback((seed?: number) => {
     if (isMirror) {
-      run(cards, cardDataMap)
+      run(cards, cardDataMap, undefined, undefined, undefined, seed)
     } else if (opponentDeck) {
-      run(cards, cardDataMap, opponentDeck.cards, opponentCardData)
+      run(cards, cardDataMap, opponentDeck.cards, opponentCardData, undefined, seed)
+    } else {
+      return
     }
-  }, [isMirror, cards, cardDataMap, opponentDeck, opponentCardData, run])
+    setRanMatchup(matchupKey)
+  }, [isMirror, cards, cardDataMap, opponentDeck, opponentCardData, matchupKey, run])
+
+  const runFresh = useCallback(() => handleRun(), [handleRun])
+  const repeatSeed = useCallback(() => handleRun(state.seed), [handleRun, state.seed])
+
+  /** Repeating a seed only reproduces anything while the matchup is unchanged. */
+  const canRepeatSeed = state.status === 'done' && ranMatchup === matchupKey
 
   const opponentName = isMirror ? deckName : (opponentDeck?.name ?? 'Opponent')
 
@@ -78,26 +103,35 @@ export function SimulationPanel({ deckId, deckName, cards, cardDataMap }: Simula
         <h4 className="font-mono text-mono-label uppercase tracking-mono-label text-cream-300">
           SIMULATION
         </h4>
-        {state.status === 'idle' && (
-          <Button variant="secondary" size="sm" onClick={handleRun} disabled={loadingOpponent}>
-            RUN SIMULATION
-          </Button>
-        )}
-        {state.status === 'running' && (
-          <Button variant="ghost" size="sm" onClick={cancel}>
-            CANCEL
-          </Button>
-        )}
-        {state.status === 'done' && (
-          <Button variant="secondary" size="sm" onClick={handleRun} disabled={loadingOpponent}>
-            RE-RUN
-          </Button>
-        )}
-        {state.status === 'error' && (
-          <Button variant="secondary" size="sm" onClick={handleRun} disabled={loadingOpponent}>
-            TRY AGAIN
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {state.status === 'idle' && (
+            <Button variant="secondary" size="sm" onClick={runFresh} disabled={loadingOpponent}>
+              RUN SIMULATION
+            </Button>
+          )}
+          {state.status === 'running' && (
+            <Button variant="ghost" size="sm" onClick={cancel}>
+              CANCEL
+            </Button>
+          )}
+          {state.status === 'done' && (
+            <>
+              {canRepeatSeed && (
+                <Button variant="ghost" size="sm" onClick={repeatSeed} disabled={loadingOpponent}>
+                  REPEAT SEED
+                </Button>
+              )}
+              <Button variant="secondary" size="sm" onClick={runFresh} disabled={loadingOpponent}>
+                RE-RUN
+              </Button>
+            </>
+          )}
+          {state.status === 'error' && (
+            <Button variant="secondary" size="sm" onClick={runFresh} disabled={loadingOpponent}>
+              TRY AGAIN
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Opponent selector */}
@@ -202,12 +236,20 @@ export function SimulationPanel({ deckId, deckName, cards, cardDataMap }: Simula
               {state.result.totalGames} games in {state.result.elapsed.toFixed(0)}ms
               {' — '}
               95% CI [{(state.result.winRateCI95[0] * 100).toFixed(1)}%, {(state.result.winRateCI95[1] * 100).toFixed(1)}%]
+              {' — '}
+              SEED {state.seed}
             </span>
           </div>
         </>
       )}
     </div>
   )
+}
+
+/** Identifies a deck by what the simulation actually reads: which cards, how many, where. */
+function deckSignature(cards: DeckCard[] | undefined): string {
+  if (!cards) return ''
+  return cards.map((c) => `${c.scryfallId}:${c.quantity}:${c.zone}`).join(',')
 }
 
 function StatBox({ label, value }: { label: string; value: string }) {

@@ -12,6 +12,7 @@ export function useSimulation() {
     progress: 0,
     result: null,
     error: null,
+    seed: 0,
   })
 
   useEffect(() => {
@@ -28,6 +29,7 @@ export function useSimulation() {
       opponentCards?: DeckCard[],
       opponentCardData?: Map<string, ScryfallCard>,
       games = 5000,
+      seed = Date.now(),
     ) => {
       if (typeof window === 'undefined') return
 
@@ -35,7 +37,7 @@ export function useSimulation() {
 
       const deckA = parseDeck(myCards, myCardData)
       if (deckA.length === 0) {
-        setState({ status: 'error', progress: 0, result: null, error: 'No valid cards in deck' })
+        setState({ status: 'error', progress: 0, result: null, error: 'No valid cards in deck', seed })
         return
       }
 
@@ -43,12 +45,12 @@ export function useSimulation() {
       if (opponentCards && opponentCardData) {
         deckB = parseDeck(opponentCards, opponentCardData)
         if (deckB.length === 0) {
-          setState({ status: 'error', progress: 0, result: null, error: 'No valid cards in opponent deck' })
+          setState({ status: 'error', progress: 0, result: null, error: 'No valid cards in opponent deck', seed })
           return
         }
       }
 
-      setState({ status: 'running', progress: 0, result: null, error: null })
+      setState({ status: 'running', progress: 0, result: null, error: null, seed })
 
       const worker = new Worker(
         new URL('./worker.ts', import.meta.url),
@@ -63,16 +65,16 @@ export function useSimulation() {
             setState((s) => ({ ...s, progress: msg.total > 0 ? msg.completed / msg.total : 0 }))
             break
           case 'result':
-            setState({ status: 'done', progress: 1, result: msg.result, error: null })
+            setState({ status: 'done', progress: 1, result: msg.result, error: null, seed })
             break
           case 'error':
-            setState({ status: 'error', progress: 0, result: null, error: msg.message })
+            setState({ status: 'error', progress: 0, result: null, error: msg.message, seed })
             break
         }
       }
 
       worker.onerror = (e) => {
-        setState({ status: 'error', progress: 0, result: null, error: e.message })
+        setState({ status: 'error', progress: 0, result: null, error: e.message, seed })
       }
 
       worker.postMessage({
@@ -80,7 +82,7 @@ export function useSimulation() {
         deckA: deckA.map(serializeSimCard),
         deckB: deckB.map(serializeSimCard),
         games,
-        seed: Date.now(),
+        seed,
       })
     },
     [],
@@ -89,7 +91,7 @@ export function useSimulation() {
   const cancel = useCallback(() => {
     workerRef.current?.terminate()
     workerRef.current = null
-    setState({ status: 'idle', progress: 0, result: null, error: null })
+    setState({ status: 'idle', progress: 0, result: null, error: null, seed: 0 })
   }, [])
 
   return { state, run, cancel }

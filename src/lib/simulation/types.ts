@@ -185,6 +185,12 @@ export interface SimulationState {
   progress: number
   result: SimulationResult | null
   error: string | null
+  /**
+   * The seed the current run was started with, so the UI can show it and offer
+   * an identical re-run. Only meaningful once `status` has left `'idle'` - a
+   * seed is chosen per run, and `0` is the placeholder before the first one.
+   */
+  seed: number
 }
 
 export interface SerializedSimCard {
