@@ -112,7 +112,7 @@ export function chooseAttackers(
   for (let i = 0; i < battlefield.length; i++) {
     const p = battlefield[i]
     if (
-      p.card.cardType !== 'land' &&
+      p.card.cardType === 'creature' &&
       !p.tapped &&
       !p.summoningSick &&
       p.card.power > 0 &&
@@ -129,7 +129,7 @@ export function chooseAttackers(
 
   const attackers: number[] = []
   const availableBlockers = opponentBoard.filter(
-    (p) => p.card.cardType !== 'land' && !p.tapped,
+    (p) => p.card.cardType === 'creature' && !p.tapped,
   )
 
   for (const idx of eligible) {
@@ -173,10 +173,13 @@ export function chooseBlockers(
   const assignments = new Map<number, number[]>()
   if (attackers.length === 0) return assignments
 
+  // Creatures only. Artifacts, enchantments, and planeswalkers survive their own
+  // resolution now, and one left in this pool would be an unkillable wall - it
+  // has no toughness for damage to exceed.
   const available: number[] = []
   for (let i = 0; i < myBoard.length; i++) {
     const p = myBoard[i]
-    if (p.card.cardType !== 'land' && !p.tapped) {
+    if (p.card.cardType === 'creature' && !p.tapped) {
       available.push(i)
     }
   }

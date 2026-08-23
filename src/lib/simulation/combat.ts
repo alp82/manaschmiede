@@ -1,4 +1,5 @@
 import type { GameState, Permanent } from './types'
+import { isDestroyedBySba } from './state-based-actions'
 
 export function canBlock(blocker: Permanent, attacker: Permanent): boolean {
   if (attacker.card.keywords.has('flying') &&
@@ -67,7 +68,7 @@ export function resolveCombat(
         const blk = defenderBoard[blkIdx]
         if (!blk) continue
         const blkHasFS = blk.card.keywords.has('first_strike') || blk.card.keywords.has('double_strike')
-        const blkDead = blk.markedForDeath || blk.damage >= blk.card.toughness || (atk.card.keywords.has('deathtouch') && blk.damage > 0)
+        const blkDead = isDestroyedBySba(blk) || (atk.card.keywords.has('deathtouch') && blk.damage > 0)
         if (blkHasFS && !blkDead) {
           const dmg = blk.card.keywords.has('deathtouch') ? 999 : blk.card.power
           atk.damage += dmg
@@ -82,7 +83,7 @@ export function resolveCombat(
   // State-based actions after first strike
   for (const board of [attackerBoard, defenderBoard]) {
     for (const p of board) {
-      if (p.card.cardType !== 'land' && p.damage >= p.card.toughness && !p.card.keywords.has('indestructible')) {
+      if (isDestroyedBySba(p)) {
         p.markedForDeath = true
       }
     }

@@ -10,6 +10,7 @@ import type {
 } from './types'
 import { emptyPool, MANA_COLORS } from './mana'
 import { resolveCombat } from './combat'
+import { isDestroyedBySba } from './state-based-actions'
 import {
   shouldMulligan,
   chooseLand,
@@ -82,12 +83,12 @@ function makePermanent(card: SimCard, hasteOverride?: boolean): Permanent {
   }
 }
 
-function stateBasedActions(state: GameState): void {
+export function stateBasedActions(state: GameState): void {
   for (let pi = 0; pi < 2; pi++) {
     const player = state.players[pi as 0 | 1]
     const dead: Permanent[] = []
     player.battlefield = player.battlefield.filter((p) => {
-      if (p.markedForDeath || (p.card.cardType !== 'land' && p.damage >= p.card.toughness && !p.card.keywords.has('indestructible'))) {
+      if (isDestroyedBySba(p)) {
         dead.push(p)
         return false
       }
