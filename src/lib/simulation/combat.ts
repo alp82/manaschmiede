@@ -15,15 +15,99 @@ function lethalDamage(attacker: Permanent, blocker: Permanent): number {
   return Math.max(0, blocker.card.toughness - blocker.damage)
 }
 
+/** The two battlefields plus their player indices, from the attacker's side. */
+function combatBoards(state: GameState) {
+  const active = state.activePlayer
+  const defending = (1 - active) as 0 | 1
+  return {
+    active,
+    defending,
+    attackerBoard: state.players[active].battlefield,
+    defenderBoard: state.players[defending].battlefield,
+  }
+}
+
+/**
+ * Which creatures deal damage in a combat damage step.
+ *
+ * Participation is per-creature, not per-attacker: a first-striking *blocker*
+ * swings in the first-strike step even when the attacker it blocks has no
+ * first strike, and a vanilla blocker swings in the normal step even when the
+ * attacker it blocks already swung and is done. Deciding this per-attacker is
+ * what made first strike a near-invincibility keyword.
+ */
+function fightsInFirstStrikeStep(p: Permanent): boolean {
+  return p.card.keywords.has('first_strike') || p.card.keywords.has('double_strike')
+}
+
+function fightsInNormalStep(p: Permanent): boolean {
+  return !p.card.keywords.has('first_strike') || p.card.keywords.has('double_strike')
+}
+
+/**
+ * One combat damage step. Damage inside a step is simultaneous: a creature that
+ * takes lethal damage here still deals its own, and only the sweep between the
+ * two steps takes the dead off the battlefield.
+ */
+function damageStep(
+  dealsDamageThisStep: (p: Permanent) => boolean,
+  attackerIndices: number[],
+  blockerAssignments: Map<number, number[]>,
+  state: GameState,
+): void {
+  const { active, defending, attackerBoard, defenderBoard } = combatBoards(state)
+
+  for (const atkIdx of attackerIndices) {
+    const atk = attackerBoard[atkIdx]
+    if (!atk || atk.markedForDeath) continue
+    const blockerIdxs = blockerAssignments.get(atkIdx) ?? []
+
+    if (dealsDamageThisStep(atk)) {
+      if (blockerIdxs.length === 0) {
+        state.players[defending].life -= atk.card.power
+      } else {
+        let remainingDamage = atk.card.power
+        for (const blkIdx of blockerIdxs) {
+          const blk = defenderBoard[blkIdx]
+          if (!blk || blk.markedForDeath) continue
+          const dealt = Math.min(remainingDamage, lethalDamage(atk, blk))
+          blk.damage += dealt
+          remainingDamage -= dealt
+        }
+        if (atk.card.keywords.has('trample') && remainingDamage > 0) {
+          state.players[defending].life -= remainingDamage
+        }
+      }
+      if (atk.card.keywords.has('lifelink')) {
+        state.players[active].life += atk.card.power
+      }
+    }
+
+    // Blockers swing on their own schedule, whether or not the creature they
+    // block fights in this step. A dead attacker is out of combat, so its
+    // blockers have nothing left to hit - hence the `markedForDeath` skip above.
+    //
+    // Deathtouch is asymmetric here: a blocker forces a kill with 999 damage,
+    // but an attacker only assigns `lethalDamage`'s 1, and `isDestroyedBySba`
+    // doesn't model deathtouch - so a deathtouch attacker kills nothing. That
+    // hole predates this step split and is tracked separately.
+    for (const blkIdx of blockerIdxs) {
+      const blk = defenderBoard[blkIdx]
+      if (!blk || blk.markedForDeath || !dealsDamageThisStep(blk)) continue
+      atk.damage += blk.card.keywords.has('deathtouch') ? 999 : blk.card.power
+      if (blk.card.keywords.has('lifelink')) {
+        state.players[defending].life += blk.card.power
+      }
+    }
+  }
+}
+
 export function resolveCombat(
   attackerIndices: number[],
   blockerAssignments: Map<number, number[]>,
   state: GameState,
 ): void {
-  const active = state.activePlayer
-  const defending = (1 - active) as 0 | 1
-  const attackerBoard = state.players[active].battlefield
-  const defenderBoard = state.players[defending].battlefield
+  const { attackerBoard, defenderBoard } = combatBoards(state)
 
   for (const atkIdx of attackerIndices) {
     const atk = attackerBoard[atkIdx]
@@ -33,52 +117,7 @@ export function resolveCombat(
     }
   }
 
-  // First strike damage step
-  for (const atkIdx of attackerIndices) {
-    const atk = attackerBoard[atkIdx]
-    if (!atk) continue
-    const hasFirstStrike = atk.card.keywords.has('first_strike') || atk.card.keywords.has('double_strike')
-    if (!hasFirstStrike) continue
-
-    const blockerIdxs = blockerAssignments.get(atkIdx)
-    if (!blockerIdxs || blockerIdxs.length === 0) {
-      state.players[defending].life -= atk.card.power
-      if (atk.card.keywords.has('lifelink')) {
-        state.players[active].life += atk.card.power
-      }
-    } else {
-      let remainingDamage = atk.card.power
-      for (const blkIdx of blockerIdxs) {
-        const blk = defenderBoard[blkIdx]
-        if (!blk || blk.markedForDeath) continue
-        const needed = lethalDamage(atk, blk)
-        const dealt = Math.min(remainingDamage, needed)
-        blk.damage += dealt
-        remainingDamage -= dealt
-      }
-      if (atk.card.keywords.has('trample') && remainingDamage > 0) {
-        state.players[defending].life -= remainingDamage
-      }
-      if (atk.card.keywords.has('lifelink')) {
-        state.players[active].life += atk.card.power
-      }
-
-      // Blockers with first strike / double strike hit back
-      for (const blkIdx of blockerIdxs) {
-        const blk = defenderBoard[blkIdx]
-        if (!blk) continue
-        const blkHasFS = blk.card.keywords.has('first_strike') || blk.card.keywords.has('double_strike')
-        const blkDead = isDestroyedBySba(blk) || (atk.card.keywords.has('deathtouch') && blk.damage > 0)
-        if (blkHasFS && !blkDead) {
-          const dmg = blk.card.keywords.has('deathtouch') ? 999 : blk.card.power
-          atk.damage += dmg
-          if (blk.card.keywords.has('lifelink')) {
-            state.players[defending].life += blk.card.power
-          }
-        }
-      }
-    }
-  }
+  damageStep(fightsInFirstStrikeStep, attackerIndices, blockerAssignments, state)
 
   // State-based actions after first strike
   for (const board of [attackerBoard, defenderBoard]) {
@@ -89,53 +128,5 @@ export function resolveCombat(
     }
   }
 
-  // Normal damage step
-  for (const atkIdx of attackerIndices) {
-    const atk = attackerBoard[atkIdx]
-    if (!atk || atk.markedForDeath) continue
-    const hasOnlyFirstStrike = atk.card.keywords.has('first_strike') && !atk.card.keywords.has('double_strike')
-    if (hasOnlyFirstStrike) continue
-
-    const blockerIdxs = blockerAssignments.get(atkIdx)
-    if (!blockerIdxs || blockerIdxs.length === 0) {
-      // Only deal unblocked damage if attacker didn't already deal first-strike damage to player
-      const hasFS = atk.card.keywords.has('first_strike') || atk.card.keywords.has('double_strike')
-      if (!hasFS) {
-        state.players[defending].life -= atk.card.power
-        if (atk.card.keywords.has('lifelink')) {
-          state.players[active].life += atk.card.power
-        }
-      }
-    } else {
-      let remainingDamage = atk.card.power
-      for (const blkIdx of blockerIdxs) {
-        const blk = defenderBoard[blkIdx]
-        if (!blk || blk.markedForDeath) continue
-        const needed = lethalDamage(atk, blk)
-        const dealt = Math.min(remainingDamage, needed)
-        blk.damage += dealt
-        remainingDamage -= dealt
-      }
-      if (atk.card.keywords.has('trample') && remainingDamage > 0) {
-        state.players[defending].life -= remainingDamage
-      }
-      if (atk.card.keywords.has('lifelink')) {
-        state.players[active].life += atk.card.power
-      }
-
-      // Blockers without first strike hit back now
-      for (const blkIdx of blockerIdxs) {
-        const blk = defenderBoard[blkIdx]
-        if (!blk || blk.markedForDeath) continue
-        const blkHasFS = blk.card.keywords.has('first_strike') || blk.card.keywords.has('double_strike')
-        if (!blkHasFS) {
-          const dmg = blk.card.keywords.has('deathtouch') ? 999 : blk.card.power
-          atk.damage += dmg
-          if (blk.card.keywords.has('lifelink')) {
-            state.players[defending].life += blk.card.power
-          }
-        }
-      }
-    }
-  }
+  damageStep(fightsInNormalStep, attackerIndices, blockerAssignments, state)
 }
