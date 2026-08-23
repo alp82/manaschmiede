@@ -93,6 +93,7 @@ export interface Translations {
   'deck.loadSamples': string
 'deck.delete': string
   'deck.cards': string
+  'deck.trimOver': string
   'deck.deckNotFound': string
   'deck.emptyDeck': string
   'deck.emptyDeckSub': string
@@ -134,10 +135,16 @@ export interface Translations {
   'intent.strategy': string
   'intent.budget': string
   'intent.rarity': string
-  'intent.edit': string
-  'intent.done': string
   'intent.legacyHint': string
   'intent.inertNote': string
+  'intent.editStrip': string
+  'intent.collapse': string
+  'intent.stagedPlanTitle': string
+  'intent.stagedPlanBody': string
+  'intent.stagedPlanBodyResumed': string
+  'intent.acceptPlan': string
+  'intent.discardPlan': string
+  'intent.collapseHint': string
 
   // Step 1: Colors
   'colors.title': string
@@ -197,6 +204,10 @@ export interface Translations {
   'core.nextBuildDeck': string
   'core.prevBatch': string
   'core.nextBatch': string
+  'core.reopenCombo': string
+  'core.comboAdditive': string
+  'core.comboAdditiveShort': string
+  'core.comboOver60': string
 
   // Step 4: Deck Fill
   'fill.addToDeck': string
@@ -223,6 +234,11 @@ export interface Translations {
   'fill.cardsCountShort': string
   'fill.sectionCount': string
   'fill.suggestionCount': string
+  'fill.refillLane': string
+  'fill.refillLaneHint': string
+  'fill.refillLaneHintNoCount': string
+  'fill.refilling': string
+  'fill.laneStale': string
 
   // AI Chat
   'chat.emptyPrompt': string

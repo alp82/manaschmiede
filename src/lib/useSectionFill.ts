@@ -7,8 +7,7 @@ import type { DeckCard } from './deck-utils'
 import { mergeCardsIntoDeck } from './deck-utils'
 import { BASIC_LAND_IDS, BASIC_LAND_ID_SET } from './basic-lands'
 import type { DeckSection } from './section-plan'
-import type { WizardState } from './wizard-state'
-import { getFillColors } from './wizard-state'
+import type { SectionFillIntent } from './section-fill-intent'
 import { getTraitById } from './trait-mappings'
 import {
   analyzeComposition,
@@ -41,7 +40,7 @@ interface UseSectionFillOptions {
   sections: DeckSection[]
   deckCards: DeckCard[]
   cardDataMap: Map<string, ScryfallCard>
-  wizardState: WizardState
+  intent: SectionFillIntent
   onDeckUpdate: (cards: DeckCard[]) => void
   onCardDataUpdate: (card: ScryfallCard) => void
   onSectionAssign: (sectionId: string, scryfallIds: string[]) => void
@@ -57,14 +56,14 @@ interface FillCallOptions {
 async function callFillSection(
   section: DeckSection,
   currentCards: Array<{ name: string; quantity: number }>,
-  wizardState: WizardState,
+  intent: SectionFillIntent,
   fillColors: string[],
   onCardDataUpdate: (card: ScryfallCard) => void,
   scryfallLang: string,
   options: FillCallOptions = {},
 ): Promise<PreviewCard[]> {
-  const archetypeLabels = wizardState.selectedArchetypes.map((id) => getTraitById(id)?.label || id)
-  const traitLabels = wizardState.selectedTraits.map((id) => getTraitById(id)?.label || id)
+  const archetypeLabels = intent.selectedArchetypes.map((id) => getTraitById(id)?.label || id)
+  const traitLabels = intent.selectedTraits.map((id) => getTraitById(id)?.label || id)
 
   const { ConvexHttpClient } = await import('convex/browser')
   const { api } = await import('../../convex/_generated/api')
@@ -80,9 +79,9 @@ async function callFillSection(
     colors: fillColors,
     archetypes: archetypeLabels,
     traits: traitLabels,
-    customStrategy: wizardState.customStrategy || undefined,
-    format: wizardState.format !== 'casual' ? wizardState.format : undefined,
-    budgetLimit: wizardState.budgetMax ?? undefined,
+    customStrategy: intent.customStrategy || undefined,
+    format: intent.format !== 'casual' ? intent.format : undefined,
+    budgetLimit: intent.budgetMax ?? undefined,
     deckComposition: options.deckComposition,
     rejectedCards: options.rejectedCards && options.rejectedCards.length > 0
       ? options.rejectedCards
@@ -183,7 +182,7 @@ export function useSectionFill({
   sections,
   deckCards,
   cardDataMap,
-  wizardState,
+  intent,
   onDeckUpdate,
   onCardDataUpdate,
   onSectionAssign,
@@ -230,16 +229,16 @@ export function useSectionFill({
    * we can't compute a correct color-identity constraint without it.
    */
   const buildFilters = useCallback((): DeckFilters | null => {
-    const fill = getFillColors(wizardState)
+    const fill = intent.getFillColors()
     if (!fill.ready || !fill.colors) return null
     return {
       colors: fill.colors,
-      format: wizardState.format,
-      budgetMin: wizardState.budgetMin,
-      budgetMax: wizardState.budgetMax,
-      rarities: wizardState.rarityFilter,
+      format: intent.format,
+      budgetMin: intent.budgetMin,
+      budgetMax: intent.budgetMax,
+      rarities: intent.rarityFilter,
     }
-  }, [wizardState])
+  }, [intent])
 
   /** Fill a single section - shows preview for user to accept */
   const fillSection = useCallback(async (sectionId: string) => {
@@ -265,7 +264,7 @@ export function useSectionFill({
       const firstBatch = await callFillSection(
         section,
         currentCards,
-        wizardState,
+        intent,
         filters.colors,
         onCardDataUpdate,
         scryfallLang,
@@ -279,7 +278,7 @@ export function useSectionFill({
         const retryBatch = await callFillSection(
           section,
           currentCards,
-          wizardState,
+          intent,
           filters.colors,
           onCardDataUpdate,
           scryfallLang,
@@ -315,7 +314,7 @@ export function useSectionFill({
         error: err instanceof Error ? err.message : 'Failed to fill section',
       })
     }
-  }, [sections, wizardState, onCardDataUpdate, updateSection, getCurrentCardNames, buildFilters, scryfallLang])
+  }, [sections, intent, onCardDataUpdate, updateSection, getCurrentCardNames, buildFilters, scryfallLang])
 
   /** Apply previewed cards from a section into the deck */
   const applySection = useCallback((sectionId: string) => {
@@ -341,7 +340,7 @@ export function useSectionFill({
 
   /** Auto-fill basic lands based on deck color identity */
   const fillLands = useCallback(async (targetCount: number) => {
-    const fill = getFillColors(wizardState)
+    const fill = intent.getFillColors()
     const activeColors = fill.colors ?? []
     if (activeColors.length === 0) return
 
@@ -372,7 +371,7 @@ export function useSectionFill({
     onDeckUpdate(merged)
     onSectionAssign('lands', addedIds)
     updateSection('lands', { status: 'applied' })
-  }, [wizardState, onDeckUpdate, onCardDataUpdate, onSectionAssign, updateSection, scryfallLang])
+  }, [intent, onDeckUpdate, onCardDataUpdate, onSectionAssign, updateSection, scryfallLang])
 
   /**
    * Fill all unfilled sections sequentially, auto-applying each.
@@ -385,7 +384,7 @@ export function useSectionFill({
     // Shallow-clone the assignments map so we can mutate it locally across
     // section iterations without touching wizard state directly.
     const assignments: Record<string, string[]> = {
-      ...(wizardState.sectionAssignments ?? {}),
+      ...(intent.sectionAssignments ?? {}),
     }
     const deckCards = deckCardsRef.current
 
@@ -448,7 +447,7 @@ export function useSectionFill({
         const firstBatch = await callFillSection(
           { ...section, targetCount: deficit },
           accumulatedNames(),
-          wizardState,
+          intent,
           filters.colors,
           onCardDataUpdate,
           scryfallLang,
@@ -461,7 +460,7 @@ export function useSectionFill({
           const retryBatch = await callFillSection(
             { ...section, targetCount: deficit },
             accumulatedNames(),
-            wizardState,
+            intent,
             filters.colors,
             onCardDataUpdate,
             scryfallLang,
@@ -511,7 +510,7 @@ export function useSectionFill({
     }
 
     setFillProgress(null)
-  }, [sections, sectionStates, wizardState, onCardDataUpdate, onDeckUpdate, onSectionAssign, updateSection, buildFilters, scryfallLang])
+  }, [sections, sectionStates, intent, onCardDataUpdate, onDeckUpdate, onSectionAssign, updateSection, buildFilters, scryfallLang])
 
   const cancelFillAll = useCallback(() => {
     abortRef.current = true

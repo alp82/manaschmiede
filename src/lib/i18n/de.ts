@@ -92,6 +92,7 @@ export const de: Translations = {
   'deck.loadSamples': 'Beispieldecks laden',
 'deck.delete': 'Löschen',
   'deck.cards': '{count} Karten',
+  'deck.trimOver': '{count} kürzen',
   'deck.deckNotFound': 'Deck nicht gefunden',
   'deck.emptyDeck': 'Leeres Deck',
   'deck.emptyDeckSub': 'Nutze den KI-Chat oder die Suche, um Karten hinzuzufügen.',
@@ -133,10 +134,16 @@ export const de: Translations = {
   'intent.strategy': 'Strategie',
   'intent.budget': 'Budget',
   'intent.rarity': 'Seltenheit',
-  'intent.edit': 'Absicht bearbeiten',
-  'intent.done': 'Fertig',
   'intent.legacyHint': 'Aus den Karten dieses Decks vorausgefüllt. Bearbeite sie, um die KI zu lenken.',
   'intent.inertNote': 'Die KI berücksichtigt dies bei jedem Vorschlag. Das Bearbeiten ändert deine Karten nie.',
+  'intent.editStrip': '+ Absicht bearbeiten',
+  'intent.collapse': '− einklappen',
+  'intent.stagedPlanTitle': 'Absicht geändert — Sektionsplan neu abgeleitet',
+  'intent.stagedPlanBody': 'Übernimm, um die Lanes neu zu formen, oder verwirf, um den aktuellen Plan zu behalten.',
+  'intent.stagedPlanBodyResumed': 'Aus deiner letzten Sitzung fortgesetzt — übernimm, um die Lanes neu zu formen, oder verwirf.',
+  'intent.acceptPlan': 'Plan übernehmen',
+  'intent.discardPlan': 'Verwerfen',
+  'intent.collapseHint': 'Einklappen, um den Sektionsplan aus deinen Änderungen neu abzuleiten.',
 
   // Step 1: Colors
   'colors.title': 'Wähle deine Farben',
@@ -196,6 +203,10 @@ export const de: Translations = {
   'core.nextBuildDeck': 'Weiter: Deck bauen',
   'core.prevBatch': 'Zurück',
   'core.nextBatch': 'Weiter',
+  'core.reopenCombo': 'Kern-Kombo vorschlagen',
+  'core.comboAdditive': 'Vorschläge werden deinem Deck hinzugefügt; deine gesperrten Karten bleiben.',
+  'core.comboAdditiveShort': 'Fügt Karten zu deinem Deck hinzu; deine gesperrten Karten bleiben.',
+  'core.comboOver60': 'Ergänzungen können das Deck über 60 Karten bringen — kürze den Überschuss nach dem Anwenden.',
 
   // Step 4: Deck Fill
   'fill.addToDeck': 'Zum Deck hinzufügen',
@@ -222,6 +233,11 @@ export const de: Translations = {
   'fill.cardsCountShort': '{count} Karten',
   'fill.sectionCount': '{count} Sektionen',
   'fill.suggestionCount': '{count} Vorschläge',
+  'fill.refillLane': 'Lane neu füllen',
+  'fill.refillLaneHint': 'Diese Lane passt nicht mehr zur aktuellen Absicht (+{count}).',
+  'fill.refillLaneHintNoCount': 'Diese Lane passt nicht mehr zur aktuellen Absicht.',
+  'fill.refilling': 'Wird gefüllt...',
+  'fill.laneStale': 'Veraltet',
 
   // AI Chat
   'chat.emptyPrompt': 'Beschreibe dein gewünschtes Deck oder stelle Fragen...',

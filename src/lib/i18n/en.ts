@@ -92,6 +92,7 @@ export const en: Translations = {
   'deck.loadSamples': 'Load Sample Decks',
 'deck.delete': 'Delete',
   'deck.cards': '{count} cards',
+  'deck.trimOver': 'trim {count}',
   'deck.deckNotFound': 'Deck not found',
   'deck.emptyDeck': 'Empty Deck',
   'deck.emptyDeckSub': 'Use the AI chat or search to add cards.',
@@ -133,10 +134,16 @@ export const en: Translations = {
   'intent.strategy': 'Strategy',
   'intent.budget': 'Budget',
   'intent.rarity': 'Rarity',
-  'intent.edit': 'Edit intent',
-  'intent.done': 'Done',
   'intent.legacyHint': 'Pre-filled from this deck’s cards. Edit to steer the AI.',
   'intent.inertNote': 'The AI honors this on every suggestion. Editing here never changes your cards.',
+  'intent.editStrip': '+ edit intent',
+  'intent.collapse': '− collapse',
+  'intent.stagedPlanTitle': 'Intent changed — section plan re-derived',
+  'intent.stagedPlanBody': 'Accept to re-shape the lanes, or discard to keep the current plan.',
+  'intent.stagedPlanBodyResumed': 'Resumed from your last session — accept to re-shape the lanes, or discard.',
+  'intent.acceptPlan': 'Accept plan',
+  'intent.discardPlan': 'Discard',
+  'intent.collapseHint': 'Collapse to re-derive the section plan from your changes.',
 
   // Step 1: Colors
   'colors.title': 'Choose Your Colors',
@@ -196,6 +203,10 @@ export const en: Translations = {
   'core.nextBuildDeck': 'Next: Build Deck',
   'core.prevBatch': 'Prev',
   'core.nextBatch': 'Next',
+  'core.reopenCombo': 'Suggest core combo',
+  'core.comboAdditive': 'Suggestions are added to your deck; your locked cards stay.',
+  'core.comboAdditiveShort': 'Adds cards to your deck; your locked cards stay.',
+  'core.comboOver60': 'Additions can push the deck past 60 — trim the excess after applying.',
 
   // Step 4: Deck Fill
   'fill.addToDeck': 'Add to deck',
@@ -222,6 +233,11 @@ export const en: Translations = {
   'fill.cardsCountShort': '{count} cards',
   'fill.sectionCount': '{count} sections',
   'fill.suggestionCount': '{count} suggestions',
+  'fill.refillLane': 'Re-fill lane',
+  'fill.refillLaneHint': 'This lane no longer matches the current intent (+{count}).',
+  'fill.refillLaneHintNoCount': 'This lane no longer matches the current intent.',
+  'fill.refilling': 'Filling...',
+  'fill.laneStale': 'Stale',
 
   // AI Chat
   'chat.emptyPrompt': 'Describe your desired deck or ask questions...',

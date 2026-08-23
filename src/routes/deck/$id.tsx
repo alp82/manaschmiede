@@ -2,16 +2,15 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useState, useCallback, useMemo, useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Layout } from '../../components/Layout'
-import { CardLightbox } from '../../components/CardLightbox'
 import { DeckCardList } from '../../components/DeckCardList'
 import { SimulationPanel } from '../../components/SimulationPanel'
 import { DeckEditor } from '../../components/deck/DeckEditor'
+import type { LaneStatus } from '../../components/deck/SectionLane'
 import { DeckIntentPanel } from '../../components/deck/DeckIntentPanel'
-import { SectionLane } from '../../components/deck/SectionLane'
+import { ReopenComboPicker } from '../../components/deck/ReopenComboPicker'
 import { Button } from '../../components/ui/Button'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { UndoRedoButtons } from '../../components/ui/UndoRedoButtons'
-import { DeckCardSkeleton } from '../../components/ui/DeckCardSkeleton'
 import { useToast } from '../../components/ui/Toast'
 import { analyzeDeck } from '../../lib/balance'
 import { useDeckChat } from '../../lib/useDeckChat'
@@ -19,10 +18,14 @@ import type { CardChange } from '../../lib/deck-chat-types'
 import { loadDeck, persistDeck, pickFeaturedCardIds, type LocalDeck } from '../../lib/deck-storage'
 import { emptyIntent, deriveIntentFilters, buildChatIntentContext, type DeckIntent } from '../../lib/deck-intent'
 import { pickSectionForCard } from '../../lib/section-plan'
+import { applySectionInheritance } from '../../lib/section-assignment'
+import { useStagedRederive, refillCountFor } from '../../lib/use-staged-rederive'
+import { useDeckPending } from '../../lib/use-deck-pending'
+import { sectionFillIntentFromDeck } from '../../lib/section-fill-intent'
 import { BASIC_LAND_ID_SET } from '../../lib/basic-lands'
 import { useDeckCardData } from '../../lib/use-deck-card-data'
 import { useDeckHistory } from '../../lib/use-deck-history'
-import { useSections, useSectionCards, buildLaneDescriptors, useDeckDisplay } from '../../lib/use-deck-sections'
+import { useSections, useSectionCards, useDeckDisplay } from '../../lib/use-deck-sections'
 import type { ScryfallCard } from '../../lib/scryfall/types'
 import type { DeckCard, DeckZone } from '../../lib/deck-utils'
 import { getTotalCards, copyDecklistToClipboard, mergeCardsIntoDeck, deriveLockedIds, deriveColorsFromCards, FORMAT_LABELS } from '../../lib/deck-utils'
@@ -50,8 +53,6 @@ function DeckPage() {
   const [deckName, setDeckName] = useState(() => loadDeck(id)?.name ?? '')
   const [deckDescription, setDeckDescription] = useState(() => loadDeck(id)?.description ?? '')
   const [cardDataMap, setCardDataMap] = useState<Map<string, ScryfallCard>>(new Map())
-  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
-  const [editing, setEditing] = useState(false)
   const [pdfGenerating, setPdfGenerating] = useState(false)
 
   // In-memory undo/redo for edit mode (no aux persistence - `persist: false`).
@@ -179,65 +180,24 @@ function DeckPage() {
       setDeck((prev) => {
         if (!prev) return prev
 
-        // Inherit section assignments for the applied change set: a swap's
-        // added card takes the removed card's section; a plain add is routed
-        // by pickSectionForCard. Mirrors the addCard section logic and the
-        // wizard's applyChangesWithSound pairing.
+        // Inherit section assignments for the applied change set via the shared
+        // helper: a swap's added card takes the removed card's section, removed
+        // ids are purged, and remaining adds are routed by pickSectionForCard.
+        // Skip entirely when no plan exists — applySectionInheritance with an
+        // empty `sections` would drop every add into unassigned; the prior
+        // direct sectionAssignments is the correct no-plan fallback.
         let sectionAssignments = prev.sectionAssignments
         const plan = prev.sectionPlan ?? []
         if (changes && changes.length > 0 && plan.length > 0) {
-          const next: Record<string, string[]> = {}
-          for (const [k, v] of Object.entries(sectionAssignments ?? {})) next[k] = [...v]
-
-          const removedIds = changes.filter((c) => c.type === 'removed').map((c) => c.scryfallId)
-          const addedChanges = changes.filter((c) => c.type === 'added')
-          const addedIds = addedChanges.map((c) => c.scryfallId)
-          const placed = new Set<string>()
-
-          // Swap pairs: for an unambiguous single-card swap the new card
-          // inherits the removed card's section. Multi-card swaps carry no
-          // reliable add->remove pairing, so those adds fall through to
-          // pickSectionForCard below rather than guessing by array index.
-          if (removedIds.length === 1 && addedIds.length > 0) {
-            const sectionForRemoved = new Map<string, string>()
-            for (const rid of removedIds) {
-              for (const [sectionId, ids] of Object.entries(next)) {
-                if (ids.includes(rid)) sectionForRemoved.set(rid, sectionId)
-              }
-            }
-            const pairCount = Math.min(removedIds.length, addedIds.length)
-            for (let i = 0; i < pairCount; i++) {
-              const sectionId = sectionForRemoved.get(removedIds[i])
-              if (sectionId) {
-                next[sectionId] = (next[sectionId] ?? [])
-                  .filter((id) => id !== removedIds[i])
-                  .concat(addedIds[i])
-                placed.add(addedIds[i])
-              }
-            }
-          }
-
-          // Drop any removed ids still lingering in assignments.
-          for (const rid of removedIds) {
-            for (const sectionId of Object.keys(next)) {
-              next[sectionId] = next[sectionId].filter((id) => id !== rid)
-            }
-          }
-
-          // Remaining additions: route by card role.
-          for (const change of addedChanges) {
-            const aid = change.scryfallId
-            if (placed.has(aid)) continue
-            const card = change.scryfallCard ?? cardDataMap.get(aid)
-            if (!card) continue
-            const pickedId = pickSectionForCard(card, plan)
-            if (pickedId) {
-              next[pickedId] = [...(next[pickedId] ?? []), aid]
-              placed.add(aid)
-            }
-          }
-
-          sectionAssignments = next
+          sectionAssignments = applySectionInheritance(
+            sectionAssignments ?? {},
+            changes,
+            {
+              strictSingleSwap: true,
+              resolveCard: (cid) => cardDataMap.get(cid),
+              sections: plan,
+            },
+          )
         }
 
         return {
@@ -282,6 +242,14 @@ function DeckPage() {
     () => ({ ...deriveIntentFilters(intent, fallbackColors), format: deck?.format }),
     [intent, fallbackColors, deck?.format],
   )
+  // Fill intent driven by the deck's committed colors — backs the reopen-combo
+  // picker. `getFillColors().ready` gates the affordance (SMOKE-2): false when
+  // neither committed colors nor a card-derived fallback have resolved.
+  const reopenFillIntent = useMemo(
+    () => sectionFillIntentFromDeck(intent, fallbackColors),
+    [intent, fallbackColors],
+  )
+  const reopenComboReady = reopenFillIntent.getFillColors().ready
   const intentContext = useMemo(
     () => buildChatIntentContext(
       intentFilters.colors,
@@ -297,12 +265,22 @@ function DeckPage() {
     [intentFilters.colors, intent.archetypes, intent.traits, intent.customStrategy, intent.budgetMin, intent.budgetMax, deck?.format],
   )
 
+  // ─── Per-deck pending slot (persistence) ────────────────────
+  // Backs the mid-review transient state (staged re-derive plan + offered
+  // combos + re-fill chat) so a reload resumes it. The slot records the
+  // committed-intent fingerprint it was derived against; a structural intent
+  // change evicts the stale staged layer on mount. Nothing here touches the
+  // curated 60 (manaschmiede-decks) — the slot is separate, cleared on Apply.
+  const { pending: deckPending, setStagedPlan, setOfferedCombos, setRefillChat, clearCardLevelPending } =
+    useDeckPending(id, intent)
+
   const {
     messages,
     isLoading: chatLoading,
     pending,
     newCardIds,
     sendMessage,
+    stageChanges,
     applyChanges,
     discardChanges,
   } = useDeckChat({
@@ -314,10 +292,21 @@ function DeckPage() {
     lockedCardIds,
     intentFilters,
     intentContext,
+    initialMessages: deckPending.refillChat,
+    onMessagesChange: setRefillChat,
   })
 
+  // Wrap the chat ledger's applyChanges so that applying a proposal also evicts
+  // the offered-combos + re-fill-chat from the pending slot ("cleared on Apply"
+  // contract). The staged PLAN is intentionally left alone — it is its own
+  // staging layer, cleared only by acceptPlan / discardPlan (decision 4).
+  const handleApplyChanges = useCallback(() => {
+    applyChanges()
+    clearCardLevelPending()
+  }, [applyChanges, clearCardLevelPending])
+
   // Card data must be fully loaded before a send is allowed: a delta fired
-  // against a partially-loaded cardDataMap maps unresolved cards to their raw
+  // against a partially-played cardDataMap maps unresolved cards to their raw
   // Scryfall UUID, causing resolveRemoveIds to silently drop the removal.
   const chatIsLoading = chatLoading || cardsLoading
 
@@ -356,11 +345,40 @@ function DeckPage() {
 
   const deckDisplay = useDeckDisplay(deck?.cards ?? [], cardDataMap)
 
-  const allScryfallCards = useMemo(() => deckDisplay.map((d) => d.card), [deckDisplay])
+  const resolveCard = useCallback((cid: string) => cardDataMap.get(cid), [cardDataMap])
 
-  // Localized section plan (re-localized against the active locale; persisted
-  // plans freeze their labels at creation time).
-  const localizedPlan = useSections({ sectionPlan: deck?.sectionPlan ?? [], t })
+  // ─── Staged re-derive (persistence-backed) ──────────────────
+  // A structural intent change stages a re-derived section plan in its OWN
+  // layer (NOT useDeckChat.pending). It never writes to deck.cards / triggers
+  // autosave until acceptPlan, which rewrites sectionPlan + re-buckets
+  // sectionAssignments only. The deck (and its autosave/color/PDF effects) stays
+  // bound to the committed deck the whole time. The staged plan rehydrates from
+  // (and persists to) the pending slot so a mid-review reload resumes it.
+  const {
+    stagedPlan,
+    staleLaneIds,
+    deficitFor,
+    resumed: stagedPlanResumed,
+    stage: stageRederive,
+    acceptPlan,
+    discardPlan,
+  } = useStagedRederive({
+    displayCards: deckDisplay,
+    t,
+    setDeck,
+    resolveCard,
+    initialPlan: deckPending.stagedPlan,
+    onStagedChange: setStagedPlan,
+    committedPlan: deck?.sectionPlan ?? [],
+  })
+
+  // Localized section plan — a staged re-derive (when present) takes precedence
+  // over the persisted plan; both re-localize against the active locale.
+  const localizedPlan = useSections({
+    sectionPlan: deck?.sectionPlan ?? [],
+    stagedPlan: stagedPlan ?? undefined,
+    t,
+  })
 
   // Build section-based card groups
   const sectionCards = useSectionCards({
@@ -371,33 +389,53 @@ function DeckPage() {
     fallbackByType: true,
   })
 
-  // Build the ordered lane list for view mode: core first, then plan sections
-  // (or type-fallback labels when the plan is empty), then leftover, then lands.
-  const lanes = useMemo(
-    () => buildLaneDescriptors(localizedPlan, sectionCards, t, { fallbackByType: true }),
-    [localizedPlan, sectionCards, t],
+  // Per-lane re-fill (deck-view re-derive). The intent-driven fill request
+  // routes through the EXISTING single chat ledger (decision 7, last-wins) — a
+  // targeted "add N more cards to <lane>" message whose preview lands in
+  // useDeckChat.pending. Gated on !chatIsLoading so it can't fire against a
+  // partially-loaded cardDataMap (chatIsLoading folds in cardsLoading — C2 guard).
+  const refillLane = useCallback(
+    (laneId: string) => {
+      if (chatIsLoading) return
+      const section = localizedPlan.find((s) => s.id === laneId)
+      if (!section) return
+      // Decision 5: ask for the DEFICIT, never a targetCount fallback. A lane
+      // stale from a shrinking target sits at deficit 0 with nothing to fill.
+      const needed = refillCountFor(deficitFor(laneId))
+      if (needed === null) return
+      sendMessage(
+        `Add ${needed} more cards to the "${section.label}" section. Keep the existing cards and add cards that fit the section's role: ${section.description || section.label}.`,
+        { targetSection: laneId },
+      )
+    },
+    [chatIsLoading, localizedPlan, deficitFor, sendMessage],
   )
 
-  const openLightbox = useCallback((card: ScryfallCard) => {
-    const idx = allScryfallCards.findIndex((c) => c.id === card.id)
-    if (idx >= 0) { setLightboxIndex(idx); sounds.cardOpen() }
-  }, [allScryfallCards, sounds])
+  // Resolve per-lane stale status for DeckEditor's SectionLane render: stale
+  // lanes (from the staged re-derive) dim + show the inline re-fill prompt.
+  const staleLaneSet = useMemo(() => new Set(staleLaneIds), [staleLaneIds])
+  const resolveLaneStatus = useCallback(
+    (laneId: string): LaneStatus | undefined => {
+      if (!staleLaneSet.has(laneId)) return undefined
+      // A lane with no deficit (its target shrank) still dims, but offers no
+      // re-fill — SectionLane hides the prompt when onRefill is absent.
+      const needed = refillCountFor(deficitFor(laneId))
+      return {
+        stale: true,
+        onRefill: needed === null ? undefined : () => refillLane(laneId),
+        refillDeficit: needed ?? 0,
+        refilling: chatIsLoading,
+      }
+    },
+    [staleLaneSet, refillLane, deficitFor, chatIsLoading],
+  )
 
   // "Forge with this card" - opens a fresh wizard seeded by this card. Used by
-  // both the view-mode lightbox and the edit-mode (DeckEditor) lightbox.
+  // the DeckEditor lightbox.
   const forgeWithCard = useCallback((card: ScryfallCard) => {
     sounds.uiClick()
     navigate({ to: '/deck/new', search: { seed: card.id } })
   }, [navigate, sounds])
-
-  const renderViewLightboxActions = useCallback(
-    (card: ScryfallCard) => (
-      <Button variant="primary" size="md" className="w-full" onClick={() => forgeWithCard(card)}>
-        {t('wizard.forgeWithCard')}
-      </Button>
-    ),
-    [forgeWithCard, t],
-  )
 
   const renderEditLightboxActions = useCallback(
     (card: ScryfallCard, close: () => void) => (
@@ -437,63 +475,58 @@ function DeckPage() {
   )
 
   // ─── Render ──────────────────────────────────────────────────
+  // One always-capable working-mode surface (no view↔edit toggle): an
+  // always-editable masthead, the collapsible intent strip, the staged-plan
+  // accept/discard layer, and the dense lanes + chat/fill rail (DeckEditor).
 
   return (
     <Layout>
       <div className="flex flex-col gap-6">
-        {/* ─── HEADER ────────────────────────────────────────── */}
+        {/* ─── MASTHEAD ──────────────────────────────────────── */}
         <header className="flex flex-col gap-4 border-b border-hairline pb-6 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0 flex-1">
-            <span className="font-mono text-mono-marginal uppercase leading-none tracking-mono-marginal text-ink-red-bright">
+            <span className="font-mono text-mono-marginal uppercase leading-none tracking-mono-marginal text-cream-500">
               {FORMAT_LABELS[deck.format]}
             </span>
-            {editing ? (
-              <>
-                <input
-                  type="text"
-                  value={deckName}
-                  onChange={(e) => updateDeckName(e.target.value)}
-                  onKeyDown={(e) => e.key.length === 1 && sounds.typing()}
-                  className="mt-2 w-full border-0 border-b border-hairline bg-transparent font-display text-2xl uppercase tracking-display text-cream-100 focus:border-cream-200 focus:outline-none sm:text-display-section"
-                  placeholder={t('deck.namePlaceholder')}
-                  aria-label={t('deck.namePlaceholder')}
-                />
-                <input
-                  type="text"
-                  value={deckDescription}
-                  onChange={(e) => updateDeckDescription(e.target.value)}
-                  onKeyDown={(e) => e.key.length === 1 && sounds.typing()}
-                  className="mt-3 w-full border-0 border-b border-hairline bg-transparent font-body text-sm italic text-cream-400 focus:border-cream-200 focus:outline-none"
-                  placeholder={t('deck.descriptionPlaceholder')}
-                  aria-label={t('deck.descriptionPlaceholder')}
-                />
-              </>
-            ) : (
-              <>
-                <h1 className="mt-2 font-display text-2xl uppercase leading-tight tracking-display text-cream-100 sm:text-display-section">
-                  {deckName}
-                </h1>
-                {deckDescription && (
-                  <p className="mt-2 font-body text-sm italic text-cream-400">{deckDescription}</p>
-                )}
-              </>
-            )}
+            <input
+              type="text"
+              value={deckName}
+              onChange={(e) => updateDeckName(e.target.value)}
+              onKeyDown={(e) => e.key.length === 1 && sounds.typing()}
+              className="mt-2 w-full border-0 border-b border-hairline bg-transparent font-display text-2xl uppercase tracking-display text-cream-100 focus:border-cream-200 focus:outline-none sm:text-display-section"
+              placeholder={t('deck.namePlaceholder')}
+              aria-label={t('deck.namePlaceholder')}
+            />
+            <input
+              type="text"
+              value={deckDescription}
+              onChange={(e) => updateDeckDescription(e.target.value)}
+              onKeyDown={(e) => e.key.length === 1 && sounds.typing()}
+              className="mt-3 w-full border-0 border-b border-hairline bg-transparent font-body text-sm italic text-cream-400 focus:border-cream-200 focus:outline-none"
+              placeholder={t('deck.descriptionPlaceholder')}
+              aria-label={t('deck.descriptionPlaceholder')}
+            />
           </div>
 
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-            {editing && (
-              <UndoRedoButtons
-                show={mainCount > 0}
-                canUndo={history.canUndo}
-                canRedo={history.canRedo}
-                onUndo={() => { history.undo(); sounds.uiClick() }}
-                onRedo={() => { history.redo(); sounds.uiClick() }}
-                undoLabel={t('action.undo')}
-                redoLabel={t('action.redo')}
-              />
-            )}
-            <span className="font-mono text-mono-num tabular-nums text-cream-300">
-              {t('deck.cards', { count: mainCount })}
+            <UndoRedoButtons
+              show={mainCount > 0}
+              canUndo={history.canUndo}
+              canRedo={history.canRedo}
+              onUndo={() => { history.undo(); sounds.uiClick() }}
+              onRedo={() => { history.redo(); sounds.uiClick() }}
+              undoLabel={t('action.undo')}
+              redoLabel={t('action.redo')}
+            />
+            <span className="font-mono text-mono-num tabular-nums">
+              <span className={mainCount > 60 ? 'text-ink-red-bright' : 'text-cream-300'}>
+                {t('deck.cards', { count: mainCount })}
+              </span>
+              {mainCount > 60 && (
+                <span className="ml-1 font-mono text-mono-marginal text-ink-red">
+                  {t('deck.trimOver', { count: mainCount - 60 })}
+                </span>
+              )}
             </span>
             <Button
               variant="secondary"
@@ -514,93 +547,79 @@ function DeckPage() {
             >
               {pdfGenerating ? t('deck.pdfGenerating') : t('deck.pdf')}
             </Button>
-            <Button
-              variant={editing ? 'secondary' : 'primary'}
-              size="sm"
-              onClick={() => setEditing(!editing)}
-            >
-              {editing ? t('deck.doneEditing') : t('deck.editMode')}
-            </Button>
           </div>
         </header>
 
-        {editing ? (
-          <DeckEditor
-            editing
-            cards={deck.cards}
-            cardDataMap={cardDataMap}
-            sections={localizedPlan}
-            sectionCards={sectionCards}
-            lockedCardIds={lockedCardIds}
-            onAddCard={addCard}
-            onToggleLock={toggleLock}
-            onChangeQuantity={changeQuantityMain}
-            onRemoveCard={removeCardMain}
-            onUndo={history.undo}
-            onRedo={history.redo}
-            analysis={analysis}
-            cardsLoading={cardsLoading}
-            cardListSlot={cardListSlot}
-            renderExtraLightboxActions={renderEditLightboxActions}
-            chat={{
-              messages,
-              pending,
-              isLoading: chatIsLoading,
-              newCardIds,
-              sendMessage,
-              onApply: applyChanges,
-              onDiscard: discardChanges,
-            }}
+        {/* ─── Collapsible intent strip ──────────────────────── */}
+        <DeckIntentPanel
+          intent={intent}
+          format={deck.format}
+          onChange={updateIntent}
+          seedColors={fallbackColors}
+          hasStoredIntent={hasStoredIntent}
+          onStructuralCommit={stageRederive}
+        />
+
+        {/* ─── Reopen-combo picker (additive-only) ───────────── */}
+        {reopenComboReady && (
+          <ReopenComboPicker
+            intent={reopenFillIntent}
+            deckCards={deck.cards}
+            onStage={(proposal) => { stageChanges(proposal); setOfferedCombos(undefined) }}
+            disabled={chatIsLoading}
+            initialCombos={deckPending.offeredCombos}
+            onCombosChange={setOfferedCombos}
           />
-        ) : (
-          /* ========== VIEW MODE - reading-mode airy ========== */
-          <div className="mx-auto w-full max-w-4xl space-y-12 pt-6">
-            <DeckIntentPanel
-              intent={intent}
-              format={deck.format}
-              onChange={updateIntent}
-              seedColors={fallbackColors}
-              hasStoredIntent={hasStoredIntent}
-            />
-            {lanes.length > 0 ? (
-              <div className="space-y-10">
-                {lanes.map((lane) => (
-                  <SectionLane
-                    key={lane.id}
-                    section={lane}
-                    items={sectionCards[lane.id] ?? []}
-                    newCardIds={newCardIds}
-                    editing={false}
-                    onOpenLightbox={openLightbox}
-                    onToggleLock={toggleLock}
-                    onChangeQuantity={changeQuantityMain}
-                    onRemoveCard={removeCardMain}
-                  />
-                ))}
-              </div>
-            ) : deck.cards.length === 0 ? (
-              <EmptyState
-                title={t('deck.emptyDeck')}
-                description={t('deck.emptyDeckSub')}
-                className="min-h-[200px] py-16"
-              />
-            ) : cardsLoading || deckDisplay.length === 0 ? (
-              <DeckCardSkeleton />
-            ) : null}
+        )}
+
+        {/* ─── Staged-plan accept/discard layer ──────────────── */}
+        {stagedPlan && (
+          <div className="border-t border-hairline pt-4">
+            <p className="font-mono text-mono-label uppercase tracking-mono-label text-ink-red-bright">
+              {t('intent.stagedPlanTitle')}
+            </p>
+            <p className="mt-2 font-body text-sm text-cream-400">{t(stagedPlanResumed ? 'intent.stagedPlanBodyResumed' : 'intent.stagedPlanBody')}</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button variant="primary" size="sm" onClick={() => { acceptPlan(); sounds.uiClick() }}>
+                {t('intent.acceptPlan')}
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => { discardPlan(); sounds.uiClick() }}>
+                {t('intent.discardPlan')}
+              </Button>
+            </div>
           </div>
         )}
-      </div>
 
-      {/* View-mode lightbox (edit mode owns its own inside DeckEditor) */}
-      {!editing && lightboxIndex !== null && allScryfallCards.length > 0 && (
-        <CardLightbox
-          cards={allScryfallCards}
-          currentIndex={lightboxIndex}
-          onClose={() => setLightboxIndex(null)}
-          onNavigate={setLightboxIndex}
-          renderActions={renderViewLightboxActions}
+        {/* ─── Lanes + chat/fill rail ────────────────────────── */}
+        <DeckEditor
+          editing
+          cards={deck.cards}
+          cardDataMap={cardDataMap}
+          sections={localizedPlan}
+          sectionCards={sectionCards}
+          lockedCardIds={lockedCardIds}
+          onAddCard={addCard}
+          onToggleLock={toggleLock}
+          onChangeQuantity={changeQuantityMain}
+          onRemoveCard={removeCardMain}
+          onUndo={history.undo}
+          onRedo={history.redo}
+          analysis={analysis}
+          cardsLoading={cardsLoading}
+          cardListSlot={cardListSlot}
+          renderExtraLightboxActions={renderEditLightboxActions}
+          resolveLaneStatus={resolveLaneStatus}
+          chat={{
+            messages,
+            pending,
+            isLoading: chatIsLoading,
+            newCardIds,
+            sendMessage,
+            onApply: handleApplyChanges,
+            onDiscard: discardChanges,
+          }}
         />
-      )}
+      </div>
     </Layout>
   )
 }

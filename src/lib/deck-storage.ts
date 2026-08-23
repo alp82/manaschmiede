@@ -3,6 +3,7 @@ import type { DeckCard, DeckFormat } from './deck-utils'
 import type { DeckIntent } from './deck-intent'
 import type { DeckSection } from './section-plan'
 import type { ScryfallCard } from './scryfall/types'
+import { clearDeckPending } from './deck-pending'
 
 const STORAGE_KEY = 'manaschmiede-decks'
 
@@ -70,4 +71,5 @@ export function persistDeck(deck: LocalDeck): void {
 export function deleteDeck(id: string): void {
   const decks = loadDecks().filter((d) => d.id !== id)
   localStorage.setItem(STORAGE_KEY, JSON.stringify(decks))
+  clearDeckPending(id)
 }

@@ -32,6 +32,24 @@ export interface SectionLaneState {
   onDiscardSection: () => void
 }
 
+/**
+ * Per-lane re-derive status (deck-view only). When a lane is stale its body
+ * dims + an inline re-fill prompt renders. Single-sourced here so DeckEditor
+ * and $id.tsx share the exact same shape.
+ */
+export interface LaneStatus {
+  stale: boolean
+  /**
+   * Omitted when the lane has nothing to re-fill (its target shrank, so it is
+   * already at or over the staged count). The lane still dims; the prompt is
+   * simply not rendered.
+   */
+  onRefill?: () => void
+  refillDeficit: number
+  /** True when a re-fill chat call is in flight for this lane. */
+  refilling?: boolean
+}
+
 interface SectionLaneProps {
   section: SectionLaneDescriptor
   items: DeckDisplayCard[]
@@ -52,6 +70,18 @@ interface SectionLaneProps {
    * preview state block.
    */
   sectionState?: SectionLaneState
+  /**
+   * Deck-view re-derive: when true the lane no longer matches the committed
+   * intent. The lane body dims + locks (combosAreStale precedent) and an
+   * inline re-fill prompt renders below the header.
+   */
+  stale?: boolean
+  /** Fires the lane's intent-driven re-fill (deck view only). */
+  onRefill?: () => void
+  /** Copies missing from the lane vs the re-derived target. */
+  refillDeficit?: number
+  /** True when a re-fill chat call is currently in flight for this lane. */
+  refilling?: boolean
 }
 
 /**
@@ -73,6 +103,10 @@ export const SectionLane = memo(function SectionLane({
   onRemoveCard,
   fillSlot,
   sectionState,
+  stale = false,
+  onRefill,
+  refillDeficit = 0,
+  refilling = false,
 }: SectionLaneProps) {
   const t = useT()
   const [collapsed, setCollapsed] = useState(false)
@@ -109,7 +143,13 @@ export const SectionLane = memo(function SectionLane({
         progressPct={sectionState && hasTarget ? fillPct : undefined}
         progressOver={overFilled}
         count={
-          hasTarget ? (
+          <>
+            {stale && (
+              <span className="font-mono text-mono-marginal uppercase tracking-mono-marginal text-ink-red-bright">
+                {t('fill.laneStale')}
+              </span>
+            )}
+            {hasTarget ? (
             <span
               className={cn(
                 'tabular-nums',
@@ -122,14 +162,42 @@ export const SectionLane = memo(function SectionLane({
             >
               {count} / {targetCount}
             </span>
-          ) : (
-            <span className="tabular-nums text-cream-300">{count}</span>
-          )
+            ) : (
+              <span className="tabular-nums text-cream-300">{count}</span>
+            )}
+          </>
         }
       />
 
+      {/* Stale re-fill prompt — hairline-framed line under the header with an
+          ink-red primary action showing the deficit (deck-view re-derive). */}
+      {stale && onRefill && (
+        <div className="mb-3 flex items-center justify-between gap-3 border border-hairline px-3 py-2">
+          {refilling ? (
+            <span className="flex items-center gap-2">
+              <LoadingDots size="md" tone="bright" />
+              <span className="font-mono text-mono-label uppercase tracking-mono-label text-cream-400">
+                {t('fill.refilling')}
+              </span>
+            </span>
+          ) : (
+            <span className="font-body text-sm italic text-cream-400">
+              {refillDeficit > 0
+                ? t('fill.refillLaneHint', { count: refillDeficit })
+                : t('fill.refillLaneHintNoCount')}
+            </span>
+          )}
+          <Button variant="primary" size="sm" onClick={onRefill} disabled={refilling}>
+            {t('fill.refillLane')}
+          </Button>
+        </div>
+      )}
+
       {!collapsed && (
-        <div id={`section-body-${section.id}`}>
+        <div
+          id={`section-body-${section.id}`}
+          className={cn(stale && 'pointer-events-none opacity-40')}
+        >
           {/* Cards */}
           {items.length > 0 && (
             <div

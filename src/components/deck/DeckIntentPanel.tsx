@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { ManaSymbol, type ManaColor } from '../ManaSymbol'
 import { Pill } from '../ui/Pill'
 import { Button } from '../ui/Button'
@@ -8,6 +8,7 @@ import { useDeckSounds } from '../../lib/sounds'
 import { getTraitsByCategory, getTraitById } from '../../lib/trait-mappings'
 import { FORMAT_LABELS, type DeckFormat } from '../../lib/deck-utils'
 import type { DeckIntent } from '../../lib/deck-intent'
+import { structuralFieldsChanged } from '../../lib/use-staged-rederive'
 
 const ALL_COLORS: ManaColor[] = ['W', 'U', 'B', 'R', 'G']
 const RARITIES = ['common', 'uncommon', 'rare', 'mythic'] as const
@@ -27,6 +28,13 @@ interface DeckIntentPanelProps {
   seedColors: ManaColor[]
   /** False for legacy decks with no persisted intent — triggers the one-time pre-seed. */
   hasStoredIntent: boolean
+  /**
+   * Fired exactly once when the strip collapses (edit → done) AND a structural
+   * field (committed colors or archetypes) changed during the edit. The deck
+   * view uses this to stage a re-derived section plan. Soft-only edits do not
+   * fire it.
+   */
+  onStructuralCommit?: (intent: DeckIntent) => void
 }
 
 function selectedColors(intent: DeckIntent): ManaColor[] {
@@ -49,10 +57,39 @@ function budgetReadout(min: number | null, max: number | null, unlimited: string
  * intent) are pre-seeded once from their card-derived colors so the readout
  * is never blank.
  */
-export function DeckIntentPanel({ intent, format, onChange, seedColors, hasStoredIntent }: DeckIntentPanelProps) {
+export function DeckIntentPanel({ intent, format, onChange, seedColors, hasStoredIntent, onStructuralCommit }: DeckIntentPanelProps) {
   const t = useT()
   const sounds = useDeckSounds()
   const [editing, setEditing] = useState(false)
+
+  // Structural snapshot taken when the strip opens (editing false→true). On
+  // collapse (true→false) it is compared to the current intent; a structural
+  // change (committed colors / archetypes) fires onStructuralCommit exactly
+  // once. The latest intent lives in a ref so the toggle reads a current value
+  // without re-creating the callback per edit.
+  const structuralSnapshot = useRef<DeckIntent | null>(null)
+  const intentRef = useRef(intent)
+  intentRef.current = intent
+  const onStructuralCommitRef = useRef(onStructuralCommit)
+  onStructuralCommitRef.current = onStructuralCommit
+
+  const toggleEditing = useCallback(() => {
+    setEditing((wasEditing) => {
+      if (!wasEditing) {
+        // opening: snapshot the structural fields
+        structuralSnapshot.current = intentRef.current
+      } else {
+        // collapsing: fire iff structural fields changed during the edit
+        const snap = structuralSnapshot.current
+        if (snap && structuralFieldsChanged(snap, intentRef.current)) {
+          onStructuralCommitRef.current?.(intentRef.current)
+        }
+        structuralSnapshot.current = null
+      }
+      return !wasEditing
+    })
+    sounds.uiClick()
+  }, [sounds])
 
   // Pre-seed committed colors ONCE for a deck with no stored intent, the first
   // time its card-derived colors resolve. Guarded so it fires exactly once and
@@ -119,97 +156,60 @@ export function DeckIntentPanel({ intent, format, onChange, seedColors, hasStore
         <span className="font-mono text-mono-marginal uppercase tracking-mono-marginal text-cream-400">
           {t('intent.eyebrow')}
         </span>
-        <Button
-          variant="ghost"
-          size="sm"
+        <button
+          type="button"
           aria-expanded={editing}
-          onClick={() => { setEditing((e) => !e); sounds.uiClick() }}
+          onClick={toggleEditing}
+          className="cursor-pointer font-mono text-mono-label uppercase tracking-mono-label text-cream-400 transition-opacity hover:text-cream-100"
         >
-          {editing ? t('intent.done') : t('intent.edit')}
-        </Button>
+          {editing ? t('intent.collapse') : t('intent.editStrip')}
+        </button>
       </div>
 
-      {/* inertNote is visible BEFORE controls so users see the reassurance before editing */}
-      <p className="mt-1 font-body text-xs italic text-cream-500">{t('intent.inertNote')}</p>
-
       {!editing ? (
-        /* ─── Readout ─────────────────────────────────────── */
-        <div className="mt-3 flex flex-col gap-3">
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-mono-label uppercase tracking-mono-label text-cream-400">
-                {t('intent.colorsCommitted')}
-              </span>
-              {committed.length > 0 ? (
-                <span className="flex items-center gap-1.5">
-                  {committed.map((c) => <ManaSymbol key={c} color={c} size="sm" />)}
-                </span>
-              ) : (
-                <span className="font-body text-sm italic text-cream-500">{unlimited}</span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-mono-label uppercase tracking-mono-label text-cream-400">
-                {t('intent.budget')}
-              </span>
-              <span className="font-mono text-mono-num tabular-nums text-cream-300">
-                {budgetReadout(intent.budgetMin, intent.budgetMax, unlimited)}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-mono-label uppercase tracking-mono-label text-cream-400">
-                {t('intent.rarity')}
-              </span>
-              <span className="font-mono text-mono-label uppercase tracking-mono-label text-cream-300">
-                {intent.rarityFilter.length === RARITIES.length
-                  ? unlimited
-                  : intent.rarityFilter.map((r) => t(RARITY_KEYS[r] ?? r)).join(', ')}
-              </span>
-            </div>
-            {format !== 'casual' && (
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-mono-label uppercase tracking-mono-label text-cream-400">
-                  {t('colors.format')}
-                </span>
-                <span className="font-mono text-mono-label uppercase tracking-mono-label text-cream-300">
-                  {FORMAT_LABELS[format]}
-                </span>
-              </div>
-            )}
-          </div>
-
-          {(archetypeLabels.length > 0 || traitLabels.length > 0) && (
-            <div className="flex flex-wrap items-center gap-2">
-              {archetypeLabels.map((label) => (
-                <span
-                  key={`a-${label}`}
-                  className="font-mono text-mono-label uppercase tracking-mono-label text-cream-300 border border-hairline px-2 py-0.5"
-                >
-                  {label}
-                </span>
-              ))}
-              {traitLabels.map((label) => (
-                <span
-                  key={`t-${label}`}
-                  className="font-mono text-mono-label uppercase tracking-mono-label text-cream-300 border border-hairline px-2 py-0.5"
-                >
-                  {label}
-                </span>
-              ))}
-            </div>
+        /* ─── Collapsed strip — dense one-line working-mode readout ──── */
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 font-mono text-mono-label uppercase tracking-mono-label text-cream-300">
+          {committed.length > 0 ? (
+            <span className="flex items-center gap-1.5">
+              {committed.map((c) => <ManaSymbol key={c} color={c} size="sm" />)}
+            </span>
+          ) : (
+            <span className="normal-case text-cream-500 italic font-body text-sm">{unlimited}</span>
           )}
-
-          {intent.customStrategy && (
-            <p className="font-body text-sm italic text-cream-400">{intent.customStrategy}</p>
+          {archetypeLabels.length > 0 && (
+            <>
+              <span aria-hidden className="text-cream-500">·</span>
+              <span>{archetypeLabels.join(', ')}</span>
+            </>
           )}
-
-          {!hasStoredIntent && seedColors.length > 0 && (
-            <p className="font-body text-sm italic text-cream-500">{t('intent.legacyHint')}</p>
+          {traitLabels.length > 0 && (
+            <>
+              <span aria-hidden className="text-cream-500">·</span>
+              <span>{traitLabels.join(' / ')}</span>
+            </>
+          )}
+          <span aria-hidden className="text-cream-500">·</span>
+          <span className="normal-case text-cream-400">
+            {budgetReadout(intent.budgetMin, intent.budgetMax, unlimited)}
+          </span>
+          {format !== 'casual' && (
+            <>
+              <span aria-hidden className="text-cream-500">·</span>
+              <span>{FORMAT_LABELS[format]}</span>
+            </>
           )}
         </div>
       ) : (
         /* ─── Editing (inert) ─────────────────────────────── */
         <div className="mt-4 flex flex-col gap-6">
+          {/* inertNote reassures before the controls that editing won't cascade */}
+          <p className="font-body text-xs italic text-cream-500">{t('intent.inertNote')}</p>
+          <p className="font-mono text-mono-marginal text-cream-400">{t('intent.collapseHint')}</p>
+
+          {!hasStoredIntent && seedColors.length > 0 && (
+            <p className="-mt-3 font-body text-xs italic text-cream-500">{t('intent.legacyHint')}</p>
+          )}
+
           {/* Colors */}
           <div>
             <h4 className="mb-2 font-mono text-mono-label uppercase tracking-mono-label text-cream-300">

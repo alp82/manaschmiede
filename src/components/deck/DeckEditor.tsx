@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback, type ReactNode } from 'react'
-import { SectionLane, type SectionLaneDescriptor } from './SectionLane'
+import { SectionLane, type SectionLaneDescriptor, type LaneStatus } from './SectionLane'
 import { AiChat, type QuickAction } from '../AiChat'
 import { BalanceAdvisor } from '../BalanceAdvisor'
 import { CardLightbox } from '../CardLightbox'
@@ -69,6 +69,12 @@ interface DeckEditorProps {
   analysis: BalanceAnalysis | null
   /** Wizard-only fill controls. When absent, no fill UI / progress / Fill-All. */
   fill?: DeckEditorFill
+  /**
+   * Deck-view re-derive: resolves per-lane stale status. When a lane is stale
+   * its body dims + an inline re-fill prompt renders (SectionLane handles it).
+   * Absent in the wizard.
+   */
+  resolveLaneStatus?: (laneId: string) => LaneStatus | undefined
   /** Edit-only: Simulation + DeckCardList rail (Stats tab + desktop right rail). */
   cardListSlot?: ReactNode
   /** Wizard-only ambient gradient colors. */
@@ -125,6 +131,7 @@ export function DeckEditor({
   chat,
   analysis,
   fill,
+  resolveLaneStatus,
   cardListSlot,
   ambientColors,
   cardsLoading,
@@ -456,6 +463,7 @@ export function DeckEditor({
         <div className={cn(fill ? '[&>*+*]:mt-16 [&>*+*]:border-t-2 [&>*+*]:border-cream-500/70 [&>*+*]:pt-16' : 'space-y-10')}>
           {lanes.map((lane) => {
             const sState = fill?.getSectionState(lane.id)
+            const laneStatus = resolveLaneStatus?.(lane.id)
             return (
               <SectionLane
                 key={lane.id}
@@ -467,6 +475,10 @@ export function DeckEditor({
                 onToggleLock={onToggleLock}
                 onChangeQuantity={onChangeQuantity}
                 onRemoveCard={setPendingRemoveId}
+                stale={laneStatus?.stale}
+                onRefill={laneStatus?.onRefill}
+                refillDeficit={laneStatus?.refillDeficit}
+                refilling={laneStatus?.refilling}
                 fillSlot={fill ? renderFillSlot(lane) : undefined}
                 sectionState={
                   fill && sState

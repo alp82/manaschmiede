@@ -21,6 +21,8 @@ import type { DeckSection } from '../../lib/section-plan'
 import type { WizardState, WizardAction } from '../../lib/wizard-state'
 import { getActiveColors, getSelectedColors } from '../../lib/wizard-state'
 import { buildChatIntentContext } from '../../lib/deck-intent'
+import { sectionFillIntentFromWizard } from '../../lib/section-fill-intent'
+import { applySectionInheritance } from '../../lib/section-assignment'
 import type { DeckFilters } from '../../lib/card-validation'
 import { useDeckSounds } from '../../lib/sounds'
 import { useDeckHistory } from '../../lib/use-deck-history'
@@ -144,6 +146,8 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
     dispatch({ type: 'SET_DECK', cards: updated })
   }, [dispatch])
 
+  const fillIntent = useMemo(() => sectionFillIntentFromWizard(state), [state])
+
   const {
     getSectionState,
     fillSection: triggerFillSection,
@@ -157,7 +161,7 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
     sections,
     deckCards: state.deckCards,
     cardDataMap,
-    wizardState: state,
+    intent: fillIntent,
     onDeckUpdate: handleSectionDeckUpdate,
     onCardDataUpdate: handleCardDataUpdate,
     onSectionAssign: handleSectionAssign,
@@ -266,68 +270,12 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
     history.snapshot()
 
     if (pending?.changes) {
-      const removedIds = pending.changes.filter((c) => c.type === 'removed').map((c) => c.scryfallId)
-      const addedChanges = pending.changes.filter((c) => c.type === 'added')
-      const addedIds = addedChanges.map((c) => c.scryfallId)
-
-      // Work on a mutable copy of the assignments so we can coordinate pairs,
-      // target-section top-ups, and auto-picks in one pass before dispatching.
-      const next: Record<string, string[]> = {}
-      for (const [k, v] of Object.entries(state.sectionAssignments)) {
-        next[k] = [...v]
-      }
-      const placed = new Set<string>()
-
-      // Swap pairs - new card inherits the removed card's section.
-      if (removedIds.length > 0 && addedIds.length > 0) {
-        const sectionForRemoved = new Map<string, string>()
-        for (const rid of removedIds) {
-          for (const [sectionId, ids] of Object.entries(next)) {
-            if (ids.includes(rid)) sectionForRemoved.set(rid, sectionId)
-          }
-        }
-        const pairCount = Math.min(removedIds.length, addedIds.length)
-        for (let i = 0; i < pairCount; i++) {
-          const sectionId = sectionForRemoved.get(removedIds[i])
-          if (sectionId) {
-            next[sectionId] = (next[sectionId] ?? [])
-              .filter((id) => id !== removedIds[i])
-              .concat(addedIds[i])
-            placed.add(addedIds[i])
-          }
-        }
-      }
-
-      // Clean up any removed IDs still lingering in assignments (e.g. when
-      // removals outnumber additions).
-      for (const rid of removedIds) {
-        for (const sectionId of Object.keys(next)) {
-          next[sectionId] = next[sectionId].filter((id) => id !== rid)
-        }
-      }
-
-      // Remaining additions: explicit target section first, then auto-pick
-      // by role. Only falls through to "unassigned" when no section in the
-      // plan matches the card type at all.
-      for (const change of addedChanges) {
-        const aid = change.scryfallId
-        if (placed.has(aid)) continue
-
-        if (pending.targetSection) {
-          next[pending.targetSection] = [...(next[pending.targetSection] ?? []), aid]
-          placed.add(aid)
-          continue
-        }
-
-        const card = change.scryfallCard ?? cardDataMap.get(aid)
-        if (!card) continue
-
-        const pickedId = pickSectionForCard(card, sections)
-        if (pickedId) {
-          next[pickedId] = [...(next[pickedId] ?? []), aid]
-          placed.add(aid)
-        }
-      }
+      const next = applySectionInheritance(state.sectionAssignments, pending.changes, {
+        strictSingleSwap: false,
+        targetSection: pending.targetSection,
+        resolveCard: (id) => cardDataMap.get(id),
+        sections,
+      })
 
       // Dispatch only sections whose assignments actually changed.
       for (const [sectionId, ids] of Object.entries(next)) {

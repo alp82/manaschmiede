@@ -31,15 +31,25 @@ interface UseSectionsArgs {
    * persisted plan and should render an empty list when it doesn't.
    */
   deriveArgs?: DeriveArgs
+  /**
+   * A transient staged (re-derived) plan that takes precedence over the
+   * persisted plan when present — the deck view renders the proposed lanes
+   * while the user decides to accept or discard. Returned re-localized.
+   */
+  stagedPlan?: DeckSection[]
 }
 
 /**
- * Resolve the ordered, localized section plan. A persisted plan is
- * re-localized against the active locale so labels follow language switches;
- * an empty plan is derived from `deriveArgs` when provided.
+ * Resolve the ordered, localized section plan. A staged plan (when present)
+ * wins; otherwise a persisted plan is re-localized against the active locale so
+ * labels follow language switches; an empty plan is derived from `deriveArgs`
+ * when provided.
  */
-export function useSections({ sectionPlan, t, deriveArgs }: UseSectionsArgs): DeckSection[] {
+export function useSections({ sectionPlan, t, deriveArgs, stagedPlan }: UseSectionsArgs): DeckSection[] {
   return useMemo(() => {
+    if (stagedPlan && stagedPlan.length > 0) {
+      return stagedPlan.map((s) => localizeDeckSection(s, t))
+    }
     if (sectionPlan.length > 0) {
       return sectionPlan.map((s) => localizeDeckSection(s, t))
     }
@@ -53,7 +63,7 @@ export function useSections({ sectionPlan, t, deriveArgs }: UseSectionsArgs): De
       )
     }
     return []
-  }, [sectionPlan, deriveArgs, t])
+  }, [stagedPlan, sectionPlan, deriveArgs, t])
 }
 
 export interface BuildLaneDescriptorsOpts {

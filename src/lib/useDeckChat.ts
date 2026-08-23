@@ -623,6 +623,18 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
     [setMessages, onCardDataUpdate, scryfallLang],
   )
 
+  // Stage a pre-resolved proposal directly into the single ledger (last-wins,
+  // decision 7). Used by non-chat add paths — e.g. the saved-deck reopen-combo
+  // picker, which resolves its own additive CardChange[] and the merged 60-card
+  // deck, then routes through the same pending → Apply/Discard UI as chat/re-fill.
+  // No network: the caller owns resolution.
+  const stageChanges = useCallback((proposal: PendingChanges) => {
+    abortRef.current = true
+    setIsLoading(false)
+    pendingTargetSection.current = undefined
+    setPending(proposal)
+  }, [])
+
   const applyChanges = useCallback(() => {
     if (!pending) return
     onDeckUpdate(pending.resolvedCards, pending.deckName, pending.description, pending.changes)
@@ -671,5 +683,5 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
     return new Set<string>()
   }, [messages])
 
-  return { messages, isLoading, pending, newCardIds, sendMessage, applyChanges, discardChanges, reset }
+  return { messages, isLoading, pending, newCardIds, sendMessage, stageChanges, applyChanges, discardChanges, reset }
 }
