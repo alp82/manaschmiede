@@ -10,7 +10,8 @@ export function canBlock(blocker: Permanent, attacker: Permanent): boolean {
   return true
 }
 
-function lethalDamage(attacker: Permanent, blocker: Permanent): number {
+/** Damage `attacker` must assign to `blocker` before the rest can trample over. */
+export function lethalDamage(attacker: Permanent, blocker: Permanent): number {
   if (attacker.card.keywords.has('deathtouch')) return 1
   return Math.max(0, blocker.card.toughness - blocker.damage)
 }
@@ -42,6 +43,27 @@ function fightsInFirstStrikeStep(p: Permanent): boolean {
 
 function fightsInNormalStep(p: Permanent): boolean {
   return !p.card.keywords.has('first_strike') || p.card.keywords.has('double_strike')
+}
+
+/**
+ * Whether `blockers` kill `attacker` in the first-strike step, before it deals
+ * any damage of its own.
+ *
+ * `damageStep` skips a `markedForDeath` attacker, so this is the one way a
+ * block turns off *all* of an attacker's damage - trample included. The AI
+ * needs it to value a first-striking blocker correctly.
+ */
+export function killedBeforeDealingDamage(
+  attacker: Permanent,
+  blockers: Permanent[],
+): boolean {
+  if (fightsInFirstStrikeStep(attacker)) return false
+  let damage = attacker.damage
+  for (const blocker of blockers) {
+    if (!fightsInFirstStrikeStep(blocker)) continue
+    damage += blocker.card.keywords.has('deathtouch') ? 999 : blocker.card.power
+  }
+  return damage >= attacker.card.toughness
 }
 
 /**

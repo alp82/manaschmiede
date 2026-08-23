@@ -311,7 +311,7 @@ export function runTurn(state: GameState, rng: () => number): 'continue' | 'p0_w
       permanent: player.battlefield[i],
       index: i,
     }))
-    const blockerMap = chooseBlockers(opponent.battlefield, attackerInfo)
+    const blockerMap = chooseBlockers(opponent.battlefield, attackerInfo, opponent.life)
     resolveCombat(attackerIndices, blockerMap, state)
     stateBasedActions(state)
   }

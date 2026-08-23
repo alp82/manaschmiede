@@ -79,6 +79,17 @@ export interface Permanent {
   markedForDeath: boolean
 }
 
+/**
+ * An attacking creature paired with its index on the attacker's battlefield.
+ *
+ * Blocker assignments are keyed by that index, so the index has to travel with
+ * the permanent everywhere combat decisions are made.
+ */
+export interface DeclaredAttacker {
+  permanent: Permanent
+  index: number
+}
+
 export interface PlayerState {
   life: number
   library: SimCard[]

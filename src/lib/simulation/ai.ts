@@ -1,6 +1,6 @@
-import type { ManaColor, ManaPool, Permanent, SimCard } from './types'
+import type { DeclaredAttacker, ManaColor, ManaPool, Permanent, SimCard } from './types'
 import { canPay, payMana, emptyPool, MANA_COLORS } from './mana'
-import { canBlock } from './combat'
+import { canBlock, killedBeforeDealingDamage, lethalDamage } from './combat'
 
 export function shouldMulligan(hand: SimCard[], mulliganCount: number): boolean {
   if (mulliganCount >= 2) return false
@@ -173,9 +173,21 @@ export function chooseAttackers(
   return attackers
 }
 
+/**
+ * Assigns blockers, first for value and then for survival.
+ *
+ * The value pass only commits a block it comes out ahead on, which on its own
+ * makes the AI decline every chump block and die on board. So a second pass
+ * runs whenever the damage still coming through is lethal: it throws the
+ * cheapest creatures in front of the biggest attackers until the defender
+ * lives. If even every creature it has can't get the damage below `myLife`,
+ * the second pass is discarded - blocks that don't change the result are just
+ * creatures thrown away.
+ */
 export function chooseBlockers(
   myBoard: Permanent[],
-  attackers: { permanent: Permanent; index: number }[],
+  attackers: DeclaredAttacker[],
+  myLife: number,
 ): Map<number, number[]> {
   const assignments = new Map<number, number[]>()
   if (attackers.length === 0) return assignments
@@ -265,5 +277,84 @@ export function chooseBlockers(
     }
   }
 
+  addChumpBlocks(myBoard, available, attackers, myLife, assignments, used)
+
   return assignments
+}
+
+/**
+ * Damage this attacker sends at the defender's face past the given blockers.
+ *
+ * Borrows `combat.ts`'s own rules rather than restating them, so a deathtouch
+ * trampler is estimated the way it actually resolves: it only has to assign 1
+ * to each blocker, and the rest tramples over.
+ *
+ * Life gained by a lifelink blocker isn't counted, so the estimate is
+ * pessimistic by that much.
+ */
+function damageThrough(attacker: Permanent, blockers: Permanent[]): number {
+  if (blockers.length === 0) return attacker.card.power
+  if (killedBeforeDealingDamage(attacker, blockers)) return 0
+  if (!attacker.card.keywords.has('trample')) return 0
+  const absorbed = blockers.reduce((sum, b) => sum + lethalDamage(attacker, b), 0)
+  return Math.max(0, attacker.card.power - absorbed)
+}
+
+/**
+ * Adds survival blocks on top of `assignments`, in place, when the attack as
+ * assigned is lethal. Mutates nothing when the chumps can't save the defender.
+ */
+function addChumpBlocks(
+  myBoard: Permanent[],
+  available: number[],
+  attackers: DeclaredAttacker[],
+  myLife: number,
+  assignments: Map<number, number[]>,
+  used: ReadonlySet<number>,
+): void {
+  let incoming = 0
+  for (const atk of attackers) {
+    const blockers = (assignments.get(atk.index) ?? []).map((i) => myBoard[i])
+    incoming += damageThrough(atk.permanent, blockers)
+  }
+  if (incoming < myLife) return
+
+  // Cheapest first, and among equals the smallest body - the creature the
+  // defender gives up least by losing.
+  const free = available
+    .filter((i) => !used.has(i))
+    .sort((a, b) => {
+      const costDiff = (myBoard[a].card.cost?.cmc ?? 0) - (myBoard[b].card.cost?.cmc ?? 0)
+      if (costDiff !== 0) return costDiff
+      const bodyA = myBoard[a].card.power + myBoard[a].card.toughness
+      const bodyB = myBoard[b].card.power + myBoard[b].card.toughness
+      return bodyA - bodyB
+    })
+
+  // Biggest attacker first: each chump is worth the damage it turns off.
+  const unblocked = attackers
+    .filter((atk) => !assignments.has(atk.index))
+    .sort((a, b) => b.permanent.card.power - a.permanent.card.power)
+
+  const chumps = new Map<number, number[]>()
+  for (const atk of unblocked) {
+    if (incoming < myLife) break
+    const needed = atk.permanent.card.keywords.has('menace') ? 2 : 1
+    const pick: number[] = []
+    for (const bIdx of free) {
+      if (pick.length >= needed) break
+      if (canBlock(myBoard[bIdx], atk.permanent)) pick.push(bIdx)
+    }
+    if (pick.length < needed) continue
+
+    for (const bIdx of pick) free.splice(free.indexOf(bIdx), 1)
+    chumps.set(atk.index, pick)
+    incoming -= atk.permanent.card.power - damageThrough(atk.permanent, pick.map((i) => myBoard[i]))
+  }
+
+  if (incoming >= myLife) return
+
+  for (const [atkIndex, blockers] of chumps) {
+    assignments.set(atkIndex, blockers)
+  }
 }
