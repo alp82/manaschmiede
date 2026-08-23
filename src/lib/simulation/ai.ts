@@ -57,14 +57,21 @@ function isRemoval(card: SimCard): boolean {
   )
 }
 
+/**
+ * Picks what to cast from `hand` and reports the pool that is left over.
+ *
+ * The caller needs `remaining` as well as the indices: which lands end up
+ * tapped depends on how this function chose to allocate the pool, and that
+ * allocation isn't recoverable from the list of cards alone.
+ */
 export function chooseCasts(
   hand: SimCard[],
   pool: ManaPool,
   battlefield: Permanent[],
   opponentBoard: Permanent[],
-): number[] {
+): { indices: number[]; remaining: ManaPool } {
   const indices: number[] = []
-  const testPool: ManaPool = {
+  const remaining: ManaPool = {
     colors: { ...pool.colors },
     colorless: pool.colorless,
   }
@@ -94,13 +101,13 @@ export function chooseCasts(
   })
 
   for (const { idx, card } of candidates) {
-    if (canPay(testPool, card.cost!)) {
-      payMana(testPool, card.cost!)
+    if (canPay(remaining, card.cost!)) {
+      payMana(remaining, card.cost!)
       indices.push(idx)
     }
   }
 
-  return indices
+  return { indices, remaining }
 }
 
 export function chooseAttackers(

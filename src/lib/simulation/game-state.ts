@@ -3,12 +3,11 @@ import type {
   EffectTrigger,
   GameResult,
   GameState,
-  ManaColor,
   Permanent,
   PlayerState,
   SimCard,
 } from './types'
-import { emptyPool, MANA_COLORS } from './mana'
+import { emptyPool, poolFromLands, poolSpent, tapSpentLands } from './mana'
 import { resolveCombat } from './combat'
 import { isDestroyedBySba } from './state-based-actions'
 import {
@@ -57,19 +56,6 @@ function drawCard(player: PlayerState): boolean {
   if (player.library.length === 0) return false
   player.hand.push(player.library.pop()!)
   return true
-}
-
-function generateMana(player: PlayerState): void {
-  player.manaPool = emptyPool()
-  for (const p of player.battlefield) {
-    if (p.card.cardType === 'land' && !p.tapped) {
-      if (p.card.producesColors.length > 0) {
-        player.manaPool.colors[p.card.producesColors[0]] += 1
-      } else {
-        player.manaPool.colorless += 1
-      }
-    }
-  }
 }
 
 function makePermanent(card: SimCard, hasteOverride?: boolean): Permanent {
@@ -236,7 +222,40 @@ function playCastCard(card: SimCard, player: PlayerState, state: GameState, acti
   }
 }
 
-function runTurn(state: GameState, rng: () => number): 'continue' | 'p0_wins' | 'p1_wins' | 'p0_mill' | 'p1_mill' {
+/**
+ * Fills the mana pool, casts what the AI picks, and taps the lands that paid.
+ *
+ * The lands are tapped before the cards resolve. A card resolving can put a
+ * land onto the battlefield - a ramp effect does - and that land was never part
+ * of the pool being accounted for, so it must not be swept up in the tapping.
+ */
+function runMainPhase(state: GameState): void {
+  const active = state.activePlayer
+  const player = state.players[active]
+  const opponent = state.players[(1 - active) as 0 | 1]
+
+  const available = poolFromLands(player.battlefield)
+  const { indices, remaining } = chooseCasts(
+    player.hand,
+    available,
+    player.battlefield,
+    opponent.battlefield,
+  )
+  player.manaPool = remaining
+
+  const castCards: SimCard[] = []
+  for (const idx of [...indices].sort((a, b) => b - a)) {
+    castCards.push(player.hand.splice(idx, 1)[0])
+  }
+
+  tapSpentLands(player.battlefield, poolSpent(available, remaining))
+
+  for (const card of castCards) {
+    playCastCard(card, player, state, active)
+  }
+}
+
+export function runTurn(state: GameState, rng: () => number): 'continue' | 'p0_wins' | 'p1_wins' | 'p0_mill' | 'p1_mill' {
   const active = state.activePlayer
   const defending = (1 - active) as 0 | 1
   const player = state.players[active]
@@ -276,18 +295,7 @@ function runTurn(state: GameState, rng: () => number): 'continue' | 'p0_wins' | 
     player.landDropsRemaining--
   }
 
-  generateMana(player)
-
-  const castIndices = chooseCasts(player.hand, player.manaPool, player.battlefield, opponent.battlefield)
-  const castCards: SimCard[] = []
-  for (const idx of castIndices.sort((a, b) => b - a)) {
-    const card = player.hand.splice(idx, 1)[0]
-    castCards.push(card)
-  }
-
-  for (const card of castCards) {
-    playCastCard(card, player, state, active)
-  }
+  runMainPhase(state)
 
   stateBasedActions(state)
   if (opponent.life <= 0) return active === 0 ? 'p0_wins' : 'p1_wins'
@@ -309,16 +317,9 @@ function runTurn(state: GameState, rng: () => number): 'continue' | 'p0_wins' | 
   if (opponent.life <= 0) return active === 0 ? 'p0_wins' : 'p1_wins'
   if (player.life <= 0) return active === 0 ? 'p1_wins' : 'p0_wins'
 
-  // Main phase 2
-  generateMana(player)
-  const cast2Indices = chooseCasts(player.hand, player.manaPool, player.battlefield, opponent.battlefield)
-  const cast2Cards: SimCard[] = []
-  for (const idx of cast2Indices.sort((a, b) => b - a)) {
-    cast2Cards.push(player.hand.splice(idx, 1)[0])
-  }
-  for (const card of cast2Cards) {
-    playCastCard(card, player, state, active)
-  }
+  // Main phase 2. Lands spent in main 1 are still tapped, so only what the
+  // player held back is available here.
+  runMainPhase(state)
 
   stateBasedActions(state)
   if (opponent.life <= 0) return active === 0 ? 'p0_wins' : 'p1_wins'

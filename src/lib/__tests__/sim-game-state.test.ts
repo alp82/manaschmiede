@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { runGame, stateBasedActions } from '../simulation/game-state'
+import { runGame, runTurn, stateBasedActions } from '../simulation/game-state'
+import { emptyPool } from '../simulation/mana'
+import type { CardEffect } from '../simulation/types'
 import {
   RIGGED_RNG,
   cost,
@@ -81,5 +83,50 @@ describe('stateBasedActions', () => {
     stateBasedActions(state)
 
     expect(state.players[1].life).toBe(17)
+  })
+})
+
+describe('mana within a single turn', () => {
+  const oneDrop = (id: string, effects: CardEffect[] = []) =>
+    simCard({ id, cost: cost(0, { G: 1 }), power: 1, toughness: 1, effects })
+
+  it('[R] does not refill the mana pool for main phase 2', () => {
+    const state = stateWith([permanent(forest())], [])
+    state.players[0].hand = [oneDrop('bear-1'), oneDrop('bear-2')]
+
+    runTurn(state, RIGGED_RNG)
+
+    const creatures = state.players[0].battlefield.filter(
+      (p) => p.card.cardType === 'creature',
+    )
+    expect(creatures.map((p) => p.card.id)).toEqual(['bear-1'])
+    expect(state.players[0].hand.map((c) => c.id)).toEqual(['bear-2'])
+    expect(state.players[0].manaPool).toEqual(emptyPool())
+  })
+
+  it('[R] taps only the land whose mana paid for the spell', () => {
+    const state = stateWith([permanent(forest('a')), permanent(forest('b'))], [])
+    state.players[0].hand = [oneDrop('bear-1')]
+
+    runTurn(state, RIGGED_RNG)
+
+    const lands = state.players[0].battlefield.filter((p) => p.card.cardType === 'land')
+    expect(lands.map((p) => p.tapped)).toEqual([true, false])
+  })
+
+  it('[R] still casts in main phase 2 with the mana that is left', () => {
+    const drawer = oneDrop('drawer', [
+      { trigger: 'etb', action: { type: 'draw', count: 1 } },
+    ])
+    const state = stateWith([permanent(forest('a')), permanent(forest('b'))], [])
+    state.players[0].hand = [drawer]
+    state.players[0].library = [oneDrop('bear-1')]
+
+    runTurn(state, RIGGED_RNG)
+
+    const creatures = state.players[0].battlefield.filter(
+      (p) => p.card.cardType === 'creature',
+    )
+    expect(creatures.map((p) => p.card.id)).toEqual(['drawer', 'bear-1'])
   })
 })

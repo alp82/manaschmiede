@@ -49,16 +49,20 @@ export function simCard(overrides: Partial<SimCard> & { id: string }): SimCard {
   }
 }
 
-export function forest(id = 'forest'): SimCard {
+export function land(id: string, producesColors: ManaColor[]): SimCard {
   return simCard({
     id,
     cardType: 'land',
     cost: null,
     power: 0,
     toughness: 0,
-    producesColors: ['G'],
+    producesColors,
     isBasicLand: true,
   })
+}
+
+export function forest(id = 'forest'): SimCard {
+  return land(id, ['G'])
 }
 
 /** A non-creature permanent, which is what `parsePT(undefined)` yields: 0/0. */

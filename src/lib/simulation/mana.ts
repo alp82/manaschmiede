@@ -1,4 +1,4 @@
-import type { ManaCost, ManaColor, ManaPool } from './types'
+import type { ManaCost, ManaColor, ManaPool, Permanent, SimCard } from './types'
 
 export const MANA_COLORS: ManaColor[] = ['W', 'U', 'B', 'R', 'G']
 const SYMBOL_RE = /\{([^}]+)\}/g
@@ -93,6 +93,65 @@ export function payMana(pool: ManaPool, cost: ManaCost): boolean {
   }
 
   return true
+}
+
+/**
+ * The one mana an untapped land adds to the pool, or `null` for colorless.
+ *
+ * Every land is worth exactly one mana. That invariant is what lets
+ * `tapSpentLands` read a quantity of spent mana back as a set of lands.
+ */
+function landOutput(card: SimCard): ManaColor | null {
+  return card.producesColors.length > 0 ? card.producesColors[0] : null
+}
+
+/** The mana available from every untapped land on `battlefield`. */
+export function poolFromLands(battlefield: Permanent[]): ManaPool {
+  const pool = emptyPool()
+  for (const p of battlefield) {
+    if (p.card.cardType !== 'land' || p.tapped) continue
+    const color = landOutput(p.card)
+    if (color === null) {
+      pool.colorless += 1
+    } else {
+      pool.colors[color] += 1
+    }
+  }
+  return pool
+}
+
+/** The mana that `before` held and `after` doesn't - what the player spent. */
+export function poolSpent(before: ManaPool, after: ManaPool): ManaPool {
+  const spent = emptyPool()
+  spent.colorless = before.colorless - after.colorless
+  for (const color of MANA_COLORS) {
+    spent.colors[color] = before.colors[color] - after.colors[color]
+  }
+  return spent
+}
+
+/**
+ * Taps the lands that produced `spent`, longest-serving lands first.
+ *
+ * One land is worth one mana, so a spend of two green is two green lands.
+ * Lands already tapped are left alone - their mana was never in the pool.
+ */
+export function tapSpentLands(battlefield: Permanent[], spent: ManaPool): void {
+  const owed: ManaPool = { colors: { ...spent.colors }, colorless: spent.colorless }
+
+  for (const p of battlefield) {
+    if (p.card.cardType !== 'land' || p.tapped) continue
+    const color = landOutput(p.card)
+
+    if (color === null) {
+      if (owed.colorless <= 0) continue
+      owed.colorless -= 1
+    } else {
+      if (owed.colors[color] <= 0) continue
+      owed.colors[color] -= 1
+    }
+    p.tapped = true
+  }
 }
 
 const BASIC_LAND_TYPES: Record<string, ManaColor> = {

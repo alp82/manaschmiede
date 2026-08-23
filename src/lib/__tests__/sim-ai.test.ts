@@ -1,6 +1,41 @@
 import { describe, expect, it } from 'vitest'
-import { chooseAttackers, chooseBlockers } from '../simulation/ai'
-import { nonCreature, permanent, simCard } from './sim-fixtures'
+import { chooseAttackers, chooseBlockers, chooseCasts } from '../simulation/ai'
+import { emptyPool } from '../simulation/mana'
+import type { ManaPool } from '../simulation/types'
+import { cost, nonCreature, permanent, simCard } from './sim-fixtures'
+
+function pool(colors: Partial<ManaPool['colors']>): ManaPool {
+  return { colors: { ...emptyPool().colors, ...colors }, colorless: 0 }
+}
+
+describe('chooseCasts', () => {
+  it('[R] reports the mana left after the cards it picked', () => {
+    const hand = [simCard({ id: 'bear', cost: cost(0, { G: 1 }) })]
+
+    const { indices, remaining } = chooseCasts(hand, pool({ G: 3 }), [], [])
+
+    expect(indices).toEqual([0])
+    expect(remaining).toEqual(pool({ G: 2 }))
+  })
+
+  it('[R] reports an untouched pool when it casts nothing', () => {
+    const hand = [simCard({ id: 'giant', cost: cost(5, { G: 1 }) })]
+
+    const { indices, remaining } = chooseCasts(hand, pool({ G: 1 }), [], [])
+
+    expect(indices).toEqual([])
+    expect(remaining).toEqual(pool({ G: 1 }))
+  })
+
+  it('[R] leaves the pool it was handed alone', () => {
+    const available = pool({ G: 2 })
+    const hand = [simCard({ id: 'bear', cost: cost(0, { G: 1 }) })]
+
+    chooseCasts(hand, available, [], [])
+
+    expect(available).toEqual(pool({ G: 2 }))
+  })
+})
 
 describe('chooseBlockers', () => {
   it('[R] never blocks with a non-creature permanent', () => {
