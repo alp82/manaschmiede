@@ -27,8 +27,18 @@ export default defineConfig({
         react(),
       ],
   test: {
+    // One node project covers both trees: `src/` logic and the pure helpers in
+    // `convex/` (parse / enforce / prompt-building), which need no Convex
+    // runtime at import time.
+    //
+    // A `convex-test` suite is a different beast - per
+    // `convex/_generated/ai/guidelines.md` it needs `environment: 'edge-runtime'`.
+    // Under this single node project such a file would fail confusingly, so
+    // adding one means splitting into `test.projects` first. (Vitest 4 removed
+    // `environmentMatchGlobs`; `test.projects` is the replacement, and projects
+    // do not inherit the root `plugins` or `resolve.alias` blocks.)
     environment: 'node',
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'convex/**/*.test.ts'],
     setupFiles: ['./src/test-setup.ts'],
   },
 })

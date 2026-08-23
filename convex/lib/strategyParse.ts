@@ -5,9 +5,6 @@
  * Scryfall fragments (see strategyQueries.ts for the cleaning pipeline). Shared
  * by the parseStrategy action (step-3 combos) and the chat/fill card-pool
  * builders so all three honor the same free-text theme.
- *
- * Imports the Convex runtime, so it is NOT importable from src/ node tests
- * (unlike strategyQueries.ts / cardPoolQueries.ts).
  */
 import { startLlmLog, completeLlmLog, failLlmLog } from './logLlmUsage'
 import { callHaiku } from './anthropic'

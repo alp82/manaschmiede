@@ -180,7 +180,7 @@ RULES:
 - If asked about something completely unrelated to MTG or the deck, politely redirect: "I'm here to help with your deck! Ask me about cards, strategy, or rules."
 - Respond in the same language the user writes in`
 
-function parseResponse(text: string): GeneratedDeck {
+export function parseResponse(text: string): GeneratedDeck {
   let deck: GeneratedDeck
   try {
     deck = JSON.parse(text)
@@ -228,7 +228,7 @@ const MAX_COPIES = 4
  * Layer 2: Programmatic enforcement - force deck to exactly 60 cards.
  * Respects locked cards and the 4-copy rule.
  */
-function enforceDeckSize(
+export function enforceDeckSize(
   deck: GeneratedDeck,
   lockedCards?: Array<{ name: string; quantity: number }>,
 ): GeneratedDeck {
@@ -365,7 +365,7 @@ async function classifyIntent(ctx: ActionCtx, messages: Array<{ role: string; co
   }
 }
 
-function buildDeckContext(
+export function buildDeckContext(
   currentCards?: Array<{ name: string; quantity: number; section?: string }>,
   deckDescription?: string,
   lockedCards?: Array<{ name: string; quantity: number }>,
@@ -438,7 +438,7 @@ interface ChatArgs {
 const REMOVE_VERBS = /\b(remove|cut|drop|delete|take out|get rid of|entfern|raus|streich)/i
 const ADD_VERBS = /\b(add|include|put in|insert|run|hinzufüg|hinzufueg|aufnehm|einbau)/i
 
-function deriveDeltaOp(message: string): DeltaOp {
+export function deriveDeltaOp(message: string): DeltaOp {
   const wantsRemove = REMOVE_VERBS.test(message)
   const wantsAdd = ADD_VERBS.test(message)
   if (wantsRemove && !wantsAdd) return 'remove'
@@ -651,7 +651,7 @@ interface SectionFillResult {
   explanation: string
 }
 
-function parseSectionResponse(text: string): SectionFillResult {
+export function parseSectionResponse(text: string): SectionFillResult {
   let result: SectionFillResult
   try {
     result = JSON.parse(text)
