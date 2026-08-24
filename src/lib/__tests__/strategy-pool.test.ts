@@ -61,17 +61,19 @@ describe('buildStrategyTraitPool', () => {
     expect(result).not.toContain('t:i c:b')
   })
 
-  it('TC-SP-05 (dedup): scoped strategy + byte-identical trait -> appears exactly once', () => {
-    // De-duplication is byte-exact, so a trait query only collides with a
-    // strategy fragment once it is written in the same parenthesized form.
+  it('TC-SP-05 (dedup): a colorless deck de-dupes strategy against trait', () => {
+    // The colorless path is where cross-source dedup is reachable at all. With
+    // colors selected the two producers write different color clauses -
+    // extractSearchQueries appends ` c:wu`, colorCastableClause ` c<=wu` - so
+    // byte-exact dedup can never fire between them. Colorless, both sides stay
+    // bare and a repeated fragment really does collide.
     const result = buildStrategyTraitPool(
       ['t:zombie'],
-      ['(t:zombie) c<=b', 'o:graveyard c:b'],
-      ' c<=b',
+      ['t:zombie', 'o:graveyard'],
+      '',
     )
-    const count = result.filter((q) => q === '(t:zombie) c<=b').length
-    expect(count).toBe(1)
-    expect(result).toContain('o:graveyard c:b')
+    expect(result.filter((q) => q === 't:zombie')).toHaveLength(1)
+    expect(result).toContain('o:graveyard')
   })
 
   it('TC-SP-06 (empty colorFilter): appends nothing to strategy or trait', () => {

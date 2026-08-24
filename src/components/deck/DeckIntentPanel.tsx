@@ -13,7 +13,7 @@ import type { TranslationKey } from '../../lib/i18n/types'
 
 const ALL_COLORS: ManaColor[] = ['W', 'U', 'B', 'R', 'G']
 const RARITIES = ['common', 'uncommon', 'rare', 'mythic'] as const
-const RARITY_KEYS: Record<string, TranslationKey> = {
+const RARITY_KEYS: Record<(typeof RARITIES)[number], TranslationKey> = {
   common: 'strategy.common',
   uncommon: 'strategy.uncommon',
   rare: 'strategy.rare',

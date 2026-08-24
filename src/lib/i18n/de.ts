@@ -258,8 +258,6 @@ export const de: Translations = {
 'cardlist.unlock': 'Karte entsperren',
   'cardlist.lock': 'Karte sperren',
 
-  // Page title
-
   // Deck page
   'deckPage.addOverlay': 'Hinzufügen',
 

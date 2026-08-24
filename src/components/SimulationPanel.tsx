@@ -223,10 +223,11 @@ export function SimulationPanel({ deckId, deckName, cards, cardDataMap }: Simula
           </div>
 
           {/*
-            The module counts rounds; these three labels say TURNS on purpose.
-            The number is the round the game ended on, which is the turn the
-            winner ended it on - "decided on turn eight" is how a Magic player
-            reads a game length, and ROUNDS would be accurate but unfamiliar.
+            AVG TURNS, MEDIAN TURNS and the TURN DISTRIBUTION heading below all
+            read a round count, and say TURNS on purpose. The number is the
+            round the game ended on, which is the turn the winner ended it on -
+            "decided on turn eight" is how a Magic player reads a game length,
+            and ROUNDS would be accurate but unfamiliar.
           */}
           <div className="grid grid-cols-2 divide-x divide-hairline/60">
             <StatBox

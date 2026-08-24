@@ -159,10 +159,16 @@ export function assembleQueries(
  * grouping has to be forced here. `(t:elf) c<=wu` is equivalent to
  * `t:elf c<=wu`, so single-clause fragments keep their meaning.
  *
+ * An empty colorFilter - a colorless deck - skips the parentheses. Nothing is
+ * being appended, so there is no precedence hazard to fix, and leaving the
+ * fragment bare is what keeps assembleQueries's byte-exact de-duplication able
+ * to fire: colorless, both producers emit unscoped fragments, so a repeated one
+ * really does collide. (With colors selected they never collide anyway -
+ * extractSearchQueries writes ` c:wu` where this writes ` c<=wu`.)
+ *
  * Assumes strategyQueries is already capped at MAX_STRATEGY_QUERIES upstream;
  * relies on assembleQueries for the strategy-first ordering + MAX_TOTAL_QUERIES
- * cap. An empty strategy yields a trait-only pool identical to today, and an
- * empty colorFilter appends nothing and so needs no grouping.
+ * cap. An empty strategy yields a trait-only pool identical to today.
  */
 export function buildStrategyTraitPool(
   strategyQueries: string[],

@@ -67,7 +67,7 @@ export const ARCHETYPE_ART: Record<string, string> = {
 }
 
 const RARITIES = ['common', 'uncommon', 'rare', 'mythic'] as const
-const RARITY_KEYS: Record<string, TranslationKey> = {
+const RARITY_KEYS: Record<(typeof RARITIES)[number], TranslationKey> = {
   common: 'strategy.common',
   uncommon: 'strategy.uncommon',
   rare: 'strategy.rare',

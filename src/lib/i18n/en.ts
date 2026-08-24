@@ -265,8 +265,6 @@ export const en = {
   'cardlist.unlock': 'Unlock card',
   'cardlist.lock': 'Lock card',
 
-  // Page title
-
   // Deck page
   'deckPage.addOverlay': 'Add',
 
