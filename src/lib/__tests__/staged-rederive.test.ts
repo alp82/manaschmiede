@@ -134,7 +134,7 @@ const MONO_R_AGGRO_INTENT = {
 describe('deriveStagedPlan - coreCardCount basis (BLOCKER 1 guard)', () => {
   it('TC-1: 3 distinct locked cards qty:4 (=12 copies) → aggressive-creatures targetCount 16 (not 22 from wrong core=3)', () => {
     const deckCards = makeMonoRAggroCore()
-    const plan = deriveStagedPlan(deckCards, MONO_R_AGGRO_INTENT, stubT)
+    const plan = deriveStagedPlan(deckCards, MONO_R_AGGRO_INTENT, stubT, null)
 
     const aggroSection = plan.sections.find((s) => s.id === 'aggressive-creatures')
     expect(aggroSection).toBeDefined()
@@ -158,7 +158,7 @@ describe('deriveStagedPlan - 60-card invariant (scoped fixture only)', () => {
    */
   it('TC-2a: 12 locked copies + all non-land targetCounts + land targetCount === 60 (BLOCKER-1 catch)', () => {
     const deckCards = makeMonoRAggroCore()
-    const plan = deriveStagedPlan(deckCards, MONO_R_AGGRO_INTENT, stubT)
+    const plan = deriveStagedPlan(deckCards, MONO_R_AGGRO_INTENT, stubT, null)
 
     const coreCardCount = deckCards.reduce((sum, c) => sum + c.quantity, 0) // 12
     const sectionTotal = plan.sections.reduce((sum, s) => sum + s.targetCount, 0)
@@ -201,7 +201,7 @@ describe('deriveStagedPlan - non-destructive bucketing (decision 3)', () => {
       makeDeckDisplayCard('misfit-1', 1, 'Planeswalker — Chandra', '+1: Deal 1 damage.'),
     ]
 
-    const plan = deriveStagedPlan(deckCards, MONO_R_AGGRO_INTENT, stubT)
+    const plan = deriveStagedPlan(deckCards, MONO_R_AGGRO_INTENT, stubT, null)
 
     // Collect every id from every section bucket + unassigned (role lanes + unassigned only)
     const allBucketedIds: string[] = []
@@ -255,7 +255,7 @@ describe('deriveStagedPlan - deficit math (decision 8)', () => {
       makeDeckDisplayCard('creature-4', 2, 'Creature — Goblin'),
       makeDeckDisplayCard('creature-5', 2, 'Creature — Goblin'),
     ]
-    const plan = deriveStagedPlan(deckCards, MONO_R_AGGRO_INTENT, stubT)
+    const plan = deriveStagedPlan(deckCards, MONO_R_AGGRO_INTENT, stubT, null)
     const lane = plan.sections.find((s) => s.id === 'aggressive-creatures')
     expect(lane).toBeDefined()
     // targetCount must be 16 (coreCardCount=12 → correct)
@@ -280,7 +280,7 @@ describe('deriveStagedPlan - deficit math (decision 8)', () => {
     for (let i = 0; i < 16; i++) {
       deckCards.push(makeDeckDisplayCard(`creature-fill-${i}`, 1, 'Creature — Goblin'))
     }
-    const plan = deriveStagedPlan(deckCards, MONO_R_AGGRO_INTENT, stubT)
+    const plan = deriveStagedPlan(deckCards, MONO_R_AGGRO_INTENT, stubT, null)
     const lane = plan.sections.find((s) => s.id === 'aggressive-creatures')
     expect(lane).toBeDefined()
     expect(lane!.deficit).toBe(0)
@@ -301,7 +301,7 @@ describe('deriveStagedPlan - deficit math (decision 8)', () => {
     for (let i = 0; i < 8; i++) {
       deckCards.push(makeDeckDisplayCard(`instant-over-${i}`, 1, 'Instant'))
     }
-    const plan = deriveStagedPlan(deckCards, MONO_R_AGGRO_INTENT, stubT)
+    const plan = deriveStagedPlan(deckCards, MONO_R_AGGRO_INTENT, stubT, null)
     const lane = plan.sections.find((s) => s.id === 'burn-tricks')
     expect(lane).toBeDefined()
     // deficit must be >= 0, never negative
@@ -318,7 +318,7 @@ describe('deriveStagedPlan - staleLaneIds', () => {
    */
   it('TC-5a: lane with changed targetCount appears in staleLaneIds', () => {
     const deckCardsFirst = makeMonoRAggroCore() // coreCardCount=12 → aggro-creatures target=16
-    const firstPlan = deriveStagedPlan(deckCardsFirst, MONO_R_AGGRO_INTENT, stubT)
+    const firstPlan = deriveStagedPlan(deckCardsFirst, MONO_R_AGGRO_INTENT, stubT, null)
 
     // Add 4 more locked cards (total distinct=4 locked × qty4 = 16 core copies)
     const deckCardsSecond: DeckDisplayCard[] = [
@@ -338,7 +338,7 @@ describe('deriveStagedPlan - staleLaneIds', () => {
    */
   it('TC-5b: unchanged lane (same target, same bucket) does not appear in staleLaneIds', () => {
     const deckCards = makeMonoRAggroCore()
-    const firstPlan = deriveStagedPlan(deckCards, MONO_R_AGGRO_INTENT, stubT)
+    const firstPlan = deriveStagedPlan(deckCards, MONO_R_AGGRO_INTENT, stubT, null)
     // Re-derive with identical input → nothing changed
     const secondPlan = deriveStagedPlan(deckCards, MONO_R_AGGRO_INTENT, stubT, firstPlan)
 
@@ -359,7 +359,7 @@ describe('deriveStagedPlan - staleLaneIds', () => {
       makeDeckDisplayCard('creature-3', 2, 'Creature — Goblin'),
       makeDeckDisplayCard('creature-4', 2, 'Creature — Goblin'),
     ]
-    const firstPlan = deriveStagedPlan(deckCardsFirst, MONO_R_AGGRO_INTENT, stubT)
+    const firstPlan = deriveStagedPlan(deckCardsFirst, MONO_R_AGGRO_INTENT, stubT, null)
 
     // Second plan: only 2 creature cards (2 removed)
     const deckCardsSecond: DeckDisplayCard[] = [
@@ -586,7 +586,7 @@ describe('bucketPlanAgainstCards - rehydration path (G2: persisted plan, not fre
       makeDeckDisplayCard('creature-4', 2, 'Creature — Goblin'),
       makeDeckDisplayCard('creature-5', 2, 'Creature — Goblin'),
     ]
-    const result = bucketPlanAgainstCards(deckCards, PERSISTED_PLAN)
+    const result = bucketPlanAgainstCards(deckCards, PERSISTED_PLAN, null)
     const lane = result.sections.find((s) => s.id === 'aggressive-creatures')
     expect(lane).toBeDefined()
     // Locked cards must NOT be in the role lane
@@ -608,7 +608,7 @@ describe('bucketPlanAgainstCards - rehydration path (G2: persisted plan, not fre
       makeDeckDisplayCard('creature-4', 2, 'Creature — Goblin'),
       makeDeckDisplayCard('creature-5', 2, 'Creature — Goblin'),
     ]
-    const result = bucketPlanAgainstCards(deckCards, PERSISTED_PLAN)
+    const result = bucketPlanAgainstCards(deckCards, PERSISTED_PLAN, null)
     const lane = result.sections.find((s) => s.id === 'aggressive-creatures')
     expect(lane).toBeDefined()
     // targetCount=16, 5 non-locked bucketed → deficit=11 (NOT 8 if locked incorrectly counted)
@@ -620,7 +620,7 @@ describe('bucketPlanAgainstCards - rehydration path (G2: persisted plan, not fre
       makeDeckDisplayCard('core-1', 4, 'Creature — Goblin', '', true),
       makeDeckDisplayCard('misfit-1', 1, 'Planeswalker — Chandra', '+1: Deal 1 damage.'),
     ]
-    const result = bucketPlanAgainstCards(deckCards, PERSISTED_PLAN)
+    const result = bucketPlanAgainstCards(deckCards, PERSISTED_PLAN, null)
     expect(result.unassigned).toContain('misfit-1')
     for (const section of result.sections) {
       expect(section.bucketedCards).not.toContain('misfit-1')
@@ -638,7 +638,7 @@ describe('bucketPlanAgainstCards - rehydration path (G2: persisted plan, not fre
    */
   it('G2-d: a legacy deck (empty committed plan) yields no lane status for any lane', () => {
     const deckCards = makeMonoRAggroCore()
-    const previous = bucketPlanAgainstCards(deckCards, [])
+    const previous = bucketPlanAgainstCards(deckCards, [], null)
     const staged = bucketPlanAgainstCards(deckCards, PERSISTED_PLAN, previous)
     // Every staged lane IS new against an empty baseline, so they are stale...
     expect(staged.staleLaneIds.length).toBeGreaterThan(0)
@@ -648,7 +648,7 @@ describe('bucketPlanAgainstCards - rehydration path (G2: persisted plan, not fre
 
   it('G2-e: the baseline is DERIVED — bucketing the committed plan against the same cards yields no stale lanes', () => {
     const deckCards = makeMonoRAggroCore()
-    const previous = bucketPlanAgainstCards(deckCards, PERSISTED_PLAN)
+    const previous = bucketPlanAgainstCards(deckCards, PERSISTED_PLAN, null)
     const restaged = bucketPlanAgainstCards(deckCards, PERSISTED_PLAN, previous)
     // Same plan, same cards → no lane changed, so nothing is flagged. This is
     // what makes deriving the baseline from committedPlan safe: `bucketDropped`
@@ -737,6 +737,25 @@ describe('laneStatusFor', () => {
   })
 
   it('LS-d: a stale lane with NO deficit (shrunk target) → stale, refillCount null', () => {
+    const bucketed = Array.from({ length: 12 }, (_, i) => `spell-${i}`)
+    const plan = planWith([stagedLane('burn-tricks', 8, bucketed)], ['burn-tricks'])
+    expect(laneStatusFor(plan, 'burn-tricks')).toEqual({
+      stale: true,
+      refillDeficit: 0,
+      refillCount: null,
+    })
+  })
+
+  it('LS-e2: a lane re-filled to exactly its staged target is no longer under review', () => {
+    // Gap 4: staleness used to be sticky, so a lane kept dimming after the
+    // re-fill it asked for had landed. `staleLaneIds` still holds it (the plan
+    // is staged until Accept), but it has answered the ask.
+    const bucketed = Array.from({ length: 6 }, (_, i) => `spell-${i}`)
+    const plan = planWith([stagedLane('burn-tricks', 6, bucketed)], ['burn-tricks'])
+    expect(laneStatusFor(plan, 'burn-tricks')).toBeUndefined()
+  })
+
+  it('LS-e3: an OVER-filled lane is still under review — a shrunk target is not "answered"', () => {
     const bucketed = Array.from({ length: 12 }, (_, i) => `spell-${i}`)
     const plan = planWith([stagedLane('burn-tricks', 8, bucketed)], ['burn-tricks'])
     expect(laneStatusFor(plan, 'burn-tricks')).toEqual({

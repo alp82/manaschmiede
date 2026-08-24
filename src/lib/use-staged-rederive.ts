@@ -9,7 +9,6 @@ import { structuralKey } from './deck-pending'
 import { useSkipFirst } from './use-skip-first'
 import type { LocalDeck } from './deck-storage'
 import type { ScryfallCard } from './scryfall/types'
-import type { LaneStatus } from '../components/deck/SectionLane'
 
 type Translate = (key: string, params?: Record<string, string | number>) => string
 
@@ -139,7 +138,7 @@ export function deriveStagedPlan(
   deckCards: DeckDisplayCard[],
   intent: StagedIntent,
   t: Translate,
-  previousPlan?: StagedPlan,
+  previousPlan: StagedPlan | null,
 ): StagedPlan {
   const colors = resolveColors(intent)
   const lockedCards = deckCards.filter((c) => c.locked)
@@ -155,11 +154,16 @@ export function deriveStagedPlan(
  * core of `deriveStagedPlan` (which builds the plan from intent) and the
  * persistence-rehydration path (which restores a previously-staged plan from
  * the per-deck pending slot, where the plan is already known).
+ *
+ * `previousPlan` is REQUIRED — pass `null` when there is no baseline. It used to
+ * be optional, and every production call site simply omitted it, which silently
+ * produced `staleLaneIds: []` and left the entire stale-lane feature dark. An
+ * argument you have to write `null` for is one you cannot forget.
  */
 export function bucketPlanAgainstCards(
   deckCards: DeckDisplayCard[],
   plan: DeckSection[],
-  previousPlan?: StagedPlan,
+  previousPlan: StagedPlan | null,
 ): StagedPlan {
   const lockedCards = deckCards.filter((c) => c.locked)
   const lockedIds = new Set(lockedCards.map((c) => c.scryfallId))
@@ -236,6 +240,25 @@ export interface LaneReviewStatus {
 }
 
 /**
+ * The same state dressed for rendering: `refillCount` resolved into a callback
+ * that is simply ABSENT when there is nothing to fill, plus which lane is
+ * currently waiting on the chat. SectionLane re-exports this so the component
+ * tree keeps importing it from where it renders it.
+ */
+export interface LaneStatus {
+  stale: boolean
+  /**
+   * Omitted when the lane has nothing to re-fill (its target shrank, so it is
+   * already at or over the staged count). The lane still dims; the prompt is
+   * simply not rendered.
+   */
+  onRefill?: () => void
+  refillDeficit: number
+  /** True when a re-fill chat call is in flight for THIS lane. */
+  refilling?: boolean
+}
+
+/**
  * Pure core of the hook's `laneStatus`. Returns `undefined` for a lane that is
  * not under review — which is every lane when nothing is staged.
  *
@@ -247,6 +270,11 @@ export interface LaneReviewStatus {
 export function laneStatusFor(plan: StagedPlan | null, laneId: string): LaneReviewStatus | undefined {
   if (!plan || !plan.staleLaneIds.includes(laneId)) return undefined
   const section = plan.sections.find((s) => s.id === laneId)
+  // A lane whose bucketed count has reached its staged target has answered the
+  // re-derive — stop dimming it, even though it is still in the staged plan and
+  // therefore still in staleLaneIds until Accept. Over-filled is NOT answered:
+  // a shrunk target leaves the lane above its count with nothing to fill.
+  if (section && section.bucketedCards.length === section.targetCount) return undefined
   const refillDeficit = section ? section.deficit : 0
   return { stale: true, refillDeficit, refillCount: refillCountFor(refillDeficit) }
 }
@@ -276,7 +304,8 @@ interface UseStagedRederiveArgs {
   /**
    * Fired when the user presses a stale lane's re-fill button, with the count
    * the lane needs. The chat call itself stays in the route — this hook owns
-   * plans, not conversations.
+   * plans, not conversations. Must be referentially stable: it is a dependency
+   * of `laneStatus`.
    */
   onRefillLane?: (laneId: string, count: number) => void
   /** Which lane has a re-fill in flight, if any. Drives the per-lane spinner. */
@@ -364,17 +393,13 @@ export function useStagedRederive({
   // a fresh stage() call this session (false). Flips to false on stage().
   const [resumed, setResumed] = useState(wasRehydrated)
 
-  // The baseline: the committed plan bucketed against the SAME cards as any
-  // proposal, so the two are comparable lane for lane.
-  const previousPlan = useMemo(
-    () => bucketPlanAgainstCards(displayCards, committedPlan),
-    [displayCards, committedPlan],
-  )
-
-  const staged = useMemo(
-    () => (stagedSections ? bucketPlanAgainstCards(displayCards, stagedSections, previousPlan) : null),
-    [stagedSections, displayCards, previousPlan],
-  )
+  // The proposal, bucketed against the current cards and diffed against a
+  // baseline derived the same way. Nothing is computed while nothing is staged.
+  const staged = useMemo(() => {
+    if (!stagedSections) return null
+    const baseline = bucketPlanAgainstCards(displayCards, committedPlan, null)
+    return bucketPlanAgainstCards(displayCards, stagedSections, baseline)
+  }, [stagedSections, displayCards, committedPlan])
 
   // Mirror staged-plan changes into the pending slot. Skips the very first
   // commit so rehydration doesn't immediately re-persist what it just loaded.
@@ -386,12 +411,11 @@ export function useStagedRederive({
 
   const committedPlanRef = useRef(committedPlan)
   committedPlanRef.current = committedPlan
-  const previousPlanRef = useRef(previousPlan)
-  previousPlanRef.current = previousPlan
 
   const stage = useCallback(
     (nextIntent: DeckIntent) => {
-      const proposed = deriveStagedPlan(displayCards, nextIntent, t, previousPlanRef.current)
+      const baseline = bucketPlanAgainstCards(displayCards, committedPlanRef.current, null)
+      const proposed = deriveStagedPlan(displayCards, nextIntent, t, baseline)
       // No-op when the re-derive produces a plan structurally identical to the
       // committed plan (same ids, same targetCounts, no stale lanes): suppress
       // the Accept/Discard banner because accepting would do nothing visible.
@@ -428,9 +452,6 @@ export function useStagedRederive({
     setStagedSections(null)
   }, [stagedSections, setDeck, resolveCard])
 
-  const onRefillLaneRef = useRef(onRefillLane)
-  onRefillLaneRef.current = onRefillLane
-
   const laneStatus = useCallback(
     (laneId: string): LaneStatus | undefined => {
       if (!cardsReady) return undefined
@@ -442,13 +463,12 @@ export function useStagedRederive({
       const count = status.refillCount
       return {
         stale: true,
-        onRefill:
-          count === null ? undefined : () => onRefillLaneRef.current?.(laneId, count),
+        onRefill: count === null ? undefined : () => onRefillLane?.(laneId, count),
         refillDeficit: status.refillDeficit,
         refilling: refillingLaneId === laneId,
       }
     },
-    [staged, cardsReady, refillingLaneId],
+    [staged, cardsReady, refillingLaneId, onRefillLane],
   )
 
   return {

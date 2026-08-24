@@ -295,7 +295,14 @@ function DeckPage() {
   // Which lane has a re-fill in flight. The chat ledger is global, so the lane
   // that asked has to be remembered here — LaneStatus.refilling is per-lane.
   const [refillingLaneId, setRefillingLaneId] = useState<string | null>(null)
+  // `refillLane` is declared after the hook (it needs the localized plan the
+  // hook feeds), so the hook reaches it through a stable bridge rather than a
+  // circular declaration.
   const refillLaneRef = useRef<(laneId: string, count: number) => void>(() => {})
+  const bridgeRefillLane = useCallback(
+    (laneId: string, count: number) => refillLaneRef.current(laneId, count),
+    [],
+  )
 
   const {
     stagedPlan,
@@ -312,7 +319,7 @@ function DeckPage() {
     committedPlan,
     initialPlan: deckPending.stagedPlan,
     onStagedChange: setStagedPlan,
-    onRefillLane: (laneId, count) => refillLaneRef.current(laneId, count),
+    onRefillLane: bridgeRefillLane,
     refillingLaneId,
     cardsReady: !cardsLoading,
   })
@@ -622,7 +629,10 @@ function DeckPage() {
           cardListSlot={cardListSlot}
           renderExtraLightboxActions={renderEditLightboxActions}
           resolveLaneStatus={laneStatus}
-          includeEmptySections
+          // A lane the re-derive flagged is very often the one with no cards,
+          // and an unrendered lane can't show a re-fill button. Only while
+          // something is staged — otherwise every empty lane renders forever.
+          includeEmptySections={stagedPlan != null}
           chat={{
             messages,
             pending,
