@@ -23,6 +23,10 @@
  *                            out-of-range step, and maxStepReached < step
  *   C11 reset pairing        resetWizard couples RESET with clearWizardAux
  *
+ * Deferred to #20: SELECT_COMBO's range guard (index -1, index 99, and the
+ * `selectedComboIndex: null` skip path). Written red they would leave main with
+ * a failing suite between the two merges, so they land with the fix.
+ *
  * NOT unit-testable here (UI / integration):
  *   - the "rarityFilter is never empty" invariant, which lives in StepTraits
  *   - the step-transition animation and URL-step sync in new.tsx
@@ -99,32 +103,38 @@ function makeSection(id: string): DeckSection {
 
 const seedCard = { id: 'seed-1', name: 'Lightning Bolt' } as unknown as ScryfallCard
 
-/** One instance of every action in the union — the purity table's input. */
-const ALL_ACTIONS: WizardAction[] = [
-  { type: 'SET_SEED_CARD', card: seedCard, costColors: ['R'] },
-  { type: 'CLEAR_SEED_CARD' },
-  { type: 'SET_COLOR', color: 'U', state: 'selected' },
-  { type: 'CLEAR_COLORS' },
-  { type: 'SET_FORMAT', format: 'standard' },
-  { type: 'TOGGLE_ARCHETYPE', traitId: 'aggro' },
-  { type: 'TOGGLE_TRAIT', traitId: 'lifegain' },
-  { type: 'SET_CUSTOM_STRATEGY', text: 'go wide' },
-  { type: 'SET_BUDGET', min: 5, max: 50 },
-  { type: 'SET_RARITY_FILTER', rarities: ['rare'] },
-  { type: 'SET_CORE_COMBOS', combos: [makeCombo('a')] },
-  { type: 'SELECT_COMBO', index: 0 },
-  { type: 'SET_DECK', cards: [makeCard('x')], name: 'n', description: 'd' },
-  { type: 'SET_DECK_METADATA', name: 'n2', description: 'd2' },
-  { type: 'TOGGLE_LOCK', scryfallId: 'x' },
-  { type: 'SET_CHAT_MESSAGES', messages: [{ role: 'user', content: 'hi' }] },
-  { type: 'SET_SECTION_PLAN', sections: [makeSection('s1')] },
-  { type: 'ASSIGN_SECTION', sectionId: 's1', scryfallIds: ['x'] },
-  { type: 'CLEAR_SECTION_ASSIGNMENTS' },
-  { type: 'NEXT_STEP' },
-  { type: 'PREV_STEP' },
-  { type: 'GO_TO_STEP', step: 1 },
-  { type: 'RESET' },
-]
+/**
+ * One instance of every action in the union — the purity table's input. Typed
+ * as a Record over `WizardAction['type']` so a 24th action added to the union
+ * fails the typecheck here instead of silently escaping the C9 purity pass.
+ */
+const ACTION_TABLE: Record<WizardAction['type'], WizardAction> = {
+  SET_SEED_CARD: { type: 'SET_SEED_CARD', card: seedCard, costColors: ['R'] },
+  CLEAR_SEED_CARD: { type: 'CLEAR_SEED_CARD' },
+  SET_COLOR: { type: 'SET_COLOR', color: 'U', state: 'selected' },
+  CLEAR_COLORS: { type: 'CLEAR_COLORS' },
+  SET_FORMAT: { type: 'SET_FORMAT', format: 'standard' },
+  TOGGLE_ARCHETYPE: { type: 'TOGGLE_ARCHETYPE', traitId: 'aggro' },
+  TOGGLE_TRAIT: { type: 'TOGGLE_TRAIT', traitId: 'lifegain' },
+  SET_CUSTOM_STRATEGY: { type: 'SET_CUSTOM_STRATEGY', text: 'go wide' },
+  SET_BUDGET: { type: 'SET_BUDGET', min: 5, max: 50 },
+  SET_RARITY_FILTER: { type: 'SET_RARITY_FILTER', rarities: ['rare'] },
+  SET_CORE_COMBOS: { type: 'SET_CORE_COMBOS', combos: [makeCombo('a')] },
+  SELECT_COMBO: { type: 'SELECT_COMBO', index: 0 },
+  SET_DECK: { type: 'SET_DECK', cards: [makeCard('x')], name: 'n', description: 'd' },
+  SET_DECK_METADATA: { type: 'SET_DECK_METADATA', name: 'n2', description: 'd2' },
+  TOGGLE_LOCK: { type: 'TOGGLE_LOCK', scryfallId: 'x' },
+  SET_CHAT_MESSAGES: { type: 'SET_CHAT_MESSAGES', messages: [{ role: 'user', content: 'hi' }] },
+  SET_SECTION_PLAN: { type: 'SET_SECTION_PLAN', sections: [makeSection('s1')] },
+  ASSIGN_SECTION: { type: 'ASSIGN_SECTION', sectionId: 's1', scryfallIds: ['x'] },
+  CLEAR_SECTION_ASSIGNMENTS: { type: 'CLEAR_SECTION_ASSIGNMENTS' },
+  NEXT_STEP: { type: 'NEXT_STEP' },
+  PREV_STEP: { type: 'PREV_STEP' },
+  GO_TO_STEP: { type: 'GO_TO_STEP', step: 1 },
+  RESET: { type: 'RESET' },
+}
+
+const ALL_ACTIONS: WizardAction[] = Object.values(ACTION_TABLE)
 
 // ─── C1: step navigation ─────────────────────────────────────────────────────
 
@@ -494,11 +504,23 @@ describe('C10: hydrateWizardState', () => {
     expect(hydrateWizardState({ step: 2, maxStepReached: 99 }).maxStepReached).toBe(4)
   })
 
-  it('C10-m: unknown stored keys are carried through unchanged (shallow-merge behaviour is otherwise intact)', () => {
+  it('C10-m: known stored keys still merge over the defaults (the rest of the shallow merge is intact)', () => {
     expect(hydrateWizardState({ deckName: 'resumed', selectedTraits: ['lifegain'] })).toMatchObject({
       deckName: 'resumed',
       selectedTraits: ['lifegain'],
     })
+  })
+
+  it('C10-m2: UNKNOWN stored keys still pass straight through — only budgetLimit is evicted by name', () => {
+    const hydrated = hydrateWizardState({ someRetiredKey: 1 }) as WizardState & { someRetiredKey?: number }
+    expect(hydrated.someRetiredKey).toBe(1)
+    // The residual of bug 2: any other retired key a past build wrote survives
+    // and the persist effect keeps writing it back. Only budgetLimit is named.
+  })
+
+  it('C10-m3: stored field VALUES are not validated — hydration guards shape, not type', () => {
+    const hydrated = hydrateWizardState({ deckCards: 'not-an-array' }) as unknown as { deckCards: unknown }
+    expect(hydrated.deckCards).toBe('not-an-array')
   })
 
   it('C10-n: hydrateWizardState does not mutate its input', () => {
