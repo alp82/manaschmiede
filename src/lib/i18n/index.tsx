@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react'
-import type { Locale, Translations } from './types'
+import type { Locale, TFn, TranslationKey, Translations } from './types'
 import { de } from './de'
 import { en } from './en'
 
@@ -18,7 +18,7 @@ function getStoredLocale(): Locale | null {
 interface I18nContextValue {
   locale: Locale
   setLocale: (l: Locale) => void
-  t: (key: string, params?: Record<string, string | number>) => string
+  t: TFn
   /** Scryfall language code for the current locale */
   scryfallLang: string
 }
@@ -40,11 +40,16 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     document.documentElement.lang = l
   }, [])
 
-  const t = useCallback(
-    (key: string, params?: Record<string, string | number>): string => {
-      let text = (TRANSLATIONS[locale] as unknown as Record<string, string>)[key]
-        ?? (TRANSLATIONS.en as unknown as Record<string, string>)[key]
-        ?? key
+  /**
+   * The `?? key` fallback is load-bearing beyond being a safety net:
+   * `section-plan.ts` compares the returned string against the key it passed to
+   * detect a section with no translation. The cast is what lets a `DynamicKey`
+   * index a catalog typed by its literal keys.
+   */
+  const t = useCallback<TFn>(
+    (key, params): string => {
+      const catalog = TRANSLATIONS[locale] as Record<string, string>
+      let text = catalog[key] ?? TRANSLATIONS.en[key as TranslationKey] ?? key
       if (params) {
         for (const [k, v] of Object.entries(params)) {
           text = text.replaceAll(`{${k}}`, String(v))

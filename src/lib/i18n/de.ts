@@ -21,7 +21,6 @@ export const de: Translations = {
   'search.results': '{count} Ergebnisse',
   'search.welcome': 'Willkommen bei Manaschmiede',
   'search.welcomeSub': 'Suche nach Karten, um loszulegen',
-  'search.cardSearch': 'Kartensuche',
   'search.searching': 'Suche...',
 
   // Cards route
@@ -52,7 +51,6 @@ export const de: Translations = {
   'filter.format': 'Format',
   'filter.allFormats': 'Alle Formate',
   'filter.budget': 'Budget',
-  'filter.budgetMax': 'Max ${limit}/Karte',
   'filter.noBudget': 'Kein Limit',
   'filter.rarity': 'Seltenheit',
   'filter.keyword': 'Stichwort',
@@ -94,15 +92,10 @@ export const de: Translations = {
   'deck.cards': '{count} Karten',
   'deck.trimOver': '{count} kürzen',
   'deck.deckNotFound': 'Deck nicht gefunden',
-  'deck.emptyDeck': 'Leeres Deck',
-  'deck.emptyDeckSub': 'Nutze den KI-Chat oder die Suche, um Karten hinzuzufügen.',
   'deck.namePlaceholder': 'Deckname...',
   'deck.descriptionPlaceholder': 'Strategie / Beschreibung...',
-  'deck.noResults': 'Keine Ergebnisse',
   'deck.pdf': 'Drucken',
   'deck.pdfGenerating': 'Drucken...',
-  'deck.editMode': 'Bearbeiten',
-  'deck.doneEditing': 'Fertig',
 
   // Wizard shared
   'wizard.colors': 'Farben',
@@ -111,8 +104,6 @@ export const de: Translations = {
   'wizard.buildDeck': 'Deck bauen',
   'wizard.reset': 'Zurücksetzen',
   'wizard.back': 'Zurück',
-  'wizard.skip': 'Überspringen',
-  'wizard.next': 'Weiter',
   'wizard.forgeWithCard': 'Deck mit dieser Karte schmieden',
   'wizard.seedClear': 'Saatkarte entfernen',
   'wizard.seedExplanation': 'Dies ist die Saat deines Decks. Ihre Manakosten-Farben sind bereits ausgewählt, und jede in Schritt III vorgeschlagene Kombo wird um sie herum gebaut. Entferne sie, um den Assistenten von dieser Vorgabe zu befreien.',
@@ -127,7 +118,6 @@ export const de: Translations = {
 
   // Deck intent panel
   'intent.eyebrow': 'Deck-Absicht',
-  'intent.title': 'Absicht',
   'intent.colorsCommitted': 'Farben',
   'intent.archetypes': 'Archetypen',
   'intent.traits': 'Eigenschaften',
@@ -175,7 +165,6 @@ export const de: Translations = {
   'strategy.strategyPlaceholder': 'z.B. Ich möchte Albtraum-Kreaturen, die stärker werden, wenn mein Gegner Leben verliert, mit Möglichkeiten, ihnen Flugfähigkeit zu geben...',
   'strategy.budgetPerCard': 'Budget pro Karte',
   'strategy.unlimited': 'Unbegrenzt',
-  'strategy.noLimit': 'Kein Limit',
   'strategy.rarity': 'Seltenheit',
   'strategy.common': 'Gewöhnlich',
   'strategy.uncommon': 'Ungewöhnlich',
@@ -183,7 +172,6 @@ export const de: Translations = {
   'strategy.mythic': 'Sagenhaft Selten',
   'strategy.skipLong': 'Zum Deckbau springen',
   'strategy.nextColors': 'Weiter: Farben',
-  'strategy.showAllTraits': 'Alle Eigenschaften anzeigen ({count} gesamt)',
   'strategy.advanced': 'Erweiterte Optionen',
 
   // Step 3: Core Cards
@@ -251,7 +239,6 @@ export const de: Translations = {
   'chat.apply': 'Anwenden',
   'chat.discard': 'Verwerfen',
   'chat.quickFixMana': 'Manabasis korrigieren',
-  'chat.quickAddCreatures': 'Kreaturen hinzufügen',
   'chat.quickAddRemoval': 'Removal hinzufügen',
 
   // Balance Advisor
@@ -261,7 +248,6 @@ export const de: Translations = {
   'balance.manaCurve': 'Manakurve',
   'balance.colorDist': 'Farbverteilung',
   'balance.cardTypes': 'Kartentypen',
-  'balance.landColors': 'Land-Farben',
   'balance.suggestions': 'Vorschläge',
 
   // Card Lightbox
@@ -273,10 +259,8 @@ export const de: Translations = {
   'cardlist.lock': 'Karte sperren',
 
   // Page title
-  'meta.title': 'Manaschmiede - MTG Deck Builder',
 
   // Deck page
-  'deckPage.searchPlaceholder': 'Karten suchen (Scryfall)...',
   'deckPage.addOverlay': 'Hinzufügen',
 
   // Workspace pane eyebrows
@@ -288,7 +272,6 @@ export const de: Translations = {
 
   // Section/card preview states
   'deck.previewLabel': 'Vorschau',
-  'deck.queued': 'Vorgemerkt',
 
   // Confirmation dialogs
   'confirm.cancel': 'Abbrechen',

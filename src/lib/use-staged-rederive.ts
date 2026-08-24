@@ -9,8 +9,7 @@ import { structuralKey } from './deck-pending'
 import { useSkipFirst } from './use-skip-first'
 import type { LocalDeck } from './deck-storage'
 import type { ScryfallCard } from './scryfall/types'
-
-type Translate = (key: string, params?: Record<string, string | number>) => string
+import type { TFn } from './i18n/types'
 
 /** A planned section augmented with the cards bucketed into it and its deficit. */
 export interface StagedSection extends DeckSection {
@@ -137,7 +136,7 @@ export function rebucketAssignments(
 export function deriveStagedPlan(
   deckCards: DeckDisplayCard[],
   intent: StagedIntent,
-  t: Translate,
+  t: TFn,
   previousPlan: StagedPlan | null,
 ): StagedPlan {
   const colors = resolveColors(intent)
@@ -281,7 +280,7 @@ export function laneStatusFor(plan: StagedPlan | null, laneId: string): LaneRevi
 
 interface UseStagedRederiveArgs {
   displayCards: DeckDisplayCard[]
-  t: Translate
+  t: TFn
   setDeck: (updater: (prev: LocalDeck | null) => LocalDeck | null) => void
   resolveCard: (id: string) => ScryfallCard | undefined
   /**

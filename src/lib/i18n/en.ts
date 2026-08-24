@@ -1,6 +1,13 @@
-import type { Translations } from './types'
-
-export const en: Translations = {
+/**
+ * The English catalog, and the single source of truth for what keys exist.
+ *
+ * `as const` with no type annotation is deliberate: `src/lib/i18n/types.ts`
+ * derives `TranslationKey` from `keyof typeof en`, so adding a key here is what
+ * makes it callable from `t()` and what makes `de.ts` fail to compile until it
+ * carries the key too. Annotating this object would invert that and put the
+ * keys back in a hand-maintained list.
+ */
+export const en = {
   // Nav
   'nav.cards': 'Cards',
   'nav.decks': 'Decks',
@@ -21,7 +28,6 @@ export const en: Translations = {
   'search.results': '{count} results',
   'search.welcome': 'Welcome to Manaschmiede',
   'search.welcomeSub': 'Search for cards to get started',
-  'search.cardSearch': 'Card Search',
   'search.searching': 'Searching...',
 
   // Cards route
@@ -52,7 +58,6 @@ export const en: Translations = {
   'filter.format': 'Format',
   'filter.allFormats': 'All Formats',
   'filter.budget': 'Budget',
-  'filter.budgetMax': 'Max ${limit}/card',
   'filter.noBudget': 'No limit',
   'filter.rarity': 'Rarity',
   'filter.keyword': 'Keyword',
@@ -90,19 +95,14 @@ export const en: Translations = {
   'deck.yourDecks': 'Your Decks',
   'deck.createFirst': '+ Create First Deck',
   'deck.loadSamples': 'Load Sample Decks',
-'deck.delete': 'Delete',
+  'deck.delete': 'Delete',
   'deck.cards': '{count} cards',
   'deck.trimOver': 'trim {count}',
   'deck.deckNotFound': 'Deck not found',
-  'deck.emptyDeck': 'Empty Deck',
-  'deck.emptyDeckSub': 'Use the AI chat or search to add cards.',
   'deck.namePlaceholder': 'Deck name...',
   'deck.descriptionPlaceholder': 'Strategy / Description...',
-  'deck.noResults': 'No results',
   'deck.pdf': 'Print',
   'deck.pdfGenerating': 'Printing...',
-  'deck.editMode': 'Edit',
-  'deck.doneEditing': 'Done',
 
   // Wizard shared
   'wizard.colors': 'Colors',
@@ -111,8 +111,6 @@ export const en: Translations = {
   'wizard.buildDeck': 'Build Deck',
   'wizard.reset': 'Reset',
   'wizard.back': 'Back',
-  'wizard.skip': 'Skip',
-  'wizard.next': 'Next',
   'wizard.forgeWithCard': 'Forge deck with this card',
   'wizard.seedClear': 'Remove seed card',
   'wizard.seedExplanation': 'This is the seed of your deck. Its casting colors are pre-selected for you, and every combo suggested in step III will be built around it. Remove it to free the wizard from this constraint.',
@@ -127,7 +125,6 @@ export const en: Translations = {
 
   // Deck intent panel
   'intent.eyebrow': 'Deck Intent',
-  'intent.title': 'Intent',
   'intent.colorsCommitted': 'Colors',
   'intent.archetypes': 'Archetypes',
   'intent.traits': 'Traits',
@@ -175,7 +172,6 @@ export const en: Translations = {
   'strategy.strategyPlaceholder': 'e.g. I want nightmare creatures that get stronger when my opponent loses life, with ways to give them flying...',
   'strategy.budgetPerCard': 'Budget per card',
   'strategy.unlimited': 'Unlimited',
-  'strategy.noLimit': 'No limit',
   'strategy.rarity': 'Rarity',
   'strategy.common': 'Common',
   'strategy.uncommon': 'Uncommon',
@@ -183,7 +179,6 @@ export const en: Translations = {
   'strategy.mythic': 'Mythic',
   'strategy.skipLong': 'Skip to deck building',
   'strategy.nextColors': 'Next: Colors',
-  'strategy.showAllTraits': 'Show all traits ({count} total)',
   'strategy.advanced': 'Advanced options',
 
   // Step 3: Core Cards
@@ -251,7 +246,6 @@ export const en: Translations = {
   'chat.apply': 'Apply',
   'chat.discard': 'Discard',
   'chat.quickFixMana': 'Fix mana base',
-  'chat.quickAddCreatures': 'Add creatures',
   'chat.quickAddRemoval': 'Add removal',
 
   // Balance Advisor
@@ -261,7 +255,6 @@ export const en: Translations = {
   'balance.manaCurve': 'Mana Curve',
   'balance.colorDist': 'Color Distribution',
   'balance.cardTypes': 'Card Types',
-  'balance.landColors': 'Land Colors',
   'balance.suggestions': 'Suggestions',
 
   // Card Lightbox
@@ -269,14 +262,12 @@ export const en: Translations = {
 
   // DeckCardList
   'cardlist.noCards': 'No cards in this zone',
-'cardlist.unlock': 'Unlock card',
+  'cardlist.unlock': 'Unlock card',
   'cardlist.lock': 'Lock card',
 
   // Page title
-  'meta.title': 'Manaschmiede - MTG Deck Builder',
 
   // Deck page
-  'deckPage.searchPlaceholder': 'Search cards (Scryfall)...',
   'deckPage.addOverlay': 'Add',
 
   // Workspace pane eyebrows
@@ -288,7 +279,6 @@ export const en: Translations = {
 
   // Section/card preview states
   'deck.previewLabel': 'Preview',
-  'deck.queued': 'Queued',
 
   // Confirmation dialogs
   'confirm.cancel': 'Cancel',
@@ -529,4 +519,4 @@ export const en: Translations = {
   'balance.suggestion.addRemoval': 'Consider adding removal spells to handle opponent threats.',
   'balance.suggestion.addCardDraw': 'Consider adding card draw to maintain hand advantage.',
   'balance.suggestion.tribalSynergy': 'You have {count} {type} - consider tribal synergy cards.',
-}
+} as const

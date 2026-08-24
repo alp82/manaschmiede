@@ -12,8 +12,7 @@ import {
 } from './deck-utils'
 import type { ScryfallCard } from './scryfall/types'
 import type { SectionLaneDescriptor } from '../components/deck/SectionLane'
-
-type Translate = (key: string, params?: Record<string, string | number>) => string
+import type { TFn } from './i18n/types'
 
 interface DeriveArgs {
   archetypes: string[]
@@ -24,7 +23,7 @@ interface DeriveArgs {
 
 interface UseSectionsArgs {
   sectionPlan: DeckSection[]
-  t: Translate
+  t: TFn
   /**
    * When the persisted plan is empty, derive one from these inputs (the
    * wizard's first render). Omit on the deck view, which always has a
@@ -90,7 +89,7 @@ export interface BuildLaneDescriptorsOpts {
 export function buildLaneDescriptors(
   sections: DeckSection[],
   sectionCards: Record<string, DeckDisplayCard[]>,
-  t: Translate,
+  t: TFn,
   opts: BuildLaneDescriptorsOpts = {},
 ): SectionLaneDescriptor[] {
   const { includeEmptySections = false, fallbackByType = false } = opts

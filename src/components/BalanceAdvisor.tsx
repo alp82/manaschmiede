@@ -2,6 +2,7 @@ import type { BalanceAnalysis } from '../lib/balance'
 import { manaSymbolUrl, type ManaColor } from './ManaSymbol'
 import { cn } from '../lib/utils'
 import { useT } from '../lib/i18n'
+import type { TranslationKey } from '../lib/i18n/types'
 
 interface BalanceAdvisorProps {
   analysis: BalanceAnalysis | null
@@ -21,7 +22,7 @@ const COLORLESS_SYMBOL_URL = 'https://svgs.scryfall.io/card-symbols/C.svg'
  * from a hardcoded switch on the Scryfall type line). Map them to filter.*
  * i18n keys so the BalanceAdvisor breakdown renders in the active locale.
  */
-const TYPE_I18N_KEY: Record<string, string> = {
+const TYPE_I18N_KEY: Record<string, TranslationKey> = {
   Creature: 'filter.creature',
   Instant: 'filter.instant',
   Sorcery: 'filter.sorcery',

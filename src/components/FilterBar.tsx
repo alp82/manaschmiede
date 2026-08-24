@@ -9,6 +9,7 @@ import { useT } from '../lib/i18n'
 import { useDeckSounds } from '../lib/sounds'
 import { setsListOptions } from '../lib/scryfall/queries'
 import type { DeckFormat } from '../lib/deck-utils'
+import type { TranslationKey } from '../lib/i18n/types'
 
 export type ColorMode = 'all' | 'any'
 
@@ -30,7 +31,7 @@ export type FilterType =
  * symbol fallback — Cinzel doesn't cover these codepoints and that's fine,
  * the glyph is decorative.
  */
-const FILTER_META: Record<FilterType, { labelKey: string; glyph: string }> = {
+const FILTER_META: Record<FilterType, { labelKey: TranslationKey; glyph: string }> = {
   type: { labelKey: 'filter.type', glyph: 'T' },
   cmc: { labelKey: 'filter.cmc', glyph: '①' },
   format: { labelKey: 'filter.format', glyph: '§' },
@@ -52,7 +53,7 @@ const FILTER_ORDER: FilterType[] = [
   'set',
 ]
 
-const CARD_TYPE_KEYS = [
+const CARD_TYPE_KEYS: { value: string; key: TranslationKey | '' }[] = [
   { value: '', key: 'filter.allTypes' },
   { value: 'creature', key: 'filter.creature' },
   { value: 'instant', key: 'filter.instant' },
@@ -62,7 +63,7 @@ const CARD_TYPE_KEYS = [
   { value: 'land', key: 'filter.land' },
 ]
 
-const CMC_OPTIONS = [
+const CMC_OPTIONS: { value: string; key: TranslationKey | '' }[] = [
   { value: '', key: 'filter.allCmc' },
   { value: '0', key: '' },
   { value: '1', key: '' },
@@ -74,7 +75,7 @@ const CMC_OPTIONS = [
   { value: '7+', key: '' },
 ]
 
-const FORMAT_OPTIONS: { value: DeckFormat | ''; key: string }[] = [
+const FORMAT_OPTIONS: { value: DeckFormat | ''; key: TranslationKey | '' }[] = [
   { value: '', key: 'filter.allFormats' },
   { value: 'standard', key: '' },
   { value: 'modern', key: '' },
@@ -82,14 +83,14 @@ const FORMAT_OPTIONS: { value: DeckFormat | ''; key: string }[] = [
 ]
 
 const RARITIES = ['common', 'uncommon', 'rare', 'mythic'] as const
-const RARITY_KEYS: Record<string, string> = {
+const RARITY_KEYS: Record<string, TranslationKey> = {
   common: 'strategy.common',
   uncommon: 'strategy.uncommon',
   rare: 'strategy.rare',
   mythic: 'strategy.mythic',
 }
 
-const KEYWORD_OPTIONS = [
+const KEYWORD_OPTIONS: { value: string; key: TranslationKey }[] = [
   { value: '', key: 'filter.allKeywords' },
   { value: 'flying', key: 'trait.flying' },
   { value: 'trample', key: 'trait.trample' },

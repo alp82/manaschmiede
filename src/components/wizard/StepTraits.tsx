@@ -12,6 +12,7 @@ import { useT } from '../../lib/i18n'
 import type { ManaColor } from '../ManaSymbol'
 import type { ManaColorState, WizardAction } from '../../lib/wizard-state'
 import type { DeckFormat } from '../../lib/deck-utils'
+import type { TranslationKey } from '../../lib/i18n/types'
 
 interface StepTraitsProps {
   colors: Record<ManaColor, ManaColorState>
@@ -40,7 +41,7 @@ function formatBudgetRange(
   return `${minStr} \u2013 ${maxStr}`
 }
 
-const FORMATS: { value: DeckFormat; key: string }[] = [
+const FORMATS: { value: DeckFormat; key: TranslationKey }[] = [
   { value: 'casual', key: 'colors.formatCasual' },
   { value: 'modern', key: 'colors.formatModern' },
   { value: 'standard', key: 'colors.formatStandard' },
@@ -66,14 +67,14 @@ export const ARCHETYPE_ART: Record<string, string> = {
 }
 
 const RARITIES = ['common', 'uncommon', 'rare', 'mythic'] as const
-const RARITY_KEYS: Record<string, string> = {
+const RARITY_KEYS: Record<string, TranslationKey> = {
   common: 'strategy.common',
   uncommon: 'strategy.uncommon',
   rare: 'strategy.rare',
   mythic: 'strategy.mythic',
 }
 
-const CATEGORY_KEYS: Record<TraitCategory, string> = {
+const CATEGORY_KEYS: Record<TraitCategory, TranslationKey> = {
   archetype: 'strategy.archetypes',
   keyword: 'strategy.combatKeywords',
   mechanic: 'strategy.mechanics',

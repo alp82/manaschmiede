@@ -8,6 +8,7 @@ import { cn } from '../../lib/utils'
 import { useT } from '../../lib/i18n'
 import type { ManaColorState, WizardAction } from '../../lib/wizard-state'
 import { getTraitById } from '../../lib/trait-mappings'
+import type { TranslationKey } from '../../lib/i18n/types'
 
 interface StepColorsProps {
   colors: Record<ManaColor, ManaColorState>
@@ -20,7 +21,7 @@ interface StepColorsProps {
 }
 
 const ALL_COLORS: ManaColor[] = ['W', 'U', 'B', 'R', 'G']
-const COLOR_KEYS: Record<ManaColor, string> = {
+const COLOR_KEYS: Record<ManaColor, TranslationKey> = {
   W: 'color.white',
   U: 'color.blue',
   B: 'color.black',
