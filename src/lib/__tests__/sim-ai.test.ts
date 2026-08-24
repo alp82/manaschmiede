@@ -95,6 +95,50 @@ describe('chooseBlockers', () => {
     expect(assignments.get(0)).toEqual([0])
   })
 
+  it('[R] declines an even trade while the life is affordable', () => {
+    // A 2/2 stopping a 2/2 costs one creature and kills one, and buys two life
+    // out of twenty. Taking that deal every turn is what made attacking into an
+    // equal board pointless, and a mirror match came down to the extra card the
+    // player on the draw sees rather than to who moved first.
+    const blocker = permanent(simCard({ id: 'blocker', power: 2, toughness: 2 }))
+    const attacker = permanent(simCard({ id: 'attacker', power: 2, toughness: 2 }))
+
+    const assignments = chooseBlockers([blocker], [{ permanent: attacker, index: 0 }], 20)
+
+    expect(assignments.size).toBe(0)
+  })
+
+  it('[R] takes the same even trade once it is within two swings of dying', () => {
+    const blocker = permanent(simCard({ id: 'blocker', power: 2, toughness: 2 }))
+    const attacker = permanent(simCard({ id: 'attacker', power: 2, toughness: 2 }))
+
+    const assignments = chooseBlockers([blocker], [{ permanent: attacker, index: 0 }], 3)
+
+    expect(assignments.get(0)).toEqual([0])
+  })
+
+  it('[R] takes a trade that is ahead on value at any life total', () => {
+    const blocker = permanent(
+      simCard({ id: 'squire', power: 2, toughness: 2, cost: cost(0, { G: 1 }) }),
+    )
+    const attacker = permanent(
+      simCard({ id: 'angel', power: 2, toughness: 2, cost: cost(4, { G: 1 }) }),
+    )
+
+    const assignments = chooseBlockers([blocker], [{ permanent: attacker, index: 0 }], 20)
+
+    expect(assignments.get(0)).toEqual([0])
+  })
+
+  it('[R] blocks for free with a creature that survives and kills nothing', () => {
+    const wall = permanent(simCard({ id: 'wall', power: 0, toughness: 5 }))
+    const attacker = permanent(simCard({ id: 'bear', power: 2, toughness: 2 }))
+
+    const assignments = chooseBlockers([wall], [{ permanent: attacker, index: 0 }], 20)
+
+    expect(assignments.get(0)).toEqual([0])
+  })
+
   it('[R] chump-blocks an attacker that would otherwise be lethal', () => {
     const chump = permanent(simCard({ id: 'chump', power: 1, toughness: 1 }))
     const giant = permanent(simCard({ id: 'giant', power: 20, toughness: 20 }))
@@ -243,6 +287,36 @@ describe('chooseAttackers', () => {
     const guard = () => permanent(simCard({ id: 'guard', power: 3, toughness: 3 }))
 
     expect(chooseAttackers([raider], [guard(), guard()], 20)).toEqual([])
+  })
+
+  it('[R] attacks when the attackers outnumber the blockers', () => {
+    // Judging each attacker against every untapped blocker counts the one
+    // blocker against all three, so all three stayed home. At most one of them
+    // can actually be blocked, and the other two are four damage.
+    const bear = () => permanent(simCard({ id: 'bear', power: 2, toughness: 2 }))
+    const mine = [bear(), bear(), bear()]
+
+    expect(chooseAttackers(mine, [bear()], 20)).toEqual([0, 1, 2])
+  })
+
+  it('[R] attacks into an equal board the defender will not block', () => {
+    const bear = () => permanent(simCard({ id: 'bear', power: 2, toughness: 2 }))
+
+    expect(chooseAttackers([bear()], [bear()], 20)).toEqual([0])
+  })
+
+  it('[R] holds back a creature that dies for nothing', () => {
+    const squire = permanent(simCard({ id: 'squire', power: 1, toughness: 1 }))
+    const wall = permanent(simCard({ id: 'wall', power: 4, toughness: 4 }))
+
+    expect(chooseAttackers([squire], [wall], 20)).toEqual([])
+  })
+
+  it('[R] swings for the win even into blockers that eat the attack', () => {
+    const bear = () => permanent(simCard({ id: 'bear', power: 2, toughness: 2 }))
+    const mine = [bear(), bear()]
+
+    expect(chooseAttackers(mine, [bear()], 2)).toEqual([0, 1])
   })
 
   it('[R] never attacks with a non-creature permanent', () => {

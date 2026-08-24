@@ -1,4 +1,4 @@
-import type { GameState, Permanent } from './types'
+import type { GameState, Permanent, PlayerState } from './types'
 import { isDestroyedBySba } from './state-based-actions'
 
 export function canBlock(blocker: Permanent, attacker: Permanent): boolean {
@@ -55,7 +55,7 @@ function fightsInNormalStep(p: Permanent): boolean {
  */
 export function killedBeforeDealingDamage(
   attacker: Permanent,
-  blockers: Permanent[],
+  blockers: readonly Permanent[],
 ): boolean {
   if (fightsInFirstStrikeStep(attacker)) return false
   let damage = attacker.damage
@@ -151,4 +151,67 @@ export function resolveCombat(
   }
 
   damageStep(fightsInNormalStep, attackerIndices, blockerAssignments, state)
+}
+
+/** What one combat would do, read off a throwaway copy of the battlefields. */
+export interface CombatForecast {
+  /** Net life change for the defending player. Negative is damage taken. */
+  defenderLifeChange: number
+  /** Net life change for the attacking player. Positive comes from lifelink. */
+  attackerLifeChange: number
+  /** Attacking creatures that die, as clones - identity is not the caller's. */
+  attackersLost: Permanent[]
+  /** Blocking creatures that die, as clones - identity is not the caller's. */
+  blockersLost: Permanent[]
+}
+
+/** A player with nothing but a battlefield. Combat reads no other zone. */
+function battlefieldOnly(battlefield: Permanent[]): PlayerState {
+  return {
+    life: 0,
+    library: [],
+    hand: [],
+    battlefield,
+    graveyard: [],
+    landDropsRemaining: 0,
+    spellsCastThisTurn: 0,
+  }
+}
+
+/**
+ * Resolves `attackerIndices` against `blockerAssignments` on a copy of both
+ * battlefields and reports the outcome.
+ *
+ * The AI needs to know what an attack costs before declaring it, and the only
+ * answer that can't drift from the rules is the one `resolveCombat` itself
+ * gives. So this clones the permanents, runs the real combat over the clones,
+ * and reads the result - rather than restating first strike, trample, and
+ * deathtouch a second time in the AI.
+ *
+ * Both players start at 0 life, so the reported changes are deltas the caller
+ * applies to whatever the real life totals are.
+ */
+export function forecastCombat(
+  attackerIndices: number[],
+  blockerAssignments: Map<number, number[]>,
+  attackerBoard: readonly Permanent[],
+  defenderBoard: readonly Permanent[],
+): CombatForecast {
+  const attackers = attackerBoard.map((p) => ({ ...p }))
+  const defenders = defenderBoard.map((p) => ({ ...p }))
+  const state: GameState = {
+    players: [battlefieldOnly(attackers), battlefieldOnly(defenders)],
+    turn: 0,
+    activePlayer: 0,
+    phase: 'combat',
+  }
+
+  resolveCombat(attackerIndices, blockerAssignments, state)
+
+  return {
+    attackerLifeChange: state.players[0].life,
+    defenderLifeChange: state.players[1].life,
+    attackersLost: attackers.filter(isDestroyedBySba),
+    blockersLost: defenders.filter(isDestroyedBySba),
+  }
 }

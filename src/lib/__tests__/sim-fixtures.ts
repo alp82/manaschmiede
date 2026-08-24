@@ -123,6 +123,7 @@ export function playerWith(battlefield: Permanent[]): PlayerState {
     battlefield,
     graveyard: [],
     landDropsRemaining: 1,
+    spellsCastThisTurn: 0,
   }
 }
 

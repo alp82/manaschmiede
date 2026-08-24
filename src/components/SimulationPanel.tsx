@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import type { DeckCard } from '../lib/deck-utils'
 import type { ScryfallCard } from '../lib/scryfall/types'
+import type { PerPlayerRate, SimulationResult } from '../lib/simulation/types'
 import { Button } from './ui/Button'
 import { useSimulation } from '../lib/simulation/use-simulation'
 import { loadDecks, type LocalDeck } from '../lib/deck-storage'
@@ -97,6 +98,11 @@ export function SimulationPanel({ deckId, deckName, cards, cardDataMap }: Simula
 
   const opponentName = isMirror ? deckName : (opponentDeck?.name ?? 'Opponent')
 
+  /** Short side labels for the per-deck metrics; full names don't fit a column. */
+  const sideLabels: [string, string] = isMirror
+    ? ['A', 'B']
+    : [abbreviate(deckName), abbreviate(opponentName)]
+
   return (
     <div className="divide-y divide-hairline/60 border border-hairline bg-ash-800/40">
       <div className="flex items-center justify-between px-4 py-3">
@@ -185,7 +191,7 @@ export function SimulationPanel({ deckId, deckName, cards, cardDataMap }: Simula
           {/* Win rates */}
           <div className="grid grid-cols-3 divide-x divide-hairline/60">
             <StatBox
-              label={isMirror ? 'P1 WINS' : deckName.toUpperCase()}
+              label={isMirror ? 'COPY A' : deckName.toUpperCase()}
               value={`${((state.result.wins[0] / state.result.totalGames) * 100).toFixed(1)}%`}
             />
             <StatBox
@@ -193,23 +199,26 @@ export function SimulationPanel({ deckId, deckName, cards, cardDataMap }: Simula
               value={`${((state.result.draws / state.result.totalGames) * 100).toFixed(1)}%`}
             />
             <StatBox
-              label={isMirror ? 'P2 WINS' : opponentName.toUpperCase()}
+              label={isMirror ? 'COPY B' : opponentName.toUpperCase()}
               value={`${((state.result.wins[1] / state.result.totalGames) * 100).toFixed(1)}%`}
             />
           </div>
 
           <div className="grid grid-cols-3 divide-x divide-hairline/60">
-            <StatBox
+            <SplitStatBox
               label="MANA SCREW"
-              value={`${(state.result.manaScrewRate * 100).toFixed(1)}%`}
+              sides={sideLabels}
+              rates={state.result.manaScrewRate}
             />
-            <StatBox
+            <SplitStatBox
               label="MANA FLOOD"
-              value={`${(state.result.manaFloodRate * 100).toFixed(1)}%`}
+              sides={sideLabels}
+              rates={state.result.manaFloodRate}
             />
-            <StatBox
+            <SplitStatBox
               label="CURVE HIT"
-              value={`${(state.result.curveHitRate * 100).toFixed(1)}%`}
+              sides={sideLabels}
+              rates={state.result.curveHitRate}
             />
           </div>
 
@@ -237,6 +246,10 @@ export function SimulationPanel({ deckId, deckName, cards, cardDataMap }: Simula
               {' — '}
               95% CI [{(state.result.winRateCI95[0] * 100).toFixed(1)}%, {(state.result.winRateCI95[1] * 100).toFixed(1)}%]
               {' — '}
+              ON THE PLAY {(onThePlayRate(state.result) * 100).toFixed(1)}%
+              {' — '}
+              DECKED OUT {((state.result.winConditions.mill / state.result.totalGames) * 100).toFixed(1)}%
+              {' — '}
               SEED {state.seed}
             </span>
           </div>
@@ -250,6 +263,59 @@ export function SimulationPanel({ deckId, deckName, cards, cardDataMap }: Simula
 function deckSignature(cards: DeckCard[] | undefined): string {
   if (!cards) return ''
   return cards.map((c) => `${c.scryfallId}:${c.quantity}:${c.zone}`).join(',')
+}
+
+/**
+ * Player 0's share of the games that had a winner. The seats alternate every
+ * game, so this is the matchup's tempo bias and not one deck's advantage.
+ */
+function onThePlayRate(result: SimulationResult): number {
+  const decided = result.seatWins[0] + result.seatWins[1]
+  return decided > 0 ? result.seatWins[0] / decided : 0
+}
+
+/** Enough of a deck name to tell two of them apart in a narrow column. */
+function abbreviate(name: string): string {
+  const upper = name.toUpperCase()
+  return upper.length > 8 ? `${upper.slice(0, 7).trimEnd()}…` : upper
+}
+
+/**
+ * One metric, reported for both decks.
+ *
+ * Mana screw, flood, and curve are properties of a deck's draws, not of the
+ * matchup. Showing a single number means picking one of the two decks and
+ * labelling it as if it described both.
+ */
+function SplitStatBox({
+  label,
+  sides,
+  rates,
+}: {
+  label: string
+  sides: [string, string]
+  rates: PerPlayerRate
+}) {
+  return (
+    <div className="px-4 py-3">
+      <div className="font-mono text-mono-marginal uppercase leading-none tracking-mono-marginal text-cream-500">
+        {label}
+      </div>
+      <div className="mt-2 space-y-1">
+        {sides.map((side, i) => (
+          // Index as key: two decks can share an abbreviated name.
+          <div key={i} className="flex items-baseline justify-between gap-2">
+            <span className="font-mono text-mono-marginal uppercase tracking-mono-marginal text-cream-400">
+              {side}
+            </span>
+            <span className="font-mono text-mono-num tabular-nums text-cream-100">
+              {(rates[i] * 100).toFixed(1)}%
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 function StatBox({ label, value }: { label: string; value: string }) {

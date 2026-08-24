@@ -6,7 +6,7 @@ import type {
   SimCard,
 } from './types'
 import { MANA_COLORS, payCost } from './mana'
-import { canBlock, killedBeforeDealingDamage, lethalDamage } from './combat'
+import { canBlock, forecastCombat, killedBeforeDealingDamage, lethalDamage } from './combat'
 
 export function shouldMulligan(hand: SimCard[], mulliganCount: number): boolean {
   if (mulliganCount >= 2) return false
@@ -115,6 +115,77 @@ export function chooseCasts(
   return { indices, spent }
 }
 
+/**
+ * What losing this creature costs, in mana. A token has no cost and is still
+ * worth something, so every body is worth one more than its mana value.
+ */
+function creatureValue(permanent: Permanent): number {
+  return (permanent.card.cost?.cmc ?? 0) + 1
+}
+
+function totalValue(permanents: readonly Permanent[]): number {
+  return permanents.reduce((sum, p) => sum + creatureValue(p), 0)
+}
+
+/**
+ * What this attack is worth: damage bought, minus the bodies it costs, plus the
+ * bodies it kills. `Infinity` when it wins the game.
+ *
+ * A point of damage to the face is priced at one mana, the same scale the
+ * bodies are on. That makes a one-for-one trade that deals nothing score zero,
+ * and puts any attack whose damage gets through ahead - which is what makes
+ * outnumbering the blockers worth doing.
+ *
+ * The defender's own `chooseBlockers` decides the blocks, so the attacker is
+ * reasoning about what the defender will actually do rather than about a worst
+ * case the defender has no reason to choose.
+ */
+function scoreAttack(
+  indices: number[],
+  battlefield: Permanent[],
+  opponentBoard: Permanent[],
+  opponentLife: number,
+): number {
+  if (indices.length === 0) return 0
+
+  const declared = indices.map((index) => ({ permanent: battlefield[index], index }))
+  const blocks = chooseBlockers(opponentBoard, declared, opponentLife)
+  const forecast = forecastCombat(indices, blocks, battlefield, opponentBoard)
+
+  if (opponentLife + forecast.defenderLifeChange <= 0) return Infinity
+
+  const damage = Math.max(0, -forecast.defenderLifeChange)
+  const lifeGained = Math.max(0, forecast.attackerLifeChange)
+  return damage + lifeGained + totalValue(forecast.blockersLost) - totalValue(forecast.attackersLost)
+}
+
+/** Attackers in the order they are most likely to be worth sending: evasive, then biggest. */
+function byAttackPriority(battlefield: Permanent[]): (a: number, b: number) => number {
+  const evasion = (p: Permanent) =>
+    (p.card.keywords.has('flying') ? 2 : 0) + (p.card.keywords.has('menace') ? 1 : 0)
+  return (a, b) => {
+    const evasionDiff = evasion(battlefield[b]) - evasion(battlefield[a])
+    if (evasionDiff !== 0) return evasionDiff
+    return battlefield[b].card.power - battlefield[a].card.power
+  }
+}
+
+/**
+ * Declares the attack, by asking what each attack would cost rather than by
+ * asking whether each creature is safe.
+ *
+ * Judging attackers one at a time against every untapped blocker is what kept
+ * the AI at home: it counts a blocker against every attacker at once, so five
+ * creatures facing one blocker all stay back, and it reads an even trade as a
+ * loss. Both together make a board stall permanent, and a stalled game is
+ * decided by whoever draws the extra card - which is why a mirror match was
+ * not a coin flip.
+ *
+ * So attackers are added one at a time, in the order they're most likely to
+ * pay off, and each addition is kept if the forecast for the whole attack
+ * doesn't get worse. An even trade is kept: the attacker chose it, and
+ * declining every even trade forever is how the stall came back.
+ */
 export function chooseAttackers(
   battlefield: Permanent[],
   opponentBoard: Permanent[],
@@ -136,42 +207,17 @@ export function chooseAttackers(
 
   if (eligible.length === 0) return []
 
-  const totalDamage = eligible.reduce((s, i) => s + battlefield[i].card.power, 0)
-  if (totalDamage >= opponentLife) return eligible
+  eligible.sort(byAttackPriority(battlefield))
 
   const attackers: number[] = []
-  const availableBlockers = opponentBoard.filter(
-    (p) => p.card.cardType === 'creature' && !p.tapped,
-  )
-
+  let best = 0
   for (const idx of eligible) {
-    const atk = battlefield[idx]
-
-    if (atk.card.keywords.has('flying')) {
-      const flyingBlockers = availableBlockers.filter(
-        (b) => b.card.keywords.has('flying') || b.card.keywords.has('reach'),
-      )
-      if (flyingBlockers.length === 0) {
-        attackers.push(idx)
-        continue
-      }
-    }
-
-    if (atk.card.keywords.has('menace')) {
-      if (availableBlockers.length < 2) {
-        attackers.push(idx)
-        continue
-      }
-    }
-
-    const blockersThatKill = availableBlockers.filter((b) => {
-      if (!canBlock(b, atk)) return false
-      const bDmg = b.card.keywords.has('deathtouch') ? 999 : b.card.power
-      return bDmg >= atk.card.toughness
-    })
-
-    if (blockersThatKill.length === 0) {
+    const candidate = [...attackers, idx]
+    const score = scoreAttack(candidate, battlefield, opponentBoard, opponentLife)
+    if (score === Infinity) return candidate
+    if (score >= best) {
       attackers.push(idx)
+      best = score
     }
   }
 
@@ -236,7 +282,7 @@ export function chooseBlockers(
             if (!pair.includes(bIdx)) pair.push(bIdx)
           }
         }
-        if (pair.length >= 2) {
+        if (pair.length >= 2 && scoreBlock(atk.permanent, pair.map((i) => myBoard[i])) > 0) {
           assignments.set(atk.index, pair)
           for (const p of pair) used.add(p)
         }
@@ -252,23 +298,7 @@ export function chooseBlockers(
       const blocker = myBoard[bIdx]
       if (!canBlock(blocker, atk.permanent)) continue
 
-      const survives = atk.permanent.card.keywords.has('deathtouch')
-        ? false
-        : blocker.card.toughness > atk.permanent.card.power
-      const kills =
-        blocker.card.keywords.has('deathtouch') ||
-        blocker.card.power >= atk.permanent.card.toughness
-
-      let score = 0
-      if (survives && kills) score = 10
-      else if (kills) {
-        const valueDiff = (atk.permanent.card.cost?.cmc ?? 0) - (blocker.card.cost?.cmc ?? 0)
-        score = valueDiff >= 0 ? 5 + valueDiff : -1
-      } else if (survives) {
-        score = 3
-      } else {
-        score = -5
-      }
+      const score = scoreBlock(atk.permanent, [blocker])
 
       if (score > bestScore) {
         bestScore = score
@@ -276,15 +306,76 @@ export function chooseBlockers(
       }
     }
 
-    if (bestBlocker >= 0 && bestScore >= 0) {
+    if (bestBlocker >= 0 && bestScore > 0) {
       assignments.set(atk.index, [bestBlocker])
       used.add(bestBlocker)
     }
   }
 
-  addChumpBlocks(myBoard, available, attackers, myLife, assignments, used)
+  addSurvivalBlocks({ myBoard, available, attackers, myLife, assignments, used })
 
   return assignments
+}
+
+/**
+ * Whether `blockers` between them kill `attacker`, by the same arithmetic
+ * `damageStep` uses.
+ */
+function blockersKill(attacker: Permanent, blockers: readonly Permanent[]): boolean {
+  if (attacker.card.keywords.has('indestructible')) return false
+  if (killedBeforeDealingDamage(attacker, blockers)) return true
+  const dealt = blockers.reduce(
+    (sum, b) => sum + (b.card.keywords.has('deathtouch') ? 999 : b.card.power),
+    0,
+  )
+  return attacker.damage + dealt >= attacker.card.toughness
+}
+
+/**
+ * What `attacker` kills of `blockers`, in mana.
+ *
+ * It assigns lethal damage down the line and stops when it runs out, so a block
+ * by committee only loses the front of it.
+ *
+ * Any damage from a deathtouch attacker counts as lethal, by the rules and not
+ * by what the engine currently does: `isDestroyedBySba` doesn't model
+ * deathtouch, so a wall in front of a deathtouch attacker survives it today
+ * (tracked separately). Valuing the block the rules' way keeps the AI from
+ * treating that hole as a free block it can farm.
+ */
+function blockersLostTo(attacker: Permanent, blockers: readonly Permanent[]): number {
+  if (killedBeforeDealingDamage(attacker, blockers)) return 0
+  const deathtouch = attacker.card.keywords.has('deathtouch')
+  let remaining = attacker.card.power
+  let lost = 0
+  for (const blocker of blockers) {
+    const dealt = Math.min(remaining, lethalDamage(attacker, blocker))
+    remaining -= dealt
+    if (blocker.card.keywords.has('indestructible')) continue
+    if ((deathtouch && dealt > 0) || blocker.damage + dealt >= blocker.card.toughness) {
+      lost += creatureValue(blocker)
+    }
+  }
+  return lost
+}
+
+/**
+ * What a block is worth, in the mana `scoreAttack` prices attacks in.
+ *
+ * Damage prevented counts only when the block costs nothing - when every
+ * blocker lives. Buying life with a creature is what `addSurvivalBlocks` is for,
+ * and counting it here is what made the defender accept every even trade on
+ * offer: a 2/2 stopping a 2/2 scored a clear win, so no attack into an equal
+ * board ever dealt damage. With tempo worth nothing, a mirror match came down
+ * to the extra card the player on the draw sees, and the player on the play
+ * lost it.
+ */
+function scoreBlock(attacker: Permanent, blockers: readonly Permanent[]): number {
+  const lost = blockersLostTo(attacker, blockers)
+  const prevented =
+    lost > 0 ? 0 : attacker.card.power - damageThrough(attacker, blockers)
+
+  return (blockersKill(attacker, blockers) ? creatureValue(attacker) : 0) - lost + prevented
 }
 
 /**
@@ -297,7 +388,7 @@ export function chooseBlockers(
  * Life gained by a lifelink blocker isn't counted, so the estimate is
  * pessimistic by that much.
  */
-function damageThrough(attacker: Permanent, blockers: Permanent[]): number {
+function damageThrough(attacker: Permanent, blockers: readonly Permanent[]): number {
   if (blockers.length === 0) return attacker.card.power
   if (killedBeforeDealingDamage(attacker, blockers)) return 0
   if (!attacker.card.keywords.has('trample')) return 0
@@ -306,23 +397,84 @@ function damageThrough(attacker: Permanent, blockers: Permanent[]): number {
 }
 
 /**
- * Adds survival blocks on top of `assignments`, in place, when the attack as
- * assigned is lethal. Mutates nothing when the chumps can't save the defender.
+ * How many swings of cushion the defender keeps before it converts from racing
+ * to blocking - the standard "am I within two turns of dying" line.
+ *
+ * One swing is the bare "am I dead next turn" question, and a defender that
+ * only asks that races until the exact turn the attack becomes lethal and then
+ * finds it lost the race several turns earlier. Raising it past two mostly
+ * lengthens games; the mirror's seat advantage keeps moving either way, which
+ * is why this number is not the thing that balances a mirror. Alternating who
+ * is on the play is - see `runSimulation`.
  */
-function addChumpBlocks(
-  myBoard: Permanent[],
-  available: number[],
-  attackers: DeclaredAttacker[],
-  myLife: number,
-  assignments: Map<number, number[]>,
-  used: ReadonlySet<number>,
+const RACE_HORIZON = 2
+
+/**
+ * Adds blocks on top of `assignments`, in place, when the attack as it stands
+ * kills the defender - this turn, or on the swings back.
+ *
+ * The value pass only makes blocks it comes out ahead on, so nothing above this
+ * ever spends a creature purely to stay alive. This is the other half of the
+ * decision, and it runs in two rounds, because the two kinds of block aren't
+ * worth the same thing:
+ *
+ * - A block that kills its attacker takes that power off the board for good,
+ *   so it's worth making as soon as the race is lost - `RACE_HORIZON` swings
+ *   ahead.
+ * - A block that only absorbs damage buys exactly one turn, so it's worth a
+ *   creature only when that turn is the difference between living and dying.
+ *
+ * Either round is discarded whole if it bought neither. A creature in front of
+ * an attack that kills anyway is a creature thrown away.
+ */
+function addSurvivalBlocks(decision: BlockDecision): void {
+  addBlocks(decision, { killersOnly: true, horizon: RACE_HORIZON })
+  addBlocks(decision, { killersOnly: false, horizon: 1 })
+}
+
+/**
+ * The block declaration as it stands, shared by every pass that adds to it.
+ *
+ * `assignments` and `used` are what the passes write to; the rest is the
+ * position they're reading.
+ */
+interface BlockDecision {
+  myBoard: Permanent[]
+  /** Indices into `myBoard` of the creatures that could block at all. */
+  available: number[]
+  attackers: DeclaredAttacker[]
+  myLife: number
+  assignments: Map<number, number[]>
+  used: Set<number>
+}
+
+function addBlocks(
+  decision: BlockDecision,
+  { killersOnly, horizon }: { killersOnly: boolean; horizon: number },
 ): void {
-  let incoming = 0
-  for (const atk of attackers) {
-    const blockers = (assignments.get(atk.index) ?? []).map((i) => myBoard[i])
-    incoming += damageThrough(atk.permanent, blockers)
+  const { myBoard, available, attackers, myLife, assignments, used } = decision
+  const blocked = new Map(assignments)
+
+  /** Damage this turn, and the power still standing to swing again after it. */
+  function outcome(): { incoming: number; threat: number } {
+    let incoming = 0
+    let threat = 0
+    for (const atk of attackers) {
+      const blockers = (blocked.get(atk.index) ?? []).map((i) => myBoard[i])
+      incoming += damageThrough(atk.permanent, blockers)
+      if (!blockersKill(atk.permanent, blockers)) threat += atk.permanent.card.power
+    }
+    return { incoming, threat }
   }
-  if (incoming < myLife) return
+
+  const survives = ({ incoming }: { incoming: number }) => incoming < myLife
+  const outOfRange = ({ incoming, threat }: { incoming: number; threat: number }) =>
+    myLife - incoming >= threat * horizon
+  const settled = (state: { incoming: number; threat: number }) =>
+    survives(state) && outOfRange(state)
+
+  const before = outcome()
+  if (settled(before)) return
 
   // Cheapest first, and among equals the smallest body - the creature the
   // defender gives up least by losing.
@@ -336,30 +488,62 @@ function addChumpBlocks(
       return bodyA - bodyB
     })
 
-  // Biggest attacker first: each chump is worth the damage it turns off.
+  // Biggest attacker first: each block is worth the damage it turns off.
   const unblocked = attackers
-    .filter((atk) => !assignments.has(atk.index))
+    .filter((atk) => !blocked.has(atk.index))
     .sort((a, b) => b.permanent.card.power - a.permanent.card.power)
 
-  const chumps = new Map<number, number[]>()
   for (const atk of unblocked) {
-    if (incoming < myLife) break
+    if (settled(outcome())) break
+
     const needed = atk.permanent.card.keywords.has('menace') ? 2 : 1
-    const pick: number[] = []
-    for (const bIdx of free) {
-      if (pick.length >= needed) break
-      if (canBlock(myBoard[bIdx], atk.permanent)) pick.push(bIdx)
-    }
+    const candidates = free.filter((bIdx) => canBlock(myBoard[bIdx], atk.permanent))
+    const pick = killersOnly
+      ? cheapestKillingGroup(candidates, myBoard, atk.permanent, needed)
+      : candidates.slice(0, needed)
     if (pick.length < needed) continue
 
     for (const bIdx of pick) free.splice(free.indexOf(bIdx), 1)
-    chumps.set(atk.index, pick)
-    incoming -= atk.permanent.card.power - damageThrough(atk.permanent, pick.map((i) => myBoard[i]))
+    blocked.set(atk.index, pick)
   }
 
-  if (incoming >= myLife) return
+  const after = outcome()
+  const boughtLife = survives(after) && !survives(before)
+  if (!boughtLife && !settled(after)) return
 
-  for (const [atkIndex, blockers] of chumps) {
+  for (const [atkIndex, blockers] of blocked) {
     assignments.set(atkIndex, blockers)
+    for (const bIdx of blockers) used.add(bIdx)
   }
+}
+
+/**
+ * The cheapest `size` of `candidates` that between them kill `attacker`, or an
+ * empty list when no such group exists. `candidates` must already be cheapest
+ * first.
+ *
+ * Taking the cheapest bodies and then checking whether they kill is not the
+ * same thing: the cheapest body is the least likely to kill anything, so that
+ * order skips attackers a slightly bigger creature would have taken down.
+ *
+ * `size` is 1, or 2 for a menace attacker, so the pair scan stays cheap.
+ */
+function cheapestKillingGroup(
+  candidates: readonly number[],
+  myBoard: Permanent[],
+  attacker: Permanent,
+  size: number,
+): number[] {
+  if (size === 1) {
+    const found = candidates.find((i) => blockersKill(attacker, [myBoard[i]]))
+    return found === undefined ? [] : [found]
+  }
+
+  for (let i = 0; i < candidates.length; i++) {
+    for (let j = i + 1; j < candidates.length; j++) {
+      const pair = [candidates[i], candidates[j]]
+      if (blockersKill(attacker, pair.map((k) => myBoard[k]))) return pair
+    }
+  }
+  return []
 }

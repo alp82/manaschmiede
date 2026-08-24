@@ -189,3 +189,68 @@ describe('ramp', () => {
     ])
   })
 })
+
+describe('running out of cards', () => {
+  /** Seven cards, so the opening hand is the whole deck and the library is empty. */
+  const emptyLibrary = () => [
+    forest(),
+    forest(),
+    forest(),
+    forest(),
+    simCard({ id: 'bear', cost: cost(1, { G: 1 }), power: 2, toughness: 2 }),
+    simCard({ id: 'bear', cost: cost(1, { G: 1 }), power: 2, toughness: 2 }),
+    simCard({ id: 'bear', cost: cost(1, { G: 1 }), power: 2, toughness: 2 }),
+  ]
+
+  it('[R] does not lose the game for holding an empty library', () => {
+    // Player 0 skips the first draw step, so an empty library survives a whole
+    // round. Ending the game the moment a library hits zero took that round
+    // away and, in a stalled mirror, handed the win to the wrong player.
+    const result = runGame(emptyLibrary(), deckOf([], forest()), RIGGED_RNG)
+
+    expect(result.turns).toBe(2)
+  })
+
+  it('[R] reports the loss as a mill', () => {
+    const result = runGame(emptyLibrary(), deckOf([], forest()), RIGGED_RNG)
+
+    expect(result.winner).toBe(1)
+    expect(result.winCondition).toBe('mill')
+  })
+})
+
+describe('mana metrics', () => {
+  const bear = () => simCard({ id: 'bear', cost: cost(1, { G: 1 }), power: 2, toughness: 2 })
+
+  it('[R] reports no curve hit for a player who cast nothing on turns 2 to 4', () => {
+    // A board check reports a curve hit for a player who cast one creature on
+    // turn 2 and then nothing again - the creature is still standing. The
+    // question is whether the player used the turn, not whether the turn left
+    // a mark.
+    const oneSpell = deckOf([forest(), forest(), bear(), forest(), forest(), forest(), forest()], forest())
+
+    const result = runGame(oneSpell, deckOf([], forest()), RIGGED_RNG)
+
+    expect(result.curveHit[0]).toBe(false)
+  })
+
+  it('[R] reports a curve hit for a player who cast on each of turns 2, 3 and 4', () => {
+    const onCurve = deckOf(
+      [forest(), forest(), forest(), forest(), bear(), bear(), bear()],
+      forest(),
+    )
+
+    const result = runGame(onCurve, deckOf([], forest()), RIGGED_RNG)
+
+    expect(result.curveHit[0]).toBe(true)
+  })
+
+  it('[R] reports mana screw for a player still under three lands on turn 4', () => {
+    const oneLand = deckOf([forest(), bear(), bear(), bear(), bear(), bear(), bear()], bear())
+
+    const result = runGame(oneLand, deckOf([], forest()), RIGGED_RNG)
+
+    expect(result.manaScrew[0]).toBe(true)
+    expect(result.manaScrew[1]).toBe(false)
+  })
+})
