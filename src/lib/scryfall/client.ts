@@ -136,6 +136,12 @@ export function getCardInLang(set: string, collectorNumber: string, lang: string
  *   default printing but with lang=de query, so it still tries to serve DE
  *   if the card has one.
  * - Never throws. Returns `existing` (or null) if every path fails.
+ *
+ * This is a transport primitive: it collapses "unknown id" and "network is
+ * down" into the same `null`, and the set/collector_number fast path only
+ * fires for callers that already hold a print. Feature code should go through
+ * `card-supply.ts` instead, which batches the default prints first and so
+ * always has a print to localize from.
  */
 export async function getLocalizedCardData(
   existing: ScryfallCard | null | undefined,
@@ -182,9 +188,13 @@ export function listSets(): Promise<ScryfallSetList> {
  * Batch-fetch cards by Scryfall ID via `/cards/collection`. Up to 75
  * identifiers per POST; callers pass any number — we chunk and flatten.
  *
- * Returns default-print English cards only. Localized prints must be
- * upgraded per-card via `getLocalizedCardData`, since the collection
- * endpoint does not accept a `lang` param on ID identifiers.
+ * Returns default-print English cards only, because the collection endpoint
+ * does not accept a `lang` param on ID identifiers. Sequencing that against
+ * the per-card localization upgrade is `card-supply.ts`'s job — call
+ * `cardsById` rather than re-implementing the order here.
+ *
+ * Ids Scryfall does not recognise come back in `not_found` and are dropped;
+ * callers learn about them by diffing the request against the result.
  */
 export async function getCardsCollection(ids: string[]): Promise<ScryfallCard[]> {
   if (ids.length === 0) return []

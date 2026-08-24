@@ -7,7 +7,7 @@ import { DeckMeta } from '../components/ui/DeckMeta'
 import { EmptyState } from '../components/ui/EmptyState'
 import { useLocalizedCard } from '../lib/scryfall/useLocalizedCard'
 import { getCardImageUri, getCardName } from '../lib/scryfall/types'
-import { getCardsCollection, getLocalizedCardData } from '../lib/scryfall/client'
+import { cardSupply } from '../lib/scryfall/card-supply'
 import { scryfallKeys } from '../lib/scryfall/queries'
 import { loadDecks, type LocalDeck } from '../lib/deck-storage'
 import { getTotalCards } from '../lib/deck-utils'
@@ -50,28 +50,13 @@ function DecksPage() {
   useQuery({
     queryKey: [...scryfallKeys.all, 'collection', allFeaturedIds.slice().sort().join(',')],
     queryFn: async () => {
-      const batch = await getCardsCollection(allFeaturedIds)
-      for (const card of batch) {
-        // Seed both the default (English) cache key and the active locale's
-        // key so useLocalizedCard on the current locale finds something
-        // immediately. Localization upgrades overwrite the latter below.
-        queryClient.setQueryData(scryfallKeys.card(card.id, card.lang), card)
-        queryClient.setQueryData(scryfallKeys.card(card.id, scryfallLang), card)
-      }
-      if (scryfallLang !== 'en') {
-        for (const card of batch) {
-          getLocalizedCardData(card, card.id, card.set, card.collector_number, scryfallLang)
-            .then((localized) => {
-              if (!localized || localized.lang !== scryfallLang) return
-              queryClient.setQueryData(
-                scryfallKeys.card(card.id, scryfallLang),
-                localized,
-              )
-            })
-            .catch(() => {})
-        }
-      }
-      return batch
+      // The supply seeds every resolved card under `scryfallKeys.card` and
+      // registers the ids as in-flight, so the per-row hooks below either hit
+      // the cache or join this request instead of firing N of their own.
+      const cards = await cardSupply.cardsById(allFeaturedIds, scryfallLang, {
+        queryClient,
+      })
+      return [...cards.values()]
     },
     enabled: allFeaturedIds.length > 0,
     staleTime: 1000 * 60 * 60 * 24,

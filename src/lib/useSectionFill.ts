@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react'
-import { getCardByName, getLocalizedCardData } from './scryfall/client'
+import { getCardByName } from './scryfall/client'
+import { cardSupply } from './scryfall/card-supply'
 import { useI18n } from './i18n'
 import type { ScryfallCard } from './scryfall/types'
 import { getCardName } from './scryfall/types'
@@ -407,9 +408,18 @@ export function useSectionFill({
       if (qty <= 0) continue
 
       additions.push({ scryfallId: landId, quantity: qty })
+    }
 
-      const landCard = await getLocalizedCardData(undefined, landId, undefined, undefined, scryfallLang)
-      if (landCard) onCardDataUpdate(landCard)
+    // One batched lookup for up to five basics instead of one await each.
+    // A failure here costs card art, not the fill, so it's swallowed.
+    try {
+      const lands = await cardSupply.cardsById(
+        additions.map((a) => a.scryfallId),
+        scryfallLang,
+      )
+      for (const landCard of lands.values()) onCardDataUpdate(landCard)
+    } catch {
+      // Lands still get added; their data arrives with the next deck load.
     }
 
     mergeAndAssign('lands', deckCardsRef.current, additions)

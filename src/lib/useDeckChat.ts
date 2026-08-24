@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useMemo } from 'react'
-import { getCardByName, getLocalizedCardData } from './scryfall/client'
+import { getCardByName } from './scryfall/client'
+import { cardSupply } from './scryfall/card-supply'
 import { useI18n } from './i18n'
 import { getCardRejectionReason, type DeckFilters } from './card-validation'
 import { validateProposedCards } from './chat-validation'
@@ -43,6 +44,7 @@ async function fillLands(
   const addedLands: Array<{ name: string; scryfallId: string; quantity: number; scryfallCard?: ScryfallCard }> = []
   const updatedCards = [...resolvedCards]
 
+  const wanted: Array<{ color: string; landId: string; qty: number }> = []
   for (let i = 0; i < deckColors.length; i++) {
     const color = deckColors[i]
     const landId = BASIC_LAND_IDS[color]
@@ -50,6 +52,8 @@ async function fillLands(
 
     const qty = landsPerColor + (i < remainder ? 1 : 0)
     if (qty <= 0) continue
+
+    wanted.push({ color, landId, qty })
 
     // Check if this land is already in the deck
     const existingIdx = updatedCards.findIndex((c) => c.scryfallId === landId)
@@ -61,10 +65,16 @@ async function fillLands(
     } else {
       updatedCards.push({ scryfallId: landId, quantity: qty, zone: 'main' })
     }
+  }
 
-    // Resolve the land card data
-    // Fetch card data directly by ID (not by name) to avoid promo printings
-    const landCard = await getLocalizedCardData(undefined, landId, undefined, undefined, scryfallLang)
+  // Resolve every basic in one batch, by ID (not by name) to avoid promo
+  // printings. A lookup failure costs the ledger a card name, not the lands.
+  const landData = await cardSupply
+    .cardsById(wanted.map((w) => w.landId), scryfallLang)
+    .catch(() => new Map<string, ScryfallCard>())
+
+  for (const { color, landId, qty } of wanted) {
+    const landCard = landData.get(landId)
     if (landCard) {
       onCardDataUpdate(landCard)
       addedLands.push({
@@ -293,11 +303,19 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
             const batchCardData: ScryfallCard[] = []
 
             const addCards: Array<{ scryfallId: string; card: ScryfallCard; quantity: number; isBasicLand: boolean }> = []
+            // Canonical basic-land IDs avoid printing mismatches in the diff.
+            // Resolve them all up front so the loop below never awaits a card
+            // lookup one at a time.
+            const deltaLands = await cardSupply
+              .cardsById(
+                delta.add.map((entry) => BASIC_LAND_NAMES[entry.name]),
+                scryfallLang,
+              )
+              .catch(() => new Map<string, ScryfallCard>())
             for (const entry of delta.add) {
-              // Canonical basic-land IDs avoid printing mismatches in the diff.
               const canonicalId = BASIC_LAND_NAMES[entry.name]
               if (canonicalId) {
-                const landCard = await getLocalizedCardData(undefined, canonicalId, undefined, undefined, scryfallLang)
+                const landCard = deltaLands.get(canonicalId)
                 if (landCard) {
                   batchCardData.push(landCard)
                   addCards.push({ scryfallId: canonicalId, card: landCard, quantity: entry.quantity, isBasicLand: true })
@@ -336,22 +354,33 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
             // padded basic land (or trimmed copy) is reflected for validation
             // and the diff.
             const resolvedMap = new Map<string, { card: ScryfallCard; quantity: number }>()
+            // Cards the user already had are guaranteed to be in cardDataMap
+            // (the send is gated behind cardsLoading). Use the cached entry
+            // before fetching so padded/trimmed basics always appear in the
+            // ledger even when the localized fetch fails. Whatever is left
+            // after that goes out as one batch, not one await per card.
+            const unresolved = sizedCards
+              .filter(
+                (rc) =>
+                  !applied.resolvedMap.has(rc.scryfallId) && !cardDataMap.has(rc.scryfallId),
+              )
+              .map((rc) => rc.scryfallId)
+            const fetched = await cardSupply
+              .cardsById(unresolved, scryfallLang)
+              .catch(() => new Map<string, ScryfallCard>())
+
             for (const rc of sizedCards) {
               const prior = applied.resolvedMap.get(rc.scryfallId)
               if (prior) {
                 resolvedMap.set(rc.scryfallId, { card: prior.card, quantity: rc.quantity })
                 continue
               }
-              // Cards the user already had are guaranteed to be in cardDataMap
-              // (the send is gated behind cardsLoading). Use the cached entry
-              // before fetching so padded/trimmed basics always appear in the
-              // ledger even when the localized fetch fails.
               const cached = cardDataMap.get(rc.scryfallId)
               if (cached) {
                 resolvedMap.set(rc.scryfallId, { card: cached, quantity: rc.quantity })
                 continue
               }
-              const landCard = await getLocalizedCardData(undefined, rc.scryfallId, undefined, undefined, scryfallLang)
+              const landCard = fetched.get(rc.scryfallId)
               if (landCard) {
                 batchCardData.push(landCard)
                 resolvedMap.set(rc.scryfallId, { card: landCard, quantity: rc.quantity })
@@ -374,8 +403,17 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
           const resolvedMap = new Map<string, { card: ScryfallCard; quantity: number }>()
           const batchCardData: ScryfallCard[] = []
 
+          // Use canonical IDs for basic lands to avoid printing mismatches in
+          // diff. A full deck answer can name every basic, so resolve them in
+          // one batch before walking the list.
+          const deckLands = await cardSupply
+            .cardsById(
+              deckResult.cards.map((card) => BASIC_LAND_NAMES[card.name]),
+              scryfallLang,
+            )
+            .catch(() => new Map<string, ScryfallCard>())
+
           for (const card of deckResult.cards) {
-            // Use canonical IDs for basic lands to avoid printing mismatches in diff
             const canonicalId = BASIC_LAND_NAMES[card.name]
             if (canonicalId) {
               const existing = resolvedMap.get(canonicalId)
@@ -385,7 +423,7 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
                 if (rc) rc.quantity += card.quantity
               } else {
                 resolvedCards.push({ scryfallId: canonicalId, quantity: card.quantity, zone: 'main' })
-                const landCard = await getLocalizedCardData(undefined, canonicalId, undefined, undefined, scryfallLang)
+                const landCard = deckLands.get(canonicalId)
                 if (landCard) {
                   batchCardData.push(landCard)
                   resolvedMap.set(canonicalId, { card: landCard, quantity: card.quantity })

@@ -24,7 +24,7 @@ import { projectLocked } from '../../lib/deck-utils'
 import { intentFromWizard } from '../../lib/deck-intent'
 import { persistDeck, pickFeaturedCardIds } from '../../lib/deck-storage'
 import { generateDeckName } from '../../lib/deck-naming'
-import { getLocalizedCardData } from '../../lib/scryfall/client'
+import { cardSupply } from '../../lib/scryfall/card-supply'
 import { getCardName } from '../../lib/scryfall/types'
 import type { ScryfallCard } from '../../lib/scryfall/types'
 import { extractCostColors } from '../../lib/mana-cost-colors'
@@ -76,10 +76,18 @@ function NewDeckWizard() {
 
     let cancelled = false
     ;(async () => {
-      const card = await getLocalizedCardData(undefined, seedParam, undefined, undefined, scryfallLang)
+      let card
+      try {
+        card = await cardSupply.cardById(seedParam, scryfallLang)
+      } catch {
+        // Transient failure (offline, 5xx, rate limit). The id may well be
+        // fine — keep the param so a reload can resolve it rather than
+        // silently eating the link the user followed.
+        return
+      }
       if (cancelled) return
       if (!card) {
-        // Invalid / unreachable Scryfall ID — drop the param silently.
+        // Scryfall does not know this id. Retrying can't help — drop it.
         setSeedParam(null)
         return
       }
