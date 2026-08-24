@@ -4,6 +4,7 @@ import { useT } from '../../lib/i18n'
 import type { WizardState } from '../../lib/wizard-state'
 import type { ManaColor } from '../ManaSymbol'
 import type { ManaColorState } from '../../lib/wizard-state'
+import { getSelectedCombo } from '../../lib/wizard-state'
 import type { ScryfallCard } from '../../lib/scryfall/types'
 import { getCardImageUri, getCardName } from '../../lib/scryfall/types'
 import { ARCHETYPE_ART } from './StepTraits'
@@ -144,8 +145,8 @@ function useStepSummary(stepNum: number, state: WizardState): React.ReactNode | 
   }
 
   if (stepNum === 3) {
-    if (state.selectedComboIndex == null || !state.coreCombos[state.selectedComboIndex]) return null
-    const combo = state.coreCombos[state.selectedComboIndex]
+    const combo = getSelectedCombo(state)
+    if (!combo) return null
     return (
       <span className="font-mono text-mono-label uppercase tracking-mono-label text-cream-100">
         {combo.name}

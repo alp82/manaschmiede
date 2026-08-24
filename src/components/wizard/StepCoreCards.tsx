@@ -447,7 +447,11 @@ export function StepCoreCards({ state, dispatch, onNext, onBack, onReset }: Step
             variant="primary"
             size="lg"
             onClick={onNext}
-            disabled={state.selectedComboIndex == null}
+            // Enabled once a combo is picked — or once the user has already
+            // been to step 4, so returning here after a skip doesn't strand
+            // them behind a disabled primary CTA. The `-1` sentinel used to
+            // do this by accident.
+            disabled={state.selectedComboIndex == null && state.maxStepReached < 4}
           >
             {t('core.nextBuildDeck')}
           </Button>
@@ -460,7 +464,7 @@ export function StepCoreCards({ state, dispatch, onNext, onBack, onReset }: Step
             variant="ghost"
             size="sm"
             onClick={() => {
-              dispatch({ type: 'SELECT_COMBO', index: -1 })
+              dispatch({ type: 'SKIP_COMBO' })
               onNext()
             }}
           >

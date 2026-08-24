@@ -19,7 +19,7 @@ import { isBasicLand, projectLocked, mergeCardsIntoDeck, getTotalCards } from '.
 import { getCardName } from '../../lib/scryfall/types'
 import type { DeckSection } from '../../lib/section-plan'
 import type { WizardState, WizardAction } from '../../lib/wizard-state'
-import { getActiveColors, getSelectedColors } from '../../lib/wizard-state'
+import { getActiveColors, getSelectedColors, getSelectedCombo } from '../../lib/wizard-state'
 import { buildChatIntentContext } from '../../lib/deck-intent'
 import { sectionFillIntentFromWizard } from '../../lib/section-fill-intent'
 import { applySectionInheritance, buildSectionLabelMap } from '../../lib/section-assignment'
@@ -45,9 +45,7 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
   const sounds = useDeckSounds()
   const history = useDeckHistory(state.deckCards, (cards) => dispatch({ type: 'SET_DECK', cards }), { persist: true })
 
-  const selectedCombo = state.selectedComboIndex != null && state.selectedComboIndex >= 0
-    ? state.coreCombos[state.selectedComboIndex]
-    : null
+  const selectedCombo = getSelectedCombo(state)
 
   const lockedCardIds = useMemo(() => {
     const ids = new Set(state.lockedCardIds)
@@ -439,12 +437,10 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
       if (ids.includes(scryfallId)) return sectionId
     }
     // Check core cards
-    if (state.coreCombos.length > 0 && state.selectedComboIndex != null) {
-      const combo = state.coreCombos[state.selectedComboIndex]
-      if (combo?.cards.some((c) => c.scryfallId === scryfallId)) return 'core'
-    }
+    const combo = getSelectedCombo(state)
+    if (combo?.cards.some((c) => c.scryfallId === scryfallId)) return 'core'
     return null
-  }, [state.sectionAssignments, state.coreCombos, state.selectedComboIndex])
+  }, [state])
 
   const suggestReplacement = useCallback((card: ScryfallCard) => {
     const name = getCardName(card)

@@ -18,6 +18,7 @@ import {
   resetWizard,
   isWizardStateDirty,
   getFillColors,
+  getSelectedCombo,
 } from '../../lib/wizard-state'
 import { projectLocked } from '../../lib/deck-utils'
 import { intentFromWizard } from '../../lib/deck-intent'
@@ -168,8 +169,7 @@ function NewDeckWizard() {
 
   const handleFinish = useCallback((cardDataMap: Map<string, ScryfallCard>) => {
     const deckId = crypto.randomUUID()
-    const selectedCombo =
-      state.selectedComboIndex != null ? state.coreCombos[state.selectedComboIndex] : undefined
+    const selectedCombo = getSelectedCombo(state)
     const name =
       state.deckName ||
       selectedCombo?.name ||
