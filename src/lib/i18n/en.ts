@@ -65,6 +65,8 @@ export const en = {
   'filter.addHint': 'Pick a filter to add',
   'filter.type': 'Type',
   'filter.cmc': 'CMC',
+  'filter.typeAria': 'Card type',
+  'filter.cmcAria': 'Mana value',
   'filter.power': 'Power',
   'filter.toughness': 'Toughness',
   'filter.stats': 'Stats',

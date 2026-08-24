@@ -150,7 +150,7 @@ Six primitives carry most of the UI:
 
 Every shipped primitive lives in `src/components/ui/`. Read that directory
 before building a new one — Tabs, Toast, EmptyState, ErrorBox, LoadingDots,
-Checkbox, Dropdown and RangeSlider are already there.
+Checkbox, Dropdown, RangeSlider and HoverTooltip are already there.
 
 ### Button vs. Pill — when to use which
 
@@ -260,7 +260,9 @@ content dims slightly.
 ### Tooltip
 
 Tiny mono-tag label, hairline underline 1px above, no box, 6px offset,
-`click-soft @ 0.05` volume on mount.
+`click-soft @ 0.05` volume on mount. What ships today is
+`src/components/ui/HoverTooltip.tsx` — a hairline-framed hover label, no
+sound yet; the color-mode switch and the stats filter's LINKED yoke use it.
 
 ### Toast (default: margin variant)
 
@@ -478,6 +480,22 @@ drift. `parseCardList.ts` is the second instance.
 **How to apply:** when you catch yourself writing the same rule once as a query
 string and again as a predicate — or once in code and again in a prompt — put
 the rule set and every adapter in one module instead of spreading them.
+
+### The card-browser filter registry
+
+`src/components/card-filters/` is the same idea for UI state. One `FilterSpec`
+per filter — label, glyph, picker order, the URL params it owns, its codec, its
+Scryfall fragments and its control — in one file under `entries/`, listed once
+in `registry.ts`. Everything else (the picker, the active grid, the decoded
+state, the reset patches, the assembled query, the `filters` vocabulary) is
+derived from that list, so `FilterBar` holds no filter semantics at all and
+`buildScryfallQuery` is pure and testable without React.
+
+**How to apply:** adding a filter is a new file in `entries/`, one line in
+`registry.ts`, one parser in `params.ts`, one field in `FilterState`, and the
+i18n keys — and every one of those is a compile error when missed. Never
+reintroduce a per-filter prop on `FilterBar`, a hand-listed filter-name array,
+or a query clause outside an entry's `toQuery`.
 
 <!-- convex-ai-start -->
 This project uses [Convex](https://convex.dev) as its backend.

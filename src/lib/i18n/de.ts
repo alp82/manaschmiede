@@ -58,6 +58,8 @@ export const de: Translations = {
   'filter.addHint': 'Wähle einen Filter',
   'filter.type': 'Typ',
   'filter.cmc': 'CMC',
+  'filter.typeAria': 'Kartentyp',
+  'filter.cmcAria': 'Manawert',
   'filter.power': 'Stärke',
   'filter.toughness': 'Widerstand',
   'filter.stats': 'Werte',
