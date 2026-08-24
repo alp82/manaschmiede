@@ -97,6 +97,7 @@ function makePermanent(card: SimCard, hasteOverride?: boolean): Permanent {
     tapped: false,
     summoningSick: hasteOverride ? false : !card.keywords.has('haste'),
     damage: 0,
+    deathtouched: false,
     counters: 0,
     markedForDeath: false,
   }
@@ -203,6 +204,7 @@ function applyEffect(
           producesColors: [],
           effects: [],
           isBasicLand: false,
+          isSnow: false,
         }
         player.battlefield.push(makePermanent(tokenCard, true))
       }
@@ -239,7 +241,6 @@ function applyEffect(
   }
 }
 
-
 function playCastCard(card: SimCard, player: PlayerState, state: GameState, active: 0 | 1) {
   if (card.cardType === 'creature') {
     const perm = makePermanent(card)
@@ -252,7 +253,7 @@ function playCastCard(card: SimCard, player: PlayerState, state: GameState, acti
     player.battlefield.push(perm)
     triggerEffects(perm, 'etb', state, active)
   } else {
-    const tempPerm: Permanent = { card, tapped: false, summoningSick: false, damage: 0, counters: 0, markedForDeath: false }
+    const tempPerm = makePermanent(card, true)
     triggerEffects(tempPerm, 'cast', state, active)
     player.graveyard.push(card)
   }
@@ -315,10 +316,12 @@ export function runTurn(state: GameState, rng: () => number): TurnOutcome {
     p.tapped = false
     p.summoningSick = false
     p.damage = 0
+    p.deathtouched = false
   }
   // Also clear damage on opponent's creatures at start of turn
   for (const p of opponent.battlefield) {
     p.damage = 0
+    p.deathtouched = false
   }
   player.landDropsRemaining = 1
   player.spellsCastThisTurn = 0

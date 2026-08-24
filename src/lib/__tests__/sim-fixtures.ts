@@ -4,6 +4,7 @@ import type {
   Keyword,
   ManaColor,
   ManaCost,
+  ManaPip,
   ManaSource,
   Permanent,
   PlayerState,
@@ -27,12 +28,20 @@ import { manaSources } from '../simulation/mana'
  */
 export const RIGGED_RNG = () => 0.9999999999
 
+/**
+ * A cost with one single-color pip per count in `colored`, in the order
+ * `colored` lists them. Hybrid, colorless, and snow pips have no shorthand
+ * here - a test that wants one builds it through `parseCost`.
+ */
 export function cost(
   generic: number,
   colored: Partial<Record<ManaColor, number>> = {},
 ): ManaCost {
-  const coloredCount = Object.values(colored).reduce((a, b) => a + b, 0)
-  return { generic, colored, cmc: generic + coloredCount }
+  const pips: ManaPip[] = []
+  for (const [color, count] of Object.entries(colored) as [ManaColor, number][]) {
+    for (let i = 0; i < count; i++) pips.push({ kind: 'color', colors: [color] })
+  }
+  return { generic, pips, cmc: generic + pips.length }
 }
 
 export function simCard(overrides: Partial<SimCard> & { id: string }): SimCard {
@@ -46,6 +55,7 @@ export function simCard(overrides: Partial<SimCard> & { id: string }): SimCard {
     producesColors: [],
     effects: [],
     isBasicLand: false,
+    isSnow: false,
     ...overrides,
   }
 }
@@ -59,6 +69,7 @@ export function land(
   id: string,
   producesColors: ManaColor[],
   isBasicLand = true,
+  isSnow = false,
 ): SimCard {
   return simCard({
     id,
@@ -68,6 +79,7 @@ export function land(
     toughness: 0,
     producesColors,
     isBasicLand,
+    isSnow,
   })
 }
 
@@ -100,6 +112,7 @@ export function permanent(card: SimCard, overrides: Partial<Permanent> = {}): Pe
     tapped: false,
     summoningSick: false,
     damage: 0,
+    deathtouched: false,
     counters: 0,
     markedForDeath: false,
     ...overrides,

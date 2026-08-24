@@ -6,14 +6,15 @@ import type {
   Permanent,
   SimCard,
 } from './types'
-import { MANA_COLORS, payCost } from './mana'
+import { missingColors, payCost } from './mana'
 import {
   canBlock,
-  damageToCreature,
   forecastCombat,
   killedBeforeDealingDamage,
+  killedBy,
   lethalDamage,
 } from './combat'
+import { isLethalTo } from './state-based-actions'
 
 export function shouldMulligan(hand: SimCard[], mulliganCount: number): boolean {
   if (mulliganCount >= 2) return false
@@ -40,13 +41,8 @@ export function chooseLand(hand: SimCard[], battlefield: Permanent[]): number {
 
   const neededColors = new Set<ManaColor>()
   for (const card of hand) {
-    if (card.cost) {
-      for (const color of MANA_COLORS) {
-        if ((card.cost.colored[color] ?? 0) > 0 && !availableColors.has(color)) {
-          neededColors.add(color)
-        }
-      }
-    }
+    if (!card.cost) continue
+    for (const color of missingColors(card.cost, availableColors)) neededColors.add(color)
   }
 
   if (neededColors.size > 0) {
@@ -322,27 +318,14 @@ export function chooseBlockers(
 }
 
 /**
- * Whether `blockers` between them kill `attacker`, by the same arithmetic
- * `damageStep` uses.
- */
-function blockersKill(attacker: Permanent, blockers: readonly Permanent[]): boolean {
-  if (attacker.card.keywords.has('indestructible')) return false
-  if (killedBeforeDealingDamage(attacker, blockers)) return true
-  const dealt = blockers.reduce((sum, b) => sum + damageToCreature(b), 0)
-  return attacker.damage + dealt >= attacker.card.toughness
-}
-
-/**
  * What `attacker` kills of `blockers`, in mana.
  *
  * It assigns lethal damage down the line and stops when it runs out, so a block
  * by committee only loses the front of it.
  *
- * Any damage from a deathtouch attacker counts as lethal, by the rules and not
- * by what the engine currently does: `isDestroyedBySba` doesn't model
- * deathtouch, so a wall in front of a deathtouch attacker survives it today
- * (tracked separately). Valuing the block the rules' way keeps the AI from
- * treating that hole as a free block it can farm.
+ * Lethality is `isLethalTo`'s answer, the same one `damageStep` marks and
+ * `isDestroyedBySba` reads, so the AI can't price a block the engine then
+ * resolves differently.
  */
 function blockersLostTo(attacker: Permanent, blockers: readonly Permanent[]): number {
   if (killedBeforeDealingDamage(attacker, blockers)) return 0
@@ -352,10 +335,7 @@ function blockersLostTo(attacker: Permanent, blockers: readonly Permanent[]): nu
   for (const blocker of blockers) {
     const dealt = Math.min(remaining, lethalDamage(attacker, blocker))
     remaining -= dealt
-    if (blocker.card.keywords.has('indestructible')) continue
-    if ((deathtouch && dealt > 0) || blocker.damage + dealt >= blocker.card.toughness) {
-      lost += creatureValue(blocker)
-    }
+    if (isLethalTo(blocker, dealt, deathtouch)) lost += creatureValue(blocker)
   }
   return lost
 }
@@ -376,7 +356,7 @@ function scoreBlock(attacker: Permanent, blockers: readonly Permanent[]): number
   const prevented =
     lost > 0 ? 0 : attacker.card.power - damageThrough(attacker, blockers)
 
-  return (blockersKill(attacker, blockers) ? creatureValue(attacker) : 0) - lost + prevented
+  return (killedBy(attacker, blockers) ? creatureValue(attacker) : 0) - lost + prevented
 }
 
 /**
@@ -463,7 +443,7 @@ function addBlocks(
     for (const atk of attackers) {
       const blockers = (blocked.get(atk.index) ?? []).map((i) => myBoard[i])
       incoming += damageThrough(atk.permanent, blockers)
-      if (!blockersKill(atk.permanent, blockers)) threat += atk.permanent.card.power
+      if (!killedBy(atk.permanent, blockers)) threat += atk.permanent.card.power
     }
     return { incoming, threat }
   }
@@ -536,14 +516,14 @@ function cheapestKillingGroup(
   size: number,
 ): number[] {
   if (size === 1) {
-    const found = candidates.find((i) => blockersKill(attacker, [myBoard[i]]))
+    const found = candidates.find((i) => killedBy(attacker, [myBoard[i]]))
     return found === undefined ? [] : [found]
   }
 
   for (let i = 0; i < candidates.length; i++) {
     for (let j = i + 1; j < candidates.length; j++) {
       const pair = [candidates[i], candidates[j]]
-      if (blockersKill(attacker, pair.map((k) => myBoard[k]))) return pair
+      if (killedBy(attacker, pair.map((k) => myBoard[k]))) return pair
     }
   }
   return []

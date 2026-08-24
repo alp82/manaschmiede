@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
   canBlock,
-  damageToCreature,
   forecastCombat,
   killedBeforeDealingDamage,
+  killedBy,
   lethalDamage,
   resolveCombat,
 } from '../simulation/combat'
 import type { Keyword } from '../simulation/types'
+import { isDestroyedBySba } from '../simulation/state-based-actions'
 import { nonCreature, permanent, simCard, stateWith } from './sim-fixtures'
 
 describe('resolveCombat', () => {
@@ -162,6 +163,102 @@ describe('resolveCombat', () => {
       expect(blocker.damage).toBe(0)
     })
   })
+
+  describe('deathtouch', () => {
+    // Issue #35. Deathtouch used to be modelled as 999 damage, which only a
+    // *blocker* ever dealt: an attacker assigns `lethalDamage`'s 1 so the rest
+    // can be spread or trampled over, and nothing marked the blocker as dead.
+
+    it('[R] kills a blocker whose toughness far exceeds the attacker power', () => {
+      const attacker = permanent(
+        simCard({
+          id: 'assassin',
+          power: 2,
+          toughness: 4,
+          keywords: new Set<Keyword>(['deathtouch', 'first_strike']),
+        }),
+      )
+      const blocker = permanent(
+        simCard({ id: 'giant', power: 5, toughness: 5, keywords: new Set<Keyword>(['first_strike']) }),
+      )
+      const state = stateWith([attacker], [blocker])
+
+      resolveCombat([0], new Map([[0, [0]]]), state)
+
+      expect(blocker.markedForDeath).toBe(true)
+    })
+
+    it('[R] kills every blocker it spreads a point of damage across', () => {
+      const attacker = permanent(
+        simCard({ id: 'serpent', power: 3, toughness: 9, keywords: new Set<Keyword>(['deathtouch']) }),
+      )
+      const blockers = [
+        permanent(simCard({ id: 'wall-a', power: 0, toughness: 6 })),
+        permanent(simCard({ id: 'wall-b', power: 0, toughness: 6 })),
+        permanent(simCard({ id: 'wall-c', power: 0, toughness: 6 })),
+      ]
+      const state = stateWith([attacker], blockers)
+
+      resolveCombat([0], new Map([[0, [0, 1, 2]]]), state)
+
+      for (const blocker of blockers) {
+        expect(blocker.deathtouched, blocker.card.id).toBe(true)
+      }
+      expect(state.players[1].battlefield.every((p) => p.card.toughness === 6)).toBe(true)
+      expect(blockers.map((b) => isDestroyedBySba(b))).toEqual([true, true, true])
+    })
+
+    it('[R] leaves an indestructible blocker alive', () => {
+      const attacker = permanent(
+        simCard({ id: 'serpent', power: 3, toughness: 9, keywords: new Set<Keyword>(['deathtouch']) }),
+      )
+      const blocker = permanent(
+        simCard({
+          id: 'colossus',
+          power: 1,
+          toughness: 8,
+          keywords: new Set<Keyword>(['indestructible']),
+        }),
+      )
+      const state = stateWith([attacker], [blocker])
+
+      resolveCombat([0], new Map([[0, [0]]]), state)
+
+      expect(isDestroyedBySba(blocker)).toBe(false)
+      expect(blocker.markedForDeath).toBe(false)
+    })
+
+    it('[R] still kills the attacker when the deathtouch is on the blocker', () => {
+      const attacker = permanent(simCard({ id: 'giant', power: 5, toughness: 5 }))
+      const blocker = permanent(
+        simCard({ id: 'mouse', power: 1, toughness: 1, keywords: new Set<Keyword>(['deathtouch']) }),
+      )
+      const state = stateWith([attacker], [blocker])
+
+      resolveCombat([0], new Map([[0, [0]]]), state)
+
+      expect(isDestroyedBySba(attacker)).toBe(true)
+    })
+
+    it('[R] sends the rest of a deathtouch trampler past the blocker', () => {
+      const attacker = permanent(
+        simCard({
+          id: 'wurm',
+          power: 6,
+          toughness: 6,
+          keywords: new Set<Keyword>(['deathtouch', 'trample']),
+        }),
+      )
+      const blocker = permanent(simCard({ id: 'wall', power: 0, toughness: 8 }))
+      const state = stateWith([attacker], [blocker])
+
+      resolveCombat([0], new Map([[0, [0]]]), state)
+
+      expect(state.players[1].life).toBe(15)
+      expect(isDestroyedBySba(blocker)).toBe(true)
+    })
+  })
+
 })
 
 describe('forecastCombat', () => {
@@ -292,21 +389,42 @@ describe('canBlock', () => {
   })
 })
 
-describe('damageToCreature', () => {
-  it('[R] is the power of a creature without deathtouch', () => {
-    expect(damageToCreature(permanent(simCard({ id: 'bear', power: 2, toughness: 2 })))).toBe(2)
+describe('killedBy', () => {
+  const creature = (power: number, toughness: number, ...keywords: Keyword[]) =>
+    permanent(simCard({ id: `${power}/${toughness}`, power, toughness, keywords: new Set(keywords) }))
+
+  it('[R] adds the power of every source', () => {
+    expect(killedBy(creature(0, 4), [creature(2, 2), creature(1, 1)])).toBe(false)
+    expect(killedBy(creature(0, 4), [creature(2, 2), creature(2, 2)])).toBe(true)
   })
 
-  it('[R] exceeds any toughness the model can hold for a deathtouch creature', () => {
-    // Deathtouch is damage here, not a flag `isDestroyedBySba` reads, so the
-    // number has to out-run the largest printed toughness. The three callers -
-    // `killedBeforeDealingDamage`, `damageStep`, and the AI's `blockersKill` -
-    // all price a kill through this one function so they can't disagree.
-    const mouse = permanent(
-      simCard({ id: 'mouse', power: 1, toughness: 1, keywords: new Set<Keyword>(['deathtouch']) }),
-    )
+  it('[R] counts damage already on the target', () => {
+    const wounded = permanent(simCard({ id: 'wounded', power: 0, toughness: 4 }), { damage: 3 })
 
-    expect(damageToCreature(mouse)).toBeGreaterThan(100)
+    expect(killedBy(wounded, [creature(1, 1)])).toBe(true)
+  })
+
+  it('[R] reports any damage from a deathtouch source as lethal', () => {
+    // Deathtouch decides lethality here rather than being priced as an
+    // enormous damage number at each site, so `indestructible` still beats it
+    // and a 0-power deathtoucher still kills nothing.
+    expect(killedBy(creature(0, 20), [creature(1, 1, 'deathtouch')])).toBe(true)
+    expect(killedBy(creature(0, 20), [creature(0, 1, 'deathtouch')])).toBe(false)
+  })
+
+  it('[R] spares an indestructible target from deathtouch', () => {
+    expect(killedBy(creature(0, 20, 'indestructible'), [creature(9, 9, 'deathtouch')])).toBe(false)
+  })
+
+  it('[R] reports a target already dealt deathtouch damage', () => {
+    // The first-strike step marks the target; the sweep between steps reads
+    // the mark back off it.
+    const marked = permanent(simCard({ id: 'ogre', power: 3, toughness: 4 }), {
+      damage: 1,
+      deathtouched: true,
+    })
+
+    expect(killedBy(marked, [])).toBe(true)
   })
 })
 
@@ -375,9 +493,17 @@ describe('killedBeforeDealingDamage', () => {
     ).toBe(true)
   })
 
-  it('[R] counts a first-striking deathtouch blocker as lethal at any power', () => {
-    expect(killedBeforeDealingDamage(attacker(20), [blocker(0, 'first_strike', 'deathtouch')]))
+  it('[R] counts a first-striking deathtouch blocker as lethal at any toughness', () => {
+    expect(killedBeforeDealingDamage(attacker(20), [blocker(1, 'first_strike', 'deathtouch')]))
       .toBe(true)
+  })
+
+  it('[R] spares the attacker from a deathtouch blocker with no power', () => {
+    // Deathtouch rides on damage dealt, and 0 power deals none. The 999-damage
+    // model this replaced (#35) had deathtouch override power outright, so a
+    // 0/2 deathtoucher killed whatever it stood in front of.
+    expect(killedBeforeDealingDamage(attacker(20), [blocker(0, 'first_strike', 'deathtouch')]))
+      .toBe(false)
   })
 
   it('[R] counts damage the attacker already has', () => {

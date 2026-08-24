@@ -1,8 +1,33 @@
 export type ManaColor = 'W' | 'U' | 'B' | 'R' | 'G'
 
+/**
+ * One symbol of a mana cost that a single source has to pay.
+ *
+ * The alternatives ride on the pip rather than on a count per color, because a
+ * count per color cannot say "either": `{W/U}` is one mana that white or blue
+ * pays, not one white pip. `payCost` matches pips to sources one for one, so a
+ * pip that accepts a set of colors drops into that matching unchanged.
+ *
+ * A hybrid symbol whose other half is `{C}` - `{C/W}` - reads as its color
+ * alone; the colorless half is dropped.
+ */
+export type ManaPip =
+  /**
+   * One mana of any of `colors`: `{G}`, the hybrid `{W/U}`, and the Phyrexian
+   * `{W/P}`, whose pay-two-life half isn't modelled.
+   *
+   * `genericAlternative` is set by a monocolor hybrid such as `{2/W}`: the pip
+   * is payable either by one source of its color or by that much generic mana.
+   */
+  | { kind: 'color'; colors: readonly ManaColor[]; genericAlternative?: number }
+  /** `{C}` - one colorless mana, which only a source with no colors pays. */
+  | { kind: 'colorless' }
+  /** `{S}` - one mana from a snow source, of any color. */
+  | { kind: 'snow' }
+
 export interface ManaCost {
   generic: number
-  colored: Partial<Record<ManaColor, number>>
+  pips: ManaPip[]
   cmc: number
 }
 
@@ -18,6 +43,8 @@ export interface ManaCost {
 export interface ManaSource {
   permanent: Permanent
   colors: readonly ManaColor[]
+  /** Whether the land is snow - the only thing a `{S}` pip accepts. */
+  snow: boolean
 }
 
 export type CardType =
@@ -105,6 +132,8 @@ export interface SimCard {
   producesColors: ManaColor[]
   effects: CardEffect[]
   isBasicLand: boolean
+  /** Read off the type line. Only a land's snowness reaches the game, via `{S}`. */
+  isSnow: boolean
 }
 
 export interface Permanent {
@@ -112,6 +141,16 @@ export interface Permanent {
   tapped: boolean
   summoningSick: boolean
   damage: number
+  /**
+   * Whether a source with deathtouch has dealt damage to this permanent since
+   * damage was last cleared.
+   *
+   * Deathtouch is a mark on the creature that took the damage rather than an
+   * inflated number at the site that dealt it, so lethality is decided in one
+   * place - `isLethalTo` - and `indestructible` still beats it. Cleared
+   * alongside `damage` at untap.
+   */
+  deathtouched: boolean
   counters: number
   markedForDeath: boolean
 }
@@ -274,6 +313,7 @@ export interface SerializedSimCard {
   producesColors: ManaColor[]
   effects: CardEffect[]
   isBasicLand: boolean
+  isSnow: boolean
 }
 
 export function serializeSimCard(card: SimCard): SerializedSimCard {

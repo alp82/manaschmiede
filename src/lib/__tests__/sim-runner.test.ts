@@ -21,7 +21,12 @@ const GREEN_DECK = deckOf(
 
 const RED_DECK = deckOf(
   Array.from({ length: 22 }, (_, i) => land(`mountain-${i}`, ['R'])),
-  simCard({ id: 'goblin', power: 1, toughness: 1, cost: { generic: 0, colored: { R: 1 }, cmc: 1 } }),
+  simCard({
+    id: 'goblin',
+    power: 1,
+    toughness: 1,
+    cost: { generic: 0, pips: [{ kind: 'color', colors: ['R'] }], cmc: 1 },
+  }),
 )
 
 const noop = () => {}

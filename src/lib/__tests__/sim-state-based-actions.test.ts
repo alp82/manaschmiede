@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { isDestroyedBySba } from '../simulation/state-based-actions'
-import type { CardType } from '../simulation/types'
+import { isDestroyedBySba, isLethalTo } from '../simulation/state-based-actions'
+import type { CardType, Keyword } from '../simulation/types'
 import { forest, nonCreature, permanent, simCard } from './sim-fixtures'
 
 const NON_CREATURE_TYPES: Array<'artifact' | 'enchantment' | 'planeswalker'> = [
@@ -42,6 +42,23 @@ describe('isDestroyedBySba', () => {
     expect(isDestroyedBySba(permanent(wall, { damage: 9 }))).toBe(false)
   })
 
+  it('[R] destroys a creature dealt any damage by a deathtouch source', () => {
+    // Issue #35. Lethality is decided here, so a deathtouch attacker that
+    // assigns a single point kills what it hit.
+    const giant = simCard({ id: 'giant', power: 5, toughness: 5 })
+    expect(isDestroyedBySba(permanent(giant, { damage: 1, deathtouched: true }))).toBe(true)
+  })
+
+  it('[R] spares a creature marked as deathtouched that took no damage', () => {
+    const giant = simCard({ id: 'giant', power: 5, toughness: 5 })
+    expect(isDestroyedBySba(permanent(giant, { damage: 0, deathtouched: true }))).toBe(false)
+  })
+
+  it('[R] spares an indestructible creature dealt deathtouch damage', () => {
+    const wall = simCard({ id: 'wall', toughness: 8, keywords: new Set(['indestructible']) })
+    expect(isDestroyedBySba(permanent(wall, { damage: 1, deathtouched: true }))).toBe(false)
+  })
+
   it.each<CardType>(['creature', 'artifact', 'enchantment', 'planeswalker'])(
     '[R] destroys a %s marked for death',
     (cardType) => {
@@ -49,4 +66,27 @@ describe('isDestroyedBySba', () => {
       expect(isDestroyedBySba(marked)).toBe(true)
     },
   )
+})
+
+describe('isLethalTo', () => {
+  const bear = permanent(simCard({ id: 'bear', power: 2, toughness: 4 }))
+
+  it('[R] compares the damage against the remaining toughness', () => {
+    expect(isLethalTo(bear, 3, false)).toBe(false)
+    expect(isLethalTo(bear, 4, false)).toBe(true)
+  })
+
+  it('[R] makes any nonzero damage from a deathtouch source lethal', () => {
+    expect(isLethalTo(bear, 1, true)).toBe(true)
+    expect(isLethalTo(bear, 0, true)).toBe(false)
+  })
+
+  it('[R] spares an indestructible target either way', () => {
+    const wall = permanent(
+      simCard({ id: 'wall', power: 0, toughness: 4, keywords: new Set<Keyword>(['indestructible']) }),
+    )
+
+    expect(isLethalTo(wall, 99, false)).toBe(false)
+    expect(isLethalTo(wall, 1, true)).toBe(false)
+  })
 })

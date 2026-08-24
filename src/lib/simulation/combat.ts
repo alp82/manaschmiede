@@ -1,5 +1,5 @@
 import type { BlockAssignments, GameState, Permanent, PlayerState } from './types'
-import { isDestroyedBySba } from './state-based-actions'
+import { isDestroyedBySba, isLethalTo } from './state-based-actions'
 
 export function canBlock(blocker: Permanent, attacker: Permanent): boolean {
   if (attacker.card.keywords.has('flying') &&
@@ -11,22 +11,28 @@ export function canBlock(blocker: Permanent, attacker: Permanent): boolean {
 }
 
 /**
- * More damage than any toughness, so a deathtouch blocker's damage reads as
- * lethal to the same arithmetic that prices ordinary power.
- */
-const DEATHTOUCH_DAMAGE = 999
-
-/**
- * The damage `source` deals to a creature it is fighting, for the purpose of
- * killing it.
+ * Whether the damage `sources` deal in one step kills `target`, counting the
+ * damage already marked on it.
  *
- * Deathtouch is modelled as an enormous number rather than as a flag
- * `isDestroyedBySba` reads, so every caller asking "do these blockers kill it"
- * gets the same answer. Life totals and lifelink take `card.power` directly -
- * this is creature damage only.
+ * A source with no power deals nothing, so a 0-power deathtoucher kills
+ * nothing either.
  */
-export function damageToCreature(source: Permanent): number {
-  return source.card.keywords.has('deathtouch') ? DEATHTOUCH_DAMAGE : source.card.power
+export function killedBy(target: Permanent, sources: readonly Permanent[]): boolean {
+  let damage = 0
+  let deathtouch = false
+  for (const source of sources) {
+    if (source.card.power <= 0) continue
+    damage += source.card.power
+    if (source.card.keywords.has('deathtouch')) deathtouch = true
+  }
+  return isLethalTo(target, damage, deathtouch)
+}
+
+/** Marks `amount` damage from `source` on `target`, deathtouch included. */
+function dealDamage(target: Permanent, source: Permanent, amount: number): void {
+  if (amount <= 0) return
+  target.damage += amount
+  if (source.card.keywords.has('deathtouch')) target.deathtouched = true
 }
 
 /** Damage `attacker` must assign to `blocker` before the rest can trample over. */
@@ -77,12 +83,7 @@ export function killedBeforeDealingDamage(
   blockers: readonly Permanent[],
 ): boolean {
   if (fightsInFirstStrikeStep(attacker)) return false
-  let damage = attacker.damage
-  for (const blocker of blockers) {
-    if (!fightsInFirstStrikeStep(blocker)) continue
-    damage += damageToCreature(blocker)
-  }
-  return damage >= attacker.card.toughness
+  return killedBy(attacker, blockers.filter(fightsInFirstStrikeStep))
 }
 
 /**
@@ -112,7 +113,7 @@ function damageStep(
           const blk = defenderBoard[blkIdx]
           if (!blk || blk.markedForDeath) continue
           const dealt = Math.min(remainingDamage, lethalDamage(atk, blk))
-          blk.damage += dealt
+          dealDamage(blk, atk, dealt)
           remainingDamage -= dealt
         }
         if (atk.card.keywords.has('trample') && remainingDamage > 0) {
@@ -128,15 +129,13 @@ function damageStep(
     // block fights in this step. A dead attacker is out of combat, so its
     // blockers have nothing left to hit - hence the `markedForDeath` skip above.
     //
-    // Deathtouch is asymmetric here: a blocker forces a kill through
-    // `damageToCreature`, but an attacker only assigns `lethalDamage`'s 1, and
-    // `isDestroyedBySba` doesn't model deathtouch - so a deathtouch attacker
-    // kills nothing. That hole predates this step split and is tracked
-    // separately.
+    // Both directions mark deathtouch the same way, through `dealDamage`. An
+    // attacker only ever assigns `lethalDamage`'s 1 so the rest can be spread
+    // or trampled over, which is why the kill can't ride on the number.
     for (const blkIdx of blockerIdxs) {
       const blk = defenderBoard[blkIdx]
       if (!blk || blk.markedForDeath || !dealsDamageThisStep(blk)) continue
-      atk.damage += damageToCreature(blk)
+      dealDamage(atk, blk, blk.card.power)
       if (blk.card.keywords.has('lifelink')) {
         state.players[defending].life += blk.card.power
       }

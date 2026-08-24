@@ -94,7 +94,11 @@ describe('parseScryfallCard', () => {
   it('[R] reads the mana cost of a nonland', () => {
     const card = scryfall({ id: 'c', mana_cost: '{2}{G}' })
 
-    expect(parseScryfallCard(card).cost).toEqual({ generic: 2, colored: { G: 1 }, cmc: 3 })
+    expect(parseScryfallCard(card).cost).toEqual({
+      generic: 2,
+      pips: [{ kind: 'color', colors: ['G'] }],
+      cmc: 3,
+    })
   })
 
   it('[R] gives a land no cost at all', () => {
@@ -106,7 +110,7 @@ describe('parseScryfallCard', () => {
   it('[R] reads a missing mana cost as free rather than as a land', () => {
     expect(parseScryfallCard(scryfall({ id: 'c', type_line: 'Instant' })).cost).toEqual({
       generic: 0,
-      colored: {},
+      pips: [],
       cmc: 0,
     })
   })
@@ -223,7 +227,11 @@ describe('parseScryfallCard', () => {
       const parsed = parseScryfallCard(split)
 
       expect(parsed.power).toBe(2)
-      expect(parsed.cost).toEqual({ generic: 1, colored: { R: 1 }, cmc: 2 })
+      expect(parsed.cost).toEqual({
+        generic: 1,
+        pips: [{ kind: 'color', colors: ['R'] }],
+        cmc: 2,
+      })
       expect(parsed.effects).toEqual([
         { trigger: 'etb', action: { type: 'draw', count: 1 } },
       ])

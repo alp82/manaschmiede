@@ -1,10 +1,33 @@
-import type { ManaColor, ManaCost, ManaSource, Permanent } from './types'
+import type { ManaColor, ManaCost, ManaPip, ManaSource, Permanent } from './types'
 
 export const MANA_COLORS: ManaColor[] = ['W', 'U', 'B', 'R', 'G']
 const SYMBOL_RE = /\{([^}]+)\}/g
 
+/**
+ * The pip a hybrid symbol's parts describe, or `null` when none of them names
+ * anything the model has.
+ *
+ * `{W/P}` is its color; `{W/U}` is both; `{2/W}` is its color plus the generic
+ * alternative the number gives it. A `P` or `C` part contributes nothing.
+ */
+function hybridPip(parts: readonly string[]): ManaPip | null {
+  const colors = parts.filter((p): p is ManaColor => MANA_COLORS.includes(p as ManaColor))
+  if (colors.length === 0) return null
+
+  const generic = parts.map((p) => parseInt(p, 10)).find((n) => !isNaN(n))
+  return generic === undefined
+    ? { kind: 'color', colors }
+    : { kind: 'color', colors, genericAlternative: generic }
+}
+
+/**
+ * The cost a printed mana cost string describes.
+ *
+ * Every symbol becomes either generic mana or one pip, and `cmc` is the mana
+ * value the card is printed with - which for `{2/W}` is 2, not 1.
+ */
 export function parseCost(costString: string): ManaCost {
-  const colored: Partial<Record<ManaColor, number>> = {}
+  const pips: ManaPip[] = []
   let generic = 0
   let cmc = 0
 
@@ -13,24 +36,11 @@ export function parseCost(costString: string): ManaCost {
 
     if (inner === 'X') continue
 
-    if (inner.includes('/P')) {
-      const color = inner[0] as ManaColor
-      if (MANA_COLORS.includes(color)) {
-        colored[color] = (colored[color] ?? 0) + 1
-        cmc += 1
-      }
-      continue
-    }
-
     if (inner.includes('/')) {
-      const parts = inner.split('/')
-      for (const p of parts) {
-        if (MANA_COLORS.includes(p as ManaColor)) {
-          colored[p as ManaColor] = (colored[p as ManaColor] ?? 0) + 1
-          cmc += 1
-          break
-        }
-      }
+      const pip = hybridPip(inner.split('/'))
+      if (pip === null) continue
+      pips.push(pip)
+      cmc += pip.kind === 'color' ? (pip.genericAlternative ?? 1) : 1
       continue
     }
 
@@ -42,13 +52,43 @@ export function parseCost(costString: string): ManaCost {
     }
 
     if (MANA_COLORS.includes(inner as ManaColor)) {
-      const color = inner as ManaColor
-      colored[color] = (colored[color] ?? 0) + 1
+      pips.push({ kind: 'color', colors: [inner as ManaColor] })
+      cmc += 1
+      continue
+    }
+
+    if (inner === 'C' || inner === 'S') {
+      pips.push({ kind: inner === 'C' ? 'colorless' : 'snow' })
       cmc += 1
     }
   }
 
-  return { generic, colored, cmc }
+  return { generic, pips, cmc }
+}
+
+/**
+ * Colors that would bring `cost` closer to castable, given what the battlefield
+ * already makes.
+ *
+ * A pip one of `available` already pays asks for nothing. A pip none of them
+ * pays asks for every color that would pay it, because any one of them is
+ * enough - which is what makes a hybrid pip two answers rather than one.
+ *
+ * A monocolor hybrid asks for nothing either way: `{2/W}` is castable off any
+ * two lands, so a hand holding one is not waiting on a Plains. Counting it
+ * would send `chooseLand` after a color the card doesn't need.
+ */
+export function missingColors(
+  cost: ManaCost,
+  available: ReadonlySet<ManaColor>,
+): ManaColor[] {
+  const missing = new Set<ManaColor>()
+  for (const pip of cost.pips) {
+    if (pip.kind !== 'color' || pip.genericAlternative !== undefined) continue
+    if (pip.colors.some((color) => available.has(color))) continue
+    for (const color of pip.colors) missing.add(color)
+  }
+  return [...missing]
 }
 
 /** The mana sources an untapped battlefield offers. */
@@ -56,18 +96,21 @@ export function manaSources(battlefield: Permanent[]): ManaSource[] {
   const sources: ManaSource[] = []
   for (const p of battlefield) {
     if (p.card.cardType !== 'land' || p.tapped) continue
-    sources.push({ permanent: p, colors: p.card.producesColors })
+    sources.push({ permanent: p, colors: p.card.producesColors, snow: p.card.isSnow })
   }
   return sources
 }
 
-/** One entry per colored pip in `cost`, in `MANA_COLORS` order. */
-function coloredPips(cost: ManaCost): ManaColor[] {
-  const pips: ManaColor[] = []
-  for (const color of MANA_COLORS) {
-    for (let i = 0; i < (cost.colored[color] ?? 0); i++) pips.push(color)
+/** Whether this one source can pay this one pip. */
+function canPay(source: ManaSource, pip: ManaPip): boolean {
+  switch (pip.kind) {
+    case 'colorless':
+      return source.colors.length === 0
+    case 'snow':
+      return source.snow
+    case 'color':
+      return pip.colors.some((color) => source.colors.includes(color))
   }
-  return pips
 }
 
 /** Source indices, least flexible first - the order a player spends them in. */
@@ -88,7 +131,7 @@ function bySpendPreference(sources: readonly ManaSource[]): number[] {
  */
 function matchPips(
   sources: readonly ManaSource[],
-  pips: readonly ManaColor[],
+  pips: readonly ManaPip[],
   order: readonly number[],
 ): number[] | null {
   const pipOfSource: number[] = new Array(sources.length).fill(-1)
@@ -96,7 +139,7 @@ function matchPips(
 
   function assign(pip: number, visited: boolean[]): boolean {
     for (const s of order) {
-      if (visited[s] || !sources[s].colors.includes(pips[pip])) continue
+      if (visited[s] || !canPay(sources[s], pips[pip])) continue
       visited[s] = true
       if (pipOfSource[s] === -1 || assign(pipOfSource[s], visited)) {
         pipOfSource[s] = pip
@@ -114,11 +157,80 @@ function matchPips(
 }
 
 /**
- * The sources that pay `cost`, or `null` when they can't.
+ * Every set of monocolor-hybrid pips to pay generically instead, cheapest first.
+ *
+ * `{2/W}` is one white mana or two of anything, and which is cheaper depends on
+ * the rest of the board: the white source may be the only one another pip can
+ * use. No single ordering gets that right, so each combination is tried,
+ * starting with the one that spends the least mana - which is the extra mana
+ * each conversion costs, summed, not the number of conversions. A cost mixing
+ * `{2/W}` with `{3/G}` orders those two differently.
+ *
+ * A printed cost holds a handful of these at most - Reaper King's five is the
+ * outlier - so the enumeration is bounded by the card, not by the board.
+ */
+function genericConversions(
+  pips: readonly ManaPip[],
+  flexible: readonly number[],
+): Set<number>[] {
+  const extraMana = (chosen: readonly number[]) =>
+    chosen.reduce((sum, i) => {
+      const pip = pips[i]
+      return sum + (pip.kind === 'color' ? (pip.genericAlternative ?? 1) - 1 : 0)
+    }, 0)
+
+  const subsets: { chosen: Set<number>; cost: number }[] = []
+  for (let mask = 0; mask < 1 << flexible.length; mask++) {
+    const chosen = flexible.filter((_, i) => mask & (1 << i))
+    subsets.push({ chosen: new Set(chosen), cost: extraMana(chosen) })
+  }
+  return subsets.sort((a, b) => a.cost - b.cost).map((s) => s.chosen)
+}
+
+/**
+ * The sources that pay `cost` once `convertedToGeneric` names the flexible pips
+ * being paid the generic way, or `null` when they can't.
  *
  * Colored pips are matched first because they are the constrained half; the
  * generic part then takes whatever is left, cheapest land first, so the duals
  * survive to pay for something only they can.
+ */
+function payWith(
+  sources: readonly ManaSource[],
+  cost: ManaCost,
+  order: readonly number[],
+  convertedToGeneric: ReadonlySet<number>,
+): ManaSource[] | null {
+  const pips: ManaPip[] = []
+  let generic = cost.generic
+
+  cost.pips.forEach((pip, i) => {
+    if (pip.kind === 'color' && convertedToGeneric.has(i)) {
+      generic += pip.genericAlternative ?? 0
+    } else {
+      pips.push(pip)
+    }
+  })
+
+  const matched = matchPips(sources, pips, order)
+  if (matched === null) return null
+
+  const spent = matched.map((i) => sources[i])
+  const used = new Set(matched)
+
+  for (const i of order) {
+    if (generic <= 0) break
+    if (used.has(i)) continue
+    spent.push(sources[i])
+    generic--
+  }
+  if (generic > 0) return null
+
+  return spent
+}
+
+/**
+ * The sources that pay `cost`, or `null` when they can't.
  *
  * `sources` is left untouched, and the returned entries are the very objects it
  * held - a caller subtracting the spend from its own list can compare them by
@@ -129,22 +241,15 @@ export function payCost(
   cost: ManaCost,
 ): ManaSource[] | null {
   const order = bySpendPreference(sources)
-  const matched = matchPips(sources, coloredPips(cost), order)
-  if (matched === null) return null
+  const flexible = cost.pips.flatMap((pip, i) =>
+    pip.kind === 'color' && pip.genericAlternative !== undefined ? [i] : [],
+  )
 
-  const spent = matched.map((i) => sources[i])
-  const used = new Set(matched)
-
-  let generic = cost.generic
-  for (const i of order) {
-    if (generic <= 0) break
-    if (used.has(i)) continue
-    spent.push(sources[i])
-    generic--
+  for (const converted of genericConversions(cost.pips, flexible)) {
+    const spent = payWith(sources, cost, order, converted)
+    if (spent !== null) return spent
   }
-  if (generic > 0) return null
-
-  return spent
+  return null
 }
 
 const BASIC_LAND_TYPES: Record<string, ManaColor> = {

@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { manaSources, parseCost, parseLandColors, payCost } from '../simulation/mana'
+import {
+  manaSources,
+  missingColors,
+  parseCost,
+  parseLandColors,
+  payCost,
+} from '../simulation/mana'
+import type { ManaColor } from '../simulation/types'
 import {
   cost,
   forest,
@@ -185,73 +192,199 @@ describe('parseLandColors', () => {
 })
 
 describe('parseCost', () => {
+  const colorPip = (...colors: ManaColor[]) => ({ kind: 'color', colors })
+
   it('[R] reads an empty cost as free', () => {
-    expect(parseCost('')).toEqual({ generic: 0, colored: {}, cmc: 0 })
+    expect(parseCost('')).toEqual({ generic: 0, pips: [], cmc: 0 })
   })
 
   it('[R] reads a generic-and-colored cost', () => {
-    expect(parseCost('{2}{G}')).toEqual({ generic: 2, colored: { G: 1 }, cmc: 3 })
+    expect(parseCost('{2}{G}')).toEqual({ generic: 2, pips: [colorPip('G')], cmc: 3 })
   })
 
   it('[R] counts repeated pips of the same color', () => {
-    expect(parseCost('{G}{G}{G}')).toEqual({ generic: 0, colored: { G: 3 }, cmc: 3 })
+    expect(parseCost('{G}{G}{G}')).toEqual({
+      generic: 0,
+      pips: [colorPip('G'), colorPip('G'), colorPip('G')],
+      cmc: 3,
+    })
   })
 
   it('[R] counts pips of several colors', () => {
-    expect(parseCost('{1}{W}{U}')).toEqual({ generic: 1, colored: { W: 1, U: 1 }, cmc: 3 })
+    expect(parseCost('{1}{W}{U}')).toEqual({
+      generic: 1,
+      pips: [colorPip('W'), colorPip('U')],
+      cmc: 3,
+    })
   })
 
   it('[R] reads a generic cost of ten as one symbol', () => {
-    expect(parseCost('{10}')).toEqual({ generic: 10, colored: {}, cmc: 10 })
+    expect(parseCost('{10}')).toEqual({ generic: 10, pips: [], cmc: 10 })
   })
 
   it('[R] counts X as zero', () => {
     // X is 0 everywhere except on the stack, and a card in hand or library is
     // the only place the sim reads a cost.
-    expect(parseCost('{X}{R}')).toEqual({ generic: 0, colored: { R: 1 }, cmc: 1 })
+    expect(parseCost('{X}{R}')).toEqual({ generic: 0, pips: [colorPip('R')], cmc: 1 })
   })
 
   it('[R] counts a Phyrexian pip as one mana of its color', () => {
-    expect(parseCost('{2}{W/P}')).toEqual({ generic: 2, colored: { W: 1 }, cmc: 3 })
+    // Paying two life instead isn't modelled, so the mana half is the whole
+    // card as far as the sim is concerned.
+    expect(parseCost('{2}{W/P}')).toEqual({ generic: 2, pips: [colorPip('W')], cmc: 3 })
   })
 
   it('[R] counts a hybrid pip as one mana', () => {
     expect(parseCost('{W/U}').cmc).toBe(1)
   })
 
-  it('[C] pins a hybrid pip to the first color it names', () => {
-    // Issue #37.
-    // A {W/U} spell is castable off either color, but the cost carries one W
-    // pip, so a mono-blue board reads it as uncastable. Widening this means
-    // `ManaCost.colored` growing a notion of alternatives - `payCost` matches
-    // pips to sources, so the alternative belongs on the pip, not the source.
-    expect(parseCost('{W/U}')).toEqual({ generic: 0, colored: { W: 1 }, cmc: 1 })
+  it('[R] reads a hybrid pip as payable by either color', () => {
+    // Issue #37. The pip carries the alternative, because a count per color
+    // cannot say "either".
+    expect(parseCost('{W/U}')).toEqual({ generic: 0, pips: [colorPip('W', 'U')], cmc: 1 })
   })
 
-  it('[C] reads a monocolor hybrid pip as costing one, not two', () => {
-    // Issue #37.
-    // {2/W} is "two generic or one white", and its mana value is 2. Reading it
-    // as 1 makes such a card look a turn cheaper than it is, and the AI sorts
-    // its casts by `cmc`. The `/P` branch runs first, then the generic `/`
-    // branch takes the first part that names a color - the `2` is dropped.
-    expect(parseCost('{2/W}')).toEqual({ generic: 0, colored: { W: 1 }, cmc: 1 })
+  it('[R] reads a monocolor hybrid pip as one colored or two generic', () => {
+    // Issue #37. {2/W} has a mana value of 2, and the AI sorts its casts by
+    // `cmc` - reading it as 1 made the card look a turn cheaper than it is.
+    expect(parseCost('{2/W}')).toEqual({
+      generic: 0,
+      pips: [{ kind: 'color', colors: ['W'], genericAlternative: 2 }],
+      cmc: 2,
+    })
   })
 
-  it('[C] drops a colorless pip entirely', () => {
-    // Issue #37.
-    // {C} is one mana that only a colorless source can pay. It parses to
-    // nothing, so an Eldrazi reads as free. Modelling it needs a colorless pip
-    // in `ManaCost` and a matching branch in `payCost`.
-    expect(parseCost('{2}{C}')).toEqual({ generic: 2, colored: {}, cmc: 2 })
+  it('[R] reads a colorless pip', () => {
+    // Issue #37. {C} is one mana only a colorless source pays; it used to
+    // parse to nothing, so an Eldrazi read as partly free.
+    expect(parseCost('{2}{C}')).toEqual({
+      generic: 2,
+      pips: [{ kind: 'colorless' }],
+      cmc: 3,
+    })
   })
 
-  it('[C] drops a snow pip entirely', () => {
-    // Issue #37.
-    // {S} is one mana from a snow source. Same shape of gap as {C}.
-    expect(parseCost('{1}{S}')).toEqual({ generic: 1, colored: {}, cmc: 1 })
+  it('[R] reads a snow pip', () => {
+    // Issue #37. {S} is one mana from a snow source. Same shape of gap as {C}.
+    expect(parseCost('{1}{S}')).toEqual({ generic: 1, pips: [{ kind: 'snow' }], cmc: 2 })
   })
 
   it('[R] ignores text outside the symbol braces', () => {
-    expect(parseCost('2G')).toEqual({ generic: 0, colored: {}, cmc: 0 })
+    expect(parseCost('2G')).toEqual({ generic: 0, pips: [], cmc: 0 })
+  })
+})
+
+describe('payCost with the pips of issue #37', () => {
+  it('[R] pays a hybrid pip from either of its colors', () => {
+    expect(names(payCost(sourcesOf(land('island', ['U'])), parseCost('{W/U}')))).toEqual([
+      'island',
+    ])
+    expect(names(payCost(sourcesOf(land('plains', ['W'])), parseCost('{W/U}')))).toEqual([
+      'plains',
+    ])
+  })
+
+  it('[R] refuses a hybrid pip no source can make', () => {
+    expect(payCost(sourcesOf(forest('a')), parseCost('{W/U}'))).toBeNull()
+  })
+
+  it('[R] pays a colorless pip only from a colorless source', () => {
+    expect(names(payCost(sourcesOf(land('waste', [])), parseCost('{C}')))).toEqual(['waste'])
+    expect(payCost(sourcesOf(forest('a')), parseCost('{C}'))).toBeNull()
+  })
+
+  it('[R] keeps a colorless source for the pip only it can pay', () => {
+    // Greedy spending would put the colorless land on the {1} - it is the
+    // least flexible source - and leave nothing for {C}.
+    const sources = sourcesOf(land('waste', []), forest('a'))
+
+    expect(names(payCost(sources, parseCost('{1}{C}')))?.sort()).toEqual(['a', 'waste'])
+  })
+
+  it('[R] pays a snow pip only from a snow source', () => {
+    const snow = land('snow-forest', ['G'], true, true)
+
+    expect(names(payCost(sourcesOf(snow), parseCost('{S}')))).toEqual(['snow-forest'])
+    expect(payCost(sourcesOf(forest('a')), parseCost('{S}'))).toBeNull()
+  })
+
+  it('[R] pays a monocolor hybrid pip with its color when it can', () => {
+    expect(names(payCost(sourcesOf(land('plains', ['W'])), parseCost('{2/W}')))).toEqual([
+      'plains',
+    ])
+  })
+
+  it('[R] falls back to paying a monocolor hybrid pip generically', () => {
+    const sources = sourcesOf(forest('a'), forest('b'))
+
+    expect(names(payCost(sources, parseCost('{2/W}')))?.sort()).toEqual(['a', 'b'])
+  })
+
+  it('[R] refuses a monocolor hybrid pip when neither way is covered', () => {
+    expect(payCost(sourcesOf(forest('a')), parseCost('{2/W}'))).toBeNull()
+  })
+
+  it('[R] converts the hybrid pip that costs the least mana', () => {
+    // {3/U}{2/U} off one Island and three Wastes. Only one pip can keep the
+    // Island, so the other goes generic - and paying the {2/U} that way costs
+    // three lands where paying the {3/U} that way costs four. Ordering the
+    // attempts by how many pips get converted can't tell those apart, because
+    // both convert exactly one.
+    const sources = sourcesOf(
+      land('island', ['U']),
+      land('waste-a', []),
+      land('waste-b', []),
+      land('waste-c', []),
+    )
+
+    expect(names(payCost(sources, parseCost('{3/U}{2/U}')))?.sort()).toEqual([
+      'island',
+      'waste-a',
+      'waste-b',
+    ])
+  })
+
+  it('[R] spends the one white source on the pip that needs it', () => {
+    // {2/W}{W} off a Plains and two Forests: the flexible pip has to go
+    // generic so the plain {W} keeps the Plains. Paying the pips in order and
+    // stopping at the first assignment that works gets this wrong.
+    const sources = sourcesOf(land('plains', ['W']), forest('a'), forest('b'))
+
+    expect(names(payCost(sources, parseCost('{2/W}{W}')))?.sort()).toEqual([
+      'a',
+      'b',
+      'plains',
+    ])
+  })
+})
+
+describe('missingColors', () => {
+  const available = (...colors: ManaColor[]) => new Set(colors)
+
+  it('[R] reports a color the battlefield cannot make', () => {
+    expect(missingColors(parseCost('{1}{U}'), available('G'))).toEqual(['U'])
+  })
+
+  it('[R] reports nothing for a pip the battlefield already pays', () => {
+    expect(missingColors(parseCost('{1}{G}'), available('G'))).toEqual([])
+  })
+
+  it('[R] reports both halves of an unpayable hybrid pip', () => {
+    // Either one would do, so the land picker gets both to choose from.
+    expect(missingColors(parseCost('{W/U}'), available('G')).sort()).toEqual(['U', 'W'])
+  })
+
+  it('[R] reports nothing for a hybrid pip one available color pays', () => {
+    expect(missingColors(parseCost('{W/U}'), available('U'))).toEqual([])
+  })
+
+  it('[R] reports nothing for a monocolor hybrid pip', () => {
+    // {2/W} is castable off any two lands, so a hand holding one is not
+    // waiting on a Plains.
+    expect(missingColors(parseCost('{2/W}'), available('G'))).toEqual([])
+  })
+
+  it('[R] ignores colorless and snow pips, which no color pays', () => {
+    expect(missingColors(parseCost('{C}{S}'), available('G'))).toEqual([])
   })
 })

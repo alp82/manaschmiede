@@ -73,6 +73,7 @@ export function parseScryfallCard(card: ScryfallCard): SimCard {
     producesColors,
     effects: parseEffects(oracleText, cardType),
     isBasicLand: isBasicLand(card) || BASIC_LAND_ID_SET.has(card.id),
+    isSnow: typeLine.toLowerCase().includes('snow'),
   }
 }
 
