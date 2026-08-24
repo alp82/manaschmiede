@@ -14,7 +14,8 @@
  *   C4  archetypes / traits  archetypes cap at 3 add-only, traits have no cap
  *   C5  combos               SET_CORE_COMBOS always nulls the selection;
  *                            SELECT_COMBO's range guard and downstream clear;
- *                            SKIP_COMBO touches nothing but the selection
+ *                            SKIP_COMBO touches nothing but the selection;
+ *                            getSelectedCombo is the one reading of the index
  *   C6  deck metadata        SET_DECK / SET_DECK_METADATA use `??`, so an
  *                            explicit '' clears
  *   C7  locks                TOGGLE_LOCK accepts ids absent from deckCards
@@ -43,6 +44,7 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest'
 import {
   wizardReducer,
+  getSelectedCombo,
   hydrateWizardState,
   initialWizardState,
   persistWizardState,
@@ -365,6 +367,34 @@ describe('C5: combos', () => {
     const state = makeState({ coreCombos: [], deckName: 'kept' })
     expect(wizardReducer(state, { type: 'SELECT_COMBO', index: 0 })).toBe(state)
   })
+
+  it('C5-k: re-selecting the SAME index returns the SAME object — no downstream memo re-runs', () => {
+    const state = makeState({ coreCombos: combos, selectedComboIndex: 1 })
+    expect(wizardReducer(state, { type: 'SELECT_COMBO', index: 1 })).toBe(state)
+  })
+})
+
+// ─── C5c: getSelectedCombo — one reading of selectedComboIndex ───────────────
+
+describe('C5c: getSelectedCombo', () => {
+  const combos = [makeCombo('alpha'), makeCombo('beta')]
+
+  it('C5c-a: a live index resolves to its combo', () => {
+    expect(getSelectedCombo(makeState({ coreCombos: combos, selectedComboIndex: 1 }))?.name).toBe('beta')
+  })
+
+  it('C5c-b: a null index resolves to null', () => {
+    expect(getSelectedCombo(makeState({ coreCombos: combos, selectedComboIndex: null }))).toBeNull()
+  })
+
+  it('C5c-c: an out-of-range index resolves to null, not undefined', () => {
+    expect(getSelectedCombo(makeState({ coreCombos: combos, selectedComboIndex: 9 }))).toBeNull()
+    expect(getSelectedCombo(makeState({ coreCombos: combos, selectedComboIndex: -1 }))).toBeNull()
+  })
+
+  it('C5c-d: an empty combo list resolves to null', () => {
+    expect(getSelectedCombo(makeState({ coreCombos: [], selectedComboIndex: 0 }))).toBeNull()
+  })
 })
 
 // ─── C5b: SKIP_COMBO — the absence of a choice, not a new one ────────────────
@@ -613,8 +643,18 @@ describe('C10: hydrateWizardState', () => {
     expect(hydrateWizardState({ selectedComboIndex: -1 }).selectedComboIndex).toBeNull()
   })
 
-  it('C10-n1: a valid persisted selectedComboIndex is preserved', () => {
-    expect(hydrateWizardState({ selectedComboIndex: 2 }).selectedComboIndex).toBe(2)
+  it('C10-n1: a persisted index that still points at a live combo is preserved', () => {
+    const parsed = { selectedComboIndex: 1, coreCombos: [makeCombo('alpha'), makeCombo('beta')] }
+    expect(hydrateWizardState(parsed).selectedComboIndex).toBe(1)
+  })
+
+  it('C10-n2: a persisted index PAST the end of the combo list collapses to null', () => {
+    const parsed = { selectedComboIndex: 5, coreCombos: [makeCombo('alpha')] }
+    expect(hydrateWizardState(parsed).selectedComboIndex).toBeNull()
+  })
+
+  it('C10-n3: a persisted index with no combo list at all collapses to null', () => {
+    expect(hydrateWizardState({ selectedComboIndex: 0 }).selectedComboIndex).toBeNull()
   })
 
   it('C10-n: hydrateWizardState does not mutate its input', () => {

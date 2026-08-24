@@ -156,10 +156,14 @@ export function hydrateWizardState(parsed: unknown): WizardState {
     merged.budgetMax = budgetLimit
   }
   if (merged.maxStepReached < merged.step) merged.maxStepReached = merged.step
-  // A `-1` here is the retired skip sentinel. Every consumer already collapsed
-  // it onto the `null` branch, so normalising it keeps exactly one shape for
-  // "no combo chosen" in play.
-  if (merged.selectedComboIndex === -1) merged.selectedComboIndex = null
+  // `-1` here is the retired skip sentinel, and nothing guarantees any other
+  // persisted index still points at a live combo. Everything out of range
+  // collapses, leaving exactly one shape for "no combo chosen" in play — which
+  // is what StepCoreCards' `== null` NEXT guard reads.
+  const comboIndex = merged.selectedComboIndex
+  if (comboIndex != null && (comboIndex < 0 || comboIndex >= merged.coreCombos.length)) {
+    merged.selectedComboIndex = null
+  }
   return merged
 }
 
@@ -260,6 +264,18 @@ export function getActiveColors(colors: Record<ManaColor, ManaColorState>): Mana
     .map(([color]) => color)
 }
 
+/**
+ * The combo the user picked, or null. One reading of `selectedComboIndex` for
+ * everyone: the index is a bare `number | null` and nothing guarantees it still
+ * points at a live combo, so every consumer has to range-check. Four call sites
+ * had drifted into four spellings of that check.
+ */
+export function getSelectedCombo(state: WizardState): CoreCombo | null {
+  const index = state.selectedComboIndex
+  if (index == null) return null
+  return state.coreCombos[index] ?? null
+}
+
 export interface FillColorsResult {
   /** Ready = every source of truth is resolved; fill can proceed. */
   ready: boolean
@@ -282,8 +298,7 @@ export interface FillColorsResult {
  */
 export function getFillColors(state: WizardState): FillColorsResult {
   const selected = getSelectedColors(state.colors)
-  const index = state.selectedComboIndex
-  const combo = index != null ? state.coreCombos[index] : undefined
+  const combo = getSelectedCombo(state)
 
   if (!combo) {
     return { ready: true, colors: selected }
@@ -389,8 +404,10 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
       // Picking a different combo always overrides metadata — the user
       // is making a new strategy choice, so treating metadata as downstream
       // state is consistent with how deckCards are reset.
-      const changed = state.selectedComboIndex !== action.index
-      if (!changed) return { ...state, selectedComboIndex: action.index }
+      // Re-clicking the current combo changes nothing — return the same object
+      // rather than a fresh one, as SKIP_COMBO does, so no `state`-dep memo
+      // downstream re-runs for a no-op.
+      if (state.selectedComboIndex === action.index) return state
       const combo = state.coreCombos[action.index]
       const withMeta = {
         ...state,
