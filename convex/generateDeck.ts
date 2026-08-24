@@ -67,8 +67,24 @@ interface ScryfallSearchResult {
   }>
 }
 
+/**
+ * One card from a Scryfall pool search: the prompt line the model reads, plus
+ * the raw `type_line` the 60-card enforcement uses to tell lands from spells.
+ */
+interface PoolCard {
+  name: string
+  typeLine: string
+  line: string
+}
+
+/** A card pool as the prompt block the model reads plus its name -> type_line map. */
+interface CardPool {
+  block: string
+  cardTypes: Record<string, string>
+}
+
 // Search Scryfall for cards matching a query
-async function scryfallSearch(query: string): Promise<string[]> {
+async function scryfallSearch(query: string): Promise<PoolCard[]> {
   const url = new URL('https://api.scryfall.com/cards/search')
   url.searchParams.set('q', query)
   url.searchParams.set('order', 'edhrec') // sort by popularity
@@ -82,7 +98,9 @@ async function scryfallSearch(query: string): Promise<string[]> {
     const data: ScryfallSearchResult = await res.json()
     return (data.data ?? []).map((c) => {
       const type = c.type_line.replace(/ —.*/, '') // "Creature" not "Creature — Elf Wizard"
-      return `${c.name} (${c.mana_cost ?? '0'}) [${type}]`
+      // The prompt gets the trimmed type; the map keeps the full type_line so
+      // "Land Creature — Forest Dryad" still reads as a land downstream.
+      return { name: c.name, typeLine: c.type_line, line: `${c.name} (${c.mana_cost ?? '0'}) [${type}]` }
     })
   } catch {
     return []
@@ -117,17 +135,21 @@ function withParseTimeout(p: Promise<{ queries: string[] }>): Promise<{ queries:
  * Fetch a list of Scryfall queries and format the results as a deduplicated
  * CARD POOL prompt block. Shared empty-guard + rate-limited fetch loop
  * (sliceSize results per query) + Set dedup + the "CARD POOL (prefer
- * these...)" format string. Returns '' when there are no queries or no
- * results. Behavior-identical to the inline loops it replaced in buildCardPool
- * (sliceSize 50) and buildSectionCardPool (30).
+ * these...)" format string. The block is '' when there are no queries or no
+ * results.
+ *
+ * Also returns the pool's name -> type_line map, which is the only structured
+ * card data the server has: the model answers with bare names, so this map is
+ * what lets enforceDeckSize tell a dual land from a spell.
  */
 async function buildCardPoolBlock(
   queries: string[],
   sliceSize: number,
-): Promise<string> {
-  if (queries.length === 0) return ''
+): Promise<CardPool> {
+  const cardTypes: Record<string, string> = {}
+  if (queries.length === 0) return { block: '', cardTypes }
 
-  const allCards: string[] = []
+  const allCards: PoolCard[] = []
   for (const query of queries) {
     // Rate limit: 100ms between requests
     await new Promise((r) => setTimeout(r, 100))
@@ -135,10 +157,17 @@ async function buildCardPoolBlock(
     allCards.push(...results.slice(0, sliceSize))
   }
 
-  if (allCards.length === 0) return ''
+  if (allCards.length === 0) return { block: '', cardTypes }
 
-  const unique = [...new Set(allCards)]
-  return `\n\nCARD POOL (prefer these, but you can suggest others):\n${unique.join('\n')}`
+  const unique = new Set<string>()
+  for (const card of allCards) {
+    unique.add(card.line)
+    cardTypes[card.name] = card.typeLine
+  }
+  return {
+    block: `\n\nCARD POOL (prefer these, but you can suggest others):\n${[...unique].join('\n')}`,
+    cardTypes,
+  }
 }
 
 async function buildCardPool(
@@ -146,7 +175,7 @@ async function buildCardPool(
   prompt: string,
   colors?: string[],
   customStrategy?: string,
-): Promise<string> {
+): Promise<CardPool> {
   // Conditional parse: an empty strategy skips the Haiku call (no
   // chatStrategyParse log) and yields a byte-identical trait-only pool.
   const strategyInput = (customStrategy ?? '').trim()
@@ -224,22 +253,62 @@ const BASIC_LAND_NAMES = new Set(['Plains', 'Island', 'Swamp', 'Mountain', 'Fore
 const TARGET_SIZE = 60
 const MAX_COPIES = 4
 
+/** Color letter -> the basic land that produces it, for padding an undersized deck. */
+const COLOR_BASIC_LAND: Record<string, string> = {
+  W: 'Plains',
+  U: 'Island',
+  B: 'Swamp',
+  R: 'Mountain',
+  G: 'Forest',
+}
+
+export interface EnforceDeckSizeOptions {
+  /** Deck color identity as W/U/B/R/G letters. Picks the basics used for padding. */
+  colors?: string[]
+  /**
+   * Card name -> Scryfall `type_line`, for the cards the prompt's card pool
+   * knows about. Lets the trim step tell a dual land from a spell. Names that
+   * are absent fall back to the basic-land name check, which is what the whole
+   * function did before.
+   */
+  cardTypes?: Record<string, string>
+}
+
 /**
  * Layer 2: Programmatic enforcement - force deck to exactly 60 cards.
  * Respects locked cards and the 4-copy rule.
+ *
+ * Trim order is spells, then lands, then locked cards - and within each group
+ * the biggest stacks shrink first, so a 4-of drops to a 3-of before a 1-of
+ * disappears. Once every card sits at its floor a second pass deletes whole
+ * entries in the same order, which is what makes 70 distinct singletons come
+ * back as exactly 60. A locked card is never deleted, so a deck of 61+ locked
+ * cards stays oversized; nothing else can.
  */
 export function enforceDeckSize(
   deck: GeneratedDeck,
   lockedCards?: Array<{ name: string; quantity: number }>,
+  options?: EnforceDeckSizeOptions,
 ): GeneratedDeck {
   const lockedSet = new Map<string, number>()
   if (lockedCards) {
     for (const c of lockedCards) lockedSet.set(c.name, c.quantity)
   }
 
+  const cardTypes = options?.cardTypes ?? {}
+  const typeLineOf = (name: string) => (cardTypes[name] ?? '').toLowerCase()
+  // Whole-word match: `includes('land')` would also fire on "island", the
+  // subtype every blue basic and dual carries.
+  const isBasicLand = (name: string) => {
+    if (BASIC_LAND_NAMES.has(name)) return true
+    const type = typeLineOf(name)
+    return /\bbasic\b/.test(type) && /\bland\b/.test(type)
+  }
+  const isLand = (name: string) => isBasicLand(name) || /\bland\b/.test(typeLineOf(name))
+
   // Step 1: Enforce 4-copy rule (except basic lands)
   for (const card of deck.cards) {
-    if (!BASIC_LAND_NAMES.has(card.name)) {
+    if (!isBasicLand(card.name)) {
       card.quantity = Math.min(card.quantity, MAX_COPIES)
     }
     card.quantity = Math.max(card.quantity, 1)
@@ -252,7 +321,7 @@ export function enforceDeckSize(
   }
   deck.cards = Array.from(merged, ([name, quantity]) => {
     // Re-enforce max copies after merge
-    if (!BASIC_LAND_NAMES.has(name)) {
+    if (!isBasicLand(name)) {
       quantity = Math.min(quantity, MAX_COPIES)
     }
     return { name, quantity }
@@ -262,30 +331,54 @@ export function enforceDeckSize(
 
   // Step 3: Trim if over 60
   if (total > TARGET_SIZE) {
-    // Sort cards by priority: locked first, then lands, then by quantity desc
-    // We'll trim from the end (lowest priority)
-    const trimmable = deck.cards
-      .map((c, i) => ({ ...c, index: i, isLocked: lockedSet.has(c.name), isLand: BASIC_LAND_NAMES.has(c.name) }))
-      .filter((c) => !c.isLocked)
-      // Trim non-lands first, then lands. Within each group, trim cards with highest quantity first
-      .sort((a, b) => {
-        if (a.isLand !== b.isLand) return a.isLand ? 1 : -1 // non-lands first
-        return b.quantity - a.quantity // highest qty first (reduce 4x to 3x before removing 1x)
-      })
+    // Priority 0 = unlocked spells, 1 = unlocked lands, 2 = locked cards.
+    // Locked cards come down to their locked quantity only, and only after
+    // everything else has hit its floor.
+    const trimOrder = deck.cards
+      .map((c, index) => ({
+        index,
+        quantity: c.quantity,
+        priority: lockedSet.has(c.name) ? 2 : isLand(c.name) ? 1 : 0,
+        minQty: lockedSet.get(c.name) ?? 1,
+      }))
+      .sort((a, b) => a.priority - b.priority || b.quantity - a.quantity)
 
     let excess = total - TARGET_SIZE
-    for (const card of trimmable) {
+
+    // Pass 1: shrink stacks down to each card's floor.
+    for (const entry of trimOrder) {
       if (excess <= 0) break
-      const deckCard = deck.cards[card.index]
-      const minQty = lockedSet.get(card.name) || 1
-      const canRemove = Math.min(deckCard.quantity - minQty, excess)
+      const deckCard = deck.cards[entry.index]
+      const canRemove = Math.min(deckCard.quantity - entry.minQty, excess)
       if (canRemove > 0) {
         deckCard.quantity -= canRemove
         excess -= canRemove
       }
     }
 
-    // Remove zero-quantity cards
+    // Pass 2: still over 60 with everything at its floor - delete unlocked
+    // entries outright, spells before lands. Deletion order is the mirror of
+    // pass 1: smallest surviving stack first, then latest-listed, so a 4-of
+    // the model asked for twice over doesn't get deleted ahead of a random
+    // 1-of. (Trimming from the end matches enforceDeltaSize in
+    // src/lib/deck-diff.ts.)
+    const deleteOrder = trimOrder
+      .filter((entry) => entry.priority !== 2)
+      .sort(
+        (a, b) =>
+          a.priority - b.priority ||
+          deck.cards[a.index].quantity - deck.cards[b.index].quantity ||
+          b.index - a.index,
+      )
+
+    for (const entry of deleteOrder) {
+      if (excess <= 0) break
+      const deckCard = deck.cards[entry.index]
+      const canRemove = Math.min(deckCard.quantity, excess)
+      deckCard.quantity -= canRemove
+      excess -= canRemove
+    }
+
     deck.cards = deck.cards.filter((c) => c.quantity > 0)
     total = deck.cards.reduce((s, c) => s + c.quantity, 0)
   }
@@ -293,12 +386,22 @@ export function enforceDeckSize(
   // Step 4: Pad if under 60 - add basic lands proportionally
   if (total < TARGET_SIZE) {
     const deficit = TARGET_SIZE - total
-    // Detect deck colors from non-land card names (rough heuristic from existing lands)
-    const landNames = ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest']
-    const existingLands = landNames.filter((l) =>
+    // The deck's declared colors are the truth about which basics belong here;
+    // a mono-blue deck the model returned with no lands must pad with Islands.
+    // Without colors, fall back to the basics the deck already runs, then to
+    // Forest so the deck still reaches 60.
+    const fromColors = [
+      ...new Set(
+        (options?.colors ?? [])
+          .map((c) => COLOR_BASIC_LAND[c.toUpperCase()])
+          .filter((name): name is string => name !== undefined),
+      ),
+    ]
+    const existingLands = [...BASIC_LAND_NAMES].filter((l) =>
       deck.cards.some((c) => c.name === l),
     )
-    const landsToUse = existingLands.length > 0 ? existingLands : ['Forest'] // fallback
+    const landsToUse =
+      fromColors.length > 0 ? fromColors : existingLands.length > 0 ? existingLands : ['Forest']
 
     const perLand = Math.floor(deficit / landsToUse.length)
     const remainder = deficit % landsToUse.length
@@ -325,6 +428,7 @@ async function generateWithEnforcement(
   systemPrompt: string,
   messages: Array<{ role: string; content: string }>,
   lockedCards?: Array<{ name: string; quantity: number }>,
+  options?: EnforceDeckSizeOptions,
 ): Promise<GeneratedDeck> {
   const model = 'claude-haiku-4-5-20251001'
   const logId = await startLlmLog(ctx, 'chat.generate', model, systemPrompt, messages)
@@ -333,7 +437,7 @@ async function generateWithEnforcement(
   const deck = parseResponse(result.text)
 
   // Programmatic enforcement: force exactly 60 cards, 4-copy rule, land padding
-  return enforceDeckSize(deck, lockedCards)
+  return enforceDeckSize(deck, lockedCards, options)
 }
 
 interface ChatResult {
@@ -472,7 +576,7 @@ async function generateDelta(ctx: ActionCtx, args: ChatArgs): Promise<DeltaResul
     const searchContext = [args.deckDescription || '', userText].join(' ')
     const combinedStrategy = buildCombinedStrategy(args.customStrategy, userText, LIVE_MESSAGE_PARSE_CAP)
     const cardPool = await buildCardPool(ctx, searchContext, args.colors, combinedStrategy)
-    systemPrompt += cardPool
+    systemPrompt += cardPool.block
   }
 
   systemPrompt += deckContext
@@ -589,7 +693,7 @@ export const chat = action({
     // on-color cards from the start (the client gate is the hard backstop).
     const cardPool = await buildCardPool(ctx, searchContext, args.colors, combinedStrategy)
 
-    let systemPrompt = SYSTEM_PROMPT + cardPool + deckContext
+    let systemPrompt = SYSTEM_PROMPT + cardPool.block + deckContext
 
     // Shared deck-context block — the same HARD CONSTRAINT block fillSection
     // emits, so chat suggestions honor the deck's intent identically.
@@ -616,7 +720,13 @@ export const chat = action({
       systemPrompt += `\n\nIMPORTANT: When the user requests changes, always return the COMPLETE updated card list, not just the changes. The deck must ALWAYS have exactly 60 cards. If you remove cards, add others to stay at 60.`
     }
 
-    const deck = await generateWithEnforcement(ctx, systemPrompt, args.messages, args.lockedCards)
+    // The pool's type lines are the only card data the enforcement step has —
+    // a card the model invented outside the pool still falls back to the
+    // basic-land name check.
+    const deck = await generateWithEnforcement(ctx, systemPrompt, args.messages, args.lockedCards, {
+      colors: args.colors,
+      cardTypes: cardPool.cardTypes,
+    })
     return { intent: 'change', deck }
   },
 })
@@ -696,6 +806,8 @@ async function buildSectionCardPool(
   description: string,
   customStrategy?: string,
 ): Promise<string> {
+  // fillSection has its own count enforcement and never calls enforceDeckSize,
+  // so it needs the prompt block only.
   const colorFilter = colorFilterClause(colors)
 
   // Color-scoped hints first (capped at 2).
@@ -713,7 +825,7 @@ async function buildSectionCardPool(
 
   // slice(0,3) bounds a fill to <=2 hints + 3 desc = <=5 Scryfall calls.
   const queries = [...hintQueries, ...descQueries.slice(0, 3)]
-  return buildCardPoolBlock(queries, 30)
+  return (await buildCardPoolBlock(queries, 30)).block
 }
 
 export const fillSection = action({
