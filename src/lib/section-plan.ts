@@ -1,7 +1,6 @@
 import { getTraitById } from './trait-mappings'
 import type { ScryfallCard } from './scryfall/types'
-
-type Translate = (key: string, params?: Record<string, string | number>) => string
+import type { DynamicKey, TFn } from './i18n/types'
 
 export interface DeckSection {
   id: string
@@ -206,7 +205,7 @@ const DEFAULT_TEMPLATE: SectionTemplate = {
  */
 function localizeSection(
   entry: SectionTemplateEntry,
-  t: Translate,
+  t: TFn,
   tribe: string | null,
 ): { label: string; description: string } {
   const params = tribe ? { tribe } : undefined
@@ -222,9 +221,11 @@ function localizeSection(
  * if the translation key is missing (older persisted decks, unknown ids).
  * Tribal sections interpolate `{tribe}` from the persisted `tribalTraitId`.
  */
-export function localizeDeckSection(section: DeckSection, t: Translate): DeckSection {
-  const labelKey = `section.${section.id}.label`
-  const descKey = `section.${section.id}.desc`
+export function localizeDeckSection(section: DeckSection, t: TFn): DeckSection {
+  // Annotated, not inferred: hoisting these into locals widens them to `string`,
+  // which `t` no longer accepts. The comparison below needs them as locals.
+  const labelKey: DynamicKey = `section.${section.id}.label`
+  const descKey: DynamicKey = `section.${section.id}.desc`
   const params = section.tribalTraitId
     ? { tribe: t(`trait.${section.tribalTraitId}`) }
     : undefined
@@ -289,7 +290,7 @@ export function deriveSectionPlan(
   traits: string[],
   coreCardCount: number,
   colors: string[],
-  t: Translate,
+  t: TFn,
 ): DeckSection[] {
   const primary = archetypes[0]
   const extraArchetypes = archetypes.slice(1)

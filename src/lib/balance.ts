@@ -1,8 +1,7 @@
 import type { ScryfallCard } from './scryfall/types'
 import type { DeckCard, DeckFormat } from './deck-utils'
 import { FORMAT_RULES, getTotalCards, isBasicLand } from './deck-utils'
-
-type Translate = (key: string, params?: Record<string, string | number>) => string
+import type { TFn, TranslationKey } from './i18n/types'
 
 export interface BalanceWarning {
   severity: 'error' | 'warning' | 'info'
@@ -50,7 +49,7 @@ export function analyzeDeck(
   cards: DeckCard[],
   cardData: Map<string, ScryfallCard>,
   format: DeckFormat,
-  t: Translate,
+  t: TFn,
 ): BalanceAnalysis {
   const rules = FORMAT_RULES[format]
   const mainCards = cards.filter((c) => c.zone === 'main')
@@ -275,7 +274,7 @@ function getMainType(typeLine: string): string {
   return 'Other'
 }
 
-const COLOR_KEYS: Record<string, string> = {
+const COLOR_KEYS: Record<string, TranslationKey> = {
   W: 'color.white',
   U: 'color.blue',
   B: 'color.black',

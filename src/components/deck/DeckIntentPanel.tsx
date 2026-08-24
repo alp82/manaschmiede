@@ -9,10 +9,11 @@ import { getTraitsByCategory, getTraitById } from '../../lib/trait-mappings'
 import { FORMAT_LABELS, type DeckFormat } from '../../lib/deck-utils'
 import type { DeckIntent } from '../../lib/deck-intent'
 import { structuralFieldsChanged } from '../../lib/use-staged-rederive'
+import type { TranslationKey } from '../../lib/i18n/types'
 
 const ALL_COLORS: ManaColor[] = ['W', 'U', 'B', 'R', 'G']
 const RARITIES = ['common', 'uncommon', 'rare', 'mythic'] as const
-const RARITY_KEYS: Record<string, string> = {
+const RARITY_KEYS: Record<string, TranslationKey> = {
   common: 'strategy.common',
   uncommon: 'strategy.uncommon',
   rare: 'strategy.rare',
