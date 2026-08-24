@@ -221,7 +221,7 @@ export function forecastCombat(
   const defenders = defenderBoard.map((p) => ({ ...p }))
   const state: GameState = {
     players: [battlefieldOnly(attackers), battlefieldOnly(defenders)],
-    turn: 0,
+    round: 0,
     activePlayer: 0,
     phase: 'combat',
   }

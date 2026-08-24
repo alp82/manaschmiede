@@ -222,14 +222,20 @@ export function SimulationPanel({ deckId, deckName, cards, cardDataMap }: Simula
             />
           </div>
 
+          {/*
+            The module counts rounds; these three labels say TURNS on purpose.
+            The number is the round the game ended on, which is the turn the
+            winner ended it on - "decided on turn eight" is how a Magic player
+            reads a game length, and ROUNDS would be accurate but unfamiliar.
+          */}
           <div className="grid grid-cols-2 divide-x divide-hairline/60">
             <StatBox
               label="AVG TURNS"
-              value={state.result.avgTurns.toFixed(1)}
+              value={state.result.avgRounds.toFixed(1)}
             />
             <StatBox
               label="MEDIAN TURNS"
-              value={state.result.medianTurns.toFixed(1)}
+              value={state.result.medianRounds.toFixed(1)}
             />
           </div>
 
@@ -237,7 +243,7 @@ export function SimulationPanel({ deckId, deckName, cards, cardDataMap }: Simula
             <h4 className="mb-3 font-mono text-mono-label uppercase tracking-mono-label text-cream-300">
               TURN DISTRIBUTION
             </h4>
-            <TurnHistogram distribution={state.result.turnDistribution} />
+            <RoundHistogram distribution={state.result.roundDistribution} />
           </div>
 
           <div className="px-4 py-3">
@@ -329,7 +335,7 @@ function StatBox({ label, value }: { label: string; value: string }) {
   )
 }
 
-function TurnHistogram({ distribution }: { distribution: number[] }) {
+function RoundHistogram({ distribution }: { distribution: number[] }) {
   const trimmed = distribution.slice(1)
   let lastNonZero = 0
   for (let i = trimmed.length - 1; i >= 0; i--) {
