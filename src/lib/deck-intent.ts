@@ -1,9 +1,10 @@
-import type { ManaColor } from '../components/ManaSymbol'
+import { MANA_COLORS, type ManaColor } from './mana-colors'
 import type { WizardState } from './wizard-state'
 import { getFillColors } from './wizard-state'
 import type { DeckFilters } from './card-validation'
 import type { IntentContext } from '../../convex/lib/intentContext'
 import { getTraitById } from './trait-mappings'
+import { RARITIES } from './rarity'
 
 /**
  * Persisted, user-authored deck intent — the single source of truth for AI
@@ -23,9 +24,6 @@ export interface DeckIntent {
   rarityFilter: string[]
 }
 
-const MANA_COLOR_ORDER: ManaColor[] = ['W', 'U', 'B', 'R', 'G']
-const ALL_RARITIES = ['common', 'uncommon', 'rare', 'mythic']
-
 /** A blank intent: nothing committed, every rarity allowed, no budget. */
 export function emptyIntent(): DeckIntent {
   return {
@@ -35,7 +33,7 @@ export function emptyIntent(): DeckIntent {
     customStrategy: '',
     budgetMin: null,
     budgetMax: null,
-    rarityFilter: [...ALL_RARITIES],
+    rarityFilter: [...RARITIES],
   }
 }
 
@@ -54,7 +52,7 @@ export function intentFromWizard(state: WizardState): DeckIntent {
   const committed = new Set<ManaColor>(fill.ready && fill.colors ? fill.colors : [])
 
   const colors = {} as Record<ManaColor, 'selected' | 'unselected'>
-  for (const color of MANA_COLOR_ORDER) {
+  for (const color of MANA_COLORS) {
     colors[color] = committed.has(color) ? 'selected' : 'unselected'
   }
 
@@ -74,7 +72,7 @@ export function intentFromWizard(state: WizardState): DeckIntent {
  * Convenience over calling deriveIntentFilters when only colors are needed.
  */
 export function committedColors(intent: DeckIntent): ManaColor[] {
-  return MANA_COLOR_ORDER.filter((c) => intent.colors[c] === 'selected')
+  return MANA_COLORS.filter((c) => intent.colors[c] === 'selected')
 }
 
 /**

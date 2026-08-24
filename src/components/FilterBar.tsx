@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ManaSymbol, type ManaColor } from './ManaSymbol'
+import { ManaSymbol } from './ManaSymbol'
+import { MANA_COLORS, type ManaColor } from '../lib/mana-colors'
 import { Pill } from './ui/Pill'
 import { Dropdown, type DropdownOption } from './ui/Dropdown'
 import { RangeSlider } from './ui/RangeSlider'
@@ -10,6 +11,7 @@ import { useDeckSounds } from '../lib/sounds'
 import { setsListOptions } from '../lib/scryfall/queries'
 import type { DeckFormat } from '../lib/deck-utils'
 import type { TranslationKey } from '../lib/i18n/types'
+import { RARITIES, RARITY_KEYS } from '../lib/rarity'
 
 export type ColorMode = 'all' | 'any'
 
@@ -81,14 +83,6 @@ const FORMAT_OPTIONS: { value: DeckFormat | ''; key: TranslationKey | '' }[] = [
   { value: 'modern', key: '' },
   { value: 'casual', key: '' },
 ]
-
-const RARITIES = ['common', 'uncommon', 'rare', 'mythic'] as const
-const RARITY_KEYS: Record<(typeof RARITIES)[number], TranslationKey> = {
-  common: 'strategy.common',
-  uncommon: 'strategy.uncommon',
-  rare: 'strategy.rare',
-  mythic: 'strategy.mythic',
-}
 
 const KEYWORD_OPTIONS: { value: string; key: TranslationKey }[] = [
   { value: '', key: 'filter.allKeywords' },
@@ -261,7 +255,7 @@ export function FilterBar({
       <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
-            {(['W', 'U', 'B', 'R', 'G'] as const).map((color) => (
+            {MANA_COLORS.map((color) => (
               <ManaSymbol
                 key={color}
                 color={color}

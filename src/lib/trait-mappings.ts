@@ -1,3 +1,5 @@
+import { RARITIES } from './rarity'
+
 export type TraitCategory = 'archetype' | 'keyword' | 'mechanic' | 'tribal'
 
 export interface TraitMapping {
@@ -626,9 +628,8 @@ export function buildScryfallQueriesFromTraits(
   const budgetFilter = `${budgetMinFilter}${budgetMaxFilter}`
 
   // Build rarity filter (exclude unselected rarities)
-  const allRarities = ['common', 'uncommon', 'rare', 'mythic']
   let rarityFilter = ''
-  if (options?.rarities && options.rarities.length > 0 && options.rarities.length < allRarities.length) {
+  if (options?.rarities && options.rarities.length > 0 && options.rarities.length < RARITIES.length) {
     rarityFilter = ` (${options.rarities.map((r) => `r:${r}`).join(' OR ')})`
   }
 
@@ -671,9 +672,8 @@ export function buildSearchFilterSuffix(
     : ''
   const budgetFilter = `${budgetMinFilter}${budgetMaxFilter}`
 
-  const allRarities = ['common', 'uncommon', 'rare', 'mythic']
   let rarityFilter = ''
-  if (options?.rarities && options.rarities.length > 0 && options.rarities.length < allRarities.length) {
+  if (options?.rarities && options.rarities.length > 0 && options.rarities.length < RARITIES.length) {
     rarityFilter = ` (${options.rarities.map((r) => `r:${r}`).join(' OR ')})`
   }
 

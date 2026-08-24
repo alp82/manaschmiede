@@ -1,4 +1,4 @@
-import type { ManaColor } from '../components/ManaSymbol'
+import { MANA_COLORS, type ManaColor } from './mana-colors'
 import type { ScryfallCard } from './scryfall/types'
 import type { DeckSection } from './section-plan'
 
@@ -50,8 +50,6 @@ export function isBasicLand(card: ScryfallCard): boolean {
   return card.type_line.includes('Basic Land')
 }
 
-const MANA_COLOR_ORDER: ManaColor[] = ['W', 'U', 'B', 'R', 'G']
-
 /**
  * Derive a deck's color identity from its resolved cards: the WUBRG-ordered
  * union of every resolved card's color_identity. Returns [] when the deck is
@@ -69,7 +67,7 @@ export function deriveColorsFromCards(
     if (!card) continue
     for (const c of card.color_identity) colorSet.add(c as ManaColor)
   }
-  return MANA_COLOR_ORDER.filter((c) => colorSet.has(c))
+  return MANA_COLORS.filter((c) => colorSet.has(c))
 }
 
 export function getTotalCards(cards: DeckCard[], zone?: DeckZone): number {

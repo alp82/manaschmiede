@@ -24,7 +24,7 @@ import type { DeckSection } from '../../lib/section-plan'
 import type { BalanceAnalysis } from '../../lib/balance'
 import type { ChatMessage, PendingChanges } from '../../lib/useDeckChat'
 import type { SectionFillState } from '../../lib/useSectionFill'
-import type { ManaColor } from '../ManaSymbol'
+import type { ManaColor } from '../../lib/mana-colors'
 import { buildLaneDescriptors, useDeckDisplay } from '../../lib/use-deck-sections'
 import { buttonLikeBase } from '../ui/button-styles'
 

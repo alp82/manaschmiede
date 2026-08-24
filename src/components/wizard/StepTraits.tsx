@@ -9,7 +9,8 @@ import { RangeSlider } from '../ui/RangeSlider'
 import { HighlightText } from '../HighlightText'
 import { cn } from '../../lib/utils'
 import { useT } from '../../lib/i18n'
-import type { ManaColor } from '../ManaSymbol'
+import type { ManaColor } from '../../lib/mana-colors'
+import { RARITIES, RARITY_KEYS } from '../../lib/rarity'
 import type { ManaColorState, WizardAction } from '../../lib/wizard-state'
 import type { DeckFormat } from '../../lib/deck-utils'
 import type { TranslationKey } from '../../lib/i18n/types'
@@ -64,14 +65,6 @@ export const ARCHETYPE_ART: Record<string, string> = {
   goodstuff: 'https://cards.scryfall.io/art_crop/front/6/8/68625010-3e4e-4400-b503-bf381a7fd81b.jpg',
   sacrifice: 'https://cards.scryfall.io/art_crop/front/2/8/282099f3-e2a7-470d-8097-b6cc247eb033.jpg',
   drain: 'https://cards.scryfall.io/art_crop/front/0/7/0783365b-c54f-471e-bdf2-1f384e065a48.jpg',
-}
-
-const RARITIES = ['common', 'uncommon', 'rare', 'mythic'] as const
-const RARITY_KEYS: Record<(typeof RARITIES)[number], TranslationKey> = {
-  common: 'strategy.common',
-  uncommon: 'strategy.uncommon',
-  rare: 'strategy.rare',
-  mythic: 'strategy.mythic',
 }
 
 const CATEGORY_KEYS: Record<TraitCategory, TranslationKey> = {

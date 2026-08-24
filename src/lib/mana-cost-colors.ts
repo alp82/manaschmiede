@@ -1,7 +1,5 @@
-import type { ManaColor } from '../components/ManaSymbol'
+import { MANA_COLORS, type ManaColor } from './mana-colors'
 import type { ScryfallCard } from './scryfall/types'
-
-const COLOR_ORDER: ManaColor[] = ['W', 'U', 'B', 'R', 'G']
 
 /**
  * Extract the colors that appear in a card's mana cost.
@@ -30,5 +28,5 @@ export function extractCostColors(card: ScryfallCard): ManaColor[] {
       }
     }
   }
-  return COLOR_ORDER.filter((c) => found.has(c))
+  return MANA_COLORS.filter((c) => found.has(c))
 }

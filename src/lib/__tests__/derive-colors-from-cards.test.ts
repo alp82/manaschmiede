@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { deriveColorsFromCards, type DeckCard } from '../deck-utils'
 import type { ScryfallCard } from '../scryfall/types'
-import type { ManaColor } from '../../components/ManaSymbol'
+import type { ManaColor } from '../mana-colors'
 
 // ─── Fixture helpers ───────────────────────────────────────────────────────
 

@@ -1,5 +1,5 @@
 import { ManaSymbol } from '../ManaSymbol'
-import type { ManaColor } from '../ManaSymbol'
+import type { ManaColor } from '../../lib/mana-colors'
 import { FORMAT_LABELS } from '../../lib/deck-utils'
 import type { DeckFormat } from '../../lib/deck-utils'
 import { useT } from '../../lib/i18n'

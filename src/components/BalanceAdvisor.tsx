@@ -1,5 +1,6 @@
 import type { BalanceAnalysis } from '../lib/balance'
-import { manaSymbolUrl, type ManaColor } from './ManaSymbol'
+import { manaSymbolUrl } from './ManaSymbol'
+import { isManaColor } from '../lib/mana-colors'
 import { cn } from '../lib/utils'
 import { useT } from '../lib/i18n'
 import type { TranslationKey } from '../lib/i18n/types'
@@ -14,7 +15,6 @@ interface BalanceAdvisorProps {
   onFilterByCmc?: (cmc: number | null) => void
 }
 
-const MANA_COLOR_SET = new Set<string>(['W', 'U', 'B', 'R', 'G'])
 const COLORLESS_SYMBOL_URL = 'https://svgs.scryfall.io/card-symbols/C.svg'
 
 /**
@@ -76,7 +76,7 @@ export function BalanceAdvisor({
           {analysis.colorDistribution.map(({ color }) => (
             <img
               key={color}
-              src={MANA_COLOR_SET.has(color) ? manaSymbolUrl(color as ManaColor) : COLORLESS_SYMBOL_URL}
+              src={isManaColor(color) ? manaSymbolUrl(color) : COLORLESS_SYMBOL_URL}
               alt={color}
               className="h-5 w-5"
             />
@@ -149,7 +149,7 @@ export function BalanceAdvisor({
             {analysis.colorDistribution.map(({ color, count }) => {
               const pct = analysis.nonLandCount > 0 ? (count / analysis.nonLandCount) * 100 : 0
               const isActive = activeColorFilter === color
-              const isClickable = !!onFilterByColor && MANA_COLOR_SET.has(color)
+              const isClickable = !!onFilterByColor && isManaColor(color)
               return (
                 <button
                   key={color}
@@ -170,7 +170,7 @@ export function BalanceAdvisor({
                     style={{ width: `${pct}%` }}
                   />
                   <img
-                    src={MANA_COLOR_SET.has(color) ? manaSymbolUrl(color as ManaColor) : COLORLESS_SYMBOL_URL}
+                    src={isManaColor(color) ? manaSymbolUrl(color) : COLORLESS_SYMBOL_URL}
                     alt={color}
                     className="relative h-4 w-4 flex-shrink-0"
                   />

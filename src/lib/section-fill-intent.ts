@@ -1,4 +1,4 @@
-import type { ManaColor } from '../components/ManaSymbol'
+import type { ManaColor } from './mana-colors'
 import type { DeckFormat } from './deck-utils'
 import type { WizardState } from './wizard-state'
 import { getFillColors } from './wizard-state'

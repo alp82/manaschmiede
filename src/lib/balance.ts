@@ -1,7 +1,8 @@
 import type { ScryfallCard } from './scryfall/types'
 import type { DeckCard, DeckFormat } from './deck-utils'
 import { FORMAT_RULES, getTotalCards, isBasicLand } from './deck-utils'
-import type { TFn, TranslationKey } from './i18n/types'
+import type { TFn } from './i18n/types'
+import { COLOR_KEYS, MANA_COLORS, isManaColor } from './mana-colors'
 
 export interface BalanceWarning {
   severity: 'error' | 'warning' | 'info'
@@ -192,7 +193,7 @@ export function analyzeDeck(
   for (const { color, count } of colorDistribution) {
     const landSupport = landColorCounts.get(color) || 0
     if (count >= 8 && landSupport < 3) {
-      const colorName = COLOR_KEYS[color] ? t(COLOR_KEYS[color]) : color
+      const colorName = isManaColor(color) ? t(COLOR_KEYS[color]) : color
       warnings.push({
         severity: 'warning',
         message: t('balance.warning.colorLandMismatch', {
@@ -274,14 +275,6 @@ function getMainType(typeLine: string): string {
   return 'Other'
 }
 
-const COLOR_KEYS: Record<string, TranslationKey> = {
-  W: 'color.white',
-  U: 'color.blue',
-  B: 'color.black',
-  R: 'color.red',
-  G: 'color.green',
-}
-
 const ANY_COLOR_PATTERN = /add one mana of any color|add \{w\}\{u\}\{b\}\{r\}\{g\}/i
 const SPECIFIC_MANA_PATTERNS: Record<string, RegExp> = {
   W: /add \{w\}/i,
@@ -294,7 +287,7 @@ const SPECIFIC_MANA_PATTERNS: Record<string, RegExp> = {
 function getArtifactManaColors(card: ScryfallCard): string[] {
   const text = (card.oracle_text || '').toLowerCase()
   if (!text || !card.type_line.toLowerCase().includes('artifact')) return []
-  if (ANY_COLOR_PATTERN.test(text)) return ['W', 'U', 'B', 'R', 'G']
+  if (ANY_COLOR_PATTERN.test(text)) return [...MANA_COLORS]
   const colors: string[] = []
   for (const [color, re] of Object.entries(SPECIFIC_MANA_PATTERNS)) {
     if (re.test(text)) colors.push(color)

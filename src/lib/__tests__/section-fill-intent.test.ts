@@ -30,7 +30,7 @@ import { sectionFillIntentFromWizard, sectionFillIntentFromDeck } from '../secti
 import type { SectionFillIntent } from '../section-fill-intent'
 import { emptyIntent } from '../deck-intent'
 import type { DeckIntent } from '../deck-intent'
-import type { ManaColor } from '../../components/ManaSymbol'
+import type { ManaColor } from '../mana-colors'
 import type { WizardState } from '../wizard-state'
 import type { ScryfallCard } from '../scryfall/types'
 import type { CoreCombo } from '../wizard-state'

@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
-import { ManaSymbol, type ManaColor } from '../ManaSymbol'
+import { ManaSymbol } from '../ManaSymbol'
+import { COLOR_KEYS, MANA_COLORS, type ManaColor } from '../../lib/mana-colors'
 import { useDeckSounds } from '../../lib/sounds'
 import { WizardNav } from './WizardNav'
 import { Pill } from '../ui/Pill'
@@ -8,7 +9,6 @@ import { cn } from '../../lib/utils'
 import { useT } from '../../lib/i18n'
 import type { ManaColorState, WizardAction } from '../../lib/wizard-state'
 import { getTraitById } from '../../lib/trait-mappings'
-import type { TranslationKey } from '../../lib/i18n/types'
 
 interface StepColorsProps {
   colors: Record<ManaColor, ManaColorState>
@@ -18,15 +18,6 @@ interface StepColorsProps {
   onNext: () => void
   onBack: () => void
   onReset: () => void
-}
-
-const ALL_COLORS: ManaColor[] = ['W', 'U', 'B', 'R', 'G']
-const COLOR_KEYS: Record<ManaColor, TranslationKey> = {
-  W: 'color.white',
-  U: 'color.blue',
-  B: 'color.black',
-  R: 'color.red',
-  G: 'color.green',
 }
 
 // Ambient mana-color tints used when a color is selected. Each tint
@@ -51,10 +42,10 @@ export function StepColors({
   onReset,
 }: StepColorsProps) {
   const t = useT()
-  const selectedColors = ALL_COLORS.filter((c) => colors[c] === 'selected')
-  const maybeColors = ALL_COLORS.filter((c) => colors[c] === 'maybe')
+  const selectedColors = MANA_COLORS.filter((c) => colors[c] === 'selected')
+  const maybeColors = MANA_COLORS.filter((c) => colors[c] === 'maybe')
   const hasAnyColor = selectedColors.length > 0 || maybeColors.length > 0
-  const unselectedColors = ALL_COLORS.filter((c) => colors[c] !== 'selected')
+  const unselectedColors = MANA_COLORS.filter((c) => colors[c] !== 'selected')
 
   // Compute recommended colors from selected archetypes
   const recommendedColors = useMemo(() => {
@@ -115,7 +106,7 @@ export function StepColors({
 
         {/* Primary color selector — forced single row */}
         <div className="mt-20 flex items-start justify-between gap-1 sm:gap-4">
-          {ALL_COLORS.map((color) => {
+          {MANA_COLORS.map((color) => {
             const isSelected = colors[color] === 'selected'
             const isGoodFit = recommendedColors.has(color)
             return (

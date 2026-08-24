@@ -1,15 +1,6 @@
 import { cn } from '../lib/utils'
 import { useT } from '../lib/i18n'
-
-const MANA_COLORS = {
-  W: { labelKey: 'color.white', symbol: 'W' },
-  U: { labelKey: 'color.blue', symbol: 'U' },
-  B: { labelKey: 'color.black', symbol: 'B' },
-  R: { labelKey: 'color.red', symbol: 'R' },
-  G: { labelKey: 'color.green', symbol: 'G' },
-} as const
-
-export type ManaColor = keyof typeof MANA_COLORS
+import { COLOR_KEYS, type ManaColor } from '../lib/mana-colors'
 
 function manaSymbolUrl(color: ManaColor): string {
   return `https://svgs.scryfall.io/card-symbols/${color}.svg`
@@ -36,7 +27,7 @@ const sizes = {
 
 export function ManaSymbol({ color, size = 'md', selected, recommended, onClick }: ManaSymbolProps) {
   const t = useT()
-  const label = t(MANA_COLORS[color].labelKey)
+  const label = t(COLOR_KEYS[color])
 
   const classes = cn(
     'relative inline-flex items-center justify-center rounded-full',
@@ -87,7 +78,7 @@ export function ManaSymbol({ color, size = 'md', selected, recommended, onClick 
 /** Get the translated label for a mana color (for use outside ManaSymbol) */
 export function useManaColorLabel(color: ManaColor): string {
   const t = useT()
-  return t(MANA_COLORS[color].labelKey)
+  return t(COLOR_KEYS[color])
 }
 
-export { MANA_COLORS, manaSymbolUrl }
+export { manaSymbolUrl }

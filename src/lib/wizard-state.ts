@@ -1,4 +1,5 @@
-import type { ManaColor } from '../components/ManaSymbol'
+import { MANA_COLORS, type ManaColor } from './mana-colors'
+import { RARITIES } from './rarity'
 import type { DeckCard, DeckFormat } from './deck-utils'
 import type { ScryfallCard } from './scryfall/types'
 import type { DeckSection } from './section-plan'
@@ -90,7 +91,7 @@ function defaultState(): WizardState {
     customStrategy: '',
     budgetMin: null,
     budgetMax: null,
-    rarityFilter: ['common', 'uncommon', 'rare', 'mythic'],
+    rarityFilter: [...RARITIES],
     coreCombos: [],
     selectedComboIndex: null,
     deckCards: [],
@@ -244,8 +245,6 @@ export function clearWizardAux(): void {
   localStorage.removeItem(AUX_STORAGE_KEY)
 }
 
-const MANA_COLOR_ORDER: ManaColor[] = ['W', 'U', 'B', 'R', 'G']
-
 export function getSelectedColors(colors: Record<ManaColor, ManaColorState>): ManaColor[] {
   return (Object.entries(colors) as [ManaColor, ManaColorState][])
     .filter(([, state]) => state === 'selected')
@@ -315,7 +314,7 @@ export function getFillColors(state: WizardState): FillColorsResult {
       union.add(c as ManaColor)
     }
   }
-  return { ready: true, colors: MANA_COLOR_ORDER.filter((c) => union.has(c)) }
+  return { ready: true, colors: MANA_COLORS.filter((c) => union.has(c)) }
 }
 
 function withMaxStep(state: WizardState): WizardState {

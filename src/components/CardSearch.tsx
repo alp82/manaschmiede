@@ -12,7 +12,7 @@ import { ErrorBox } from './ui/ErrorBox'
 import { cardSearchOptions } from '../lib/scryfall/queries'
 import { useDeckSounds } from '../lib/sounds'
 import { useT } from '../lib/i18n'
-import type { ManaColor } from './ManaSymbol'
+import { isManaColor, type ManaColor } from '../lib/mana-colors'
 import type { ScryfallCard } from '../lib/scryfall/types'
 
 interface BuildQueryInput {
@@ -88,7 +88,6 @@ const RARITY_NAME_TO_CODE: Record<string, string> = {
   rare: 'r',
   mythic: 'm',
 }
-const MANA_CODES = new Set<ManaColor>(['W', 'U', 'B', 'R', 'G'])
 const FILTER_NAMES = new Set<FilterType>([
   'type',
   'cmc',
@@ -103,7 +102,7 @@ const FILTER_NAMES = new Set<FilterType>([
 function decodeColors(s: string): Set<ManaColor> {
   const out = new Set<ManaColor>()
   for (const ch of s.toUpperCase()) {
-    if (MANA_CODES.has(ch as ManaColor)) out.add(ch as ManaColor)
+    if (isManaColor(ch)) out.add(ch)
   }
   return out
 }

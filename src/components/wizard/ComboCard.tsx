@@ -4,7 +4,8 @@ import type { ScryfallCard } from '../../lib/scryfall/types'
 import { getLocalizedCardData } from '../../lib/scryfall/client'
 import { CardImage } from '../CardImage'
 import { CardLightbox } from '../CardLightbox'
-import { ManaSymbol, type ManaColor } from '../ManaSymbol'
+import { ManaSymbol } from '../ManaSymbol'
+import { isManaColor, type ManaColor } from '../../lib/mana-colors'
 import { Checkbox } from '../ui/Checkbox'
 import { cn } from '../../lib/utils'
 import { useI18n } from '../../lib/i18n'
@@ -16,18 +17,14 @@ interface ComboCardProps {
   renderLightboxActions?: (card: ScryfallCard) => React.ReactNode
 }
 
-const MANA_COLORS = new Set(['W', 'U', 'B', 'R', 'G'])
-
 function getComboColors(combo: CoreCombo): ManaColor[] {
-  const colors = new Set<string>()
+  const colors = new Set<ManaColor>()
   for (const card of combo.cards) {
-    if (card.scryfallCard?.color_identity) {
-      for (const c of card.scryfallCard.color_identity) {
-        if (MANA_COLORS.has(c)) colors.add(c)
-      }
+    for (const c of card.scryfallCard?.color_identity ?? []) {
+      if (isManaColor(c)) colors.add(c)
     }
   }
-  return Array.from(colors) as ManaColor[]
+  return [...colors]
 }
 
 export function ComboCard({ combo, selected, onSelect, renderLightboxActions }: ComboCardProps) {

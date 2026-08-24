@@ -24,7 +24,7 @@
 import { describe, it, expect } from 'vitest'
 import { emptyIntent, intentFromWizard, deriveIntentFilters } from '../deck-intent'
 import type { DeckIntent } from '../deck-intent'
-import type { ManaColor } from '../../components/ManaSymbol'
+import type { ManaColor } from '../mana-colors'
 import type { WizardState } from '../wizard-state'
 import type { ScryfallCard } from '../scryfall/types'
 

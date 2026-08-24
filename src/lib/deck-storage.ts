@@ -1,4 +1,4 @@
-import type { ManaColor } from '../components/ManaSymbol'
+import type { ManaColor } from './mana-colors'
 import type { DeckCard, DeckFormat } from './deck-utils'
 import type { DeckIntent } from './deck-intent'
 import type { DeckSection } from './section-plan'

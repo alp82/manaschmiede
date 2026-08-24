@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
-import { ManaSymbol, type ManaColor } from '../ManaSymbol'
+import { ManaSymbol } from '../ManaSymbol'
+import { MANA_COLORS, type ManaColor } from '../../lib/mana-colors'
 import { Pill } from '../ui/Pill'
 import { Button } from '../ui/Button'
 import { RangeSlider } from '../ui/RangeSlider'
@@ -9,16 +10,8 @@ import { getTraitsByCategory, getTraitById } from '../../lib/trait-mappings'
 import { FORMAT_LABELS, type DeckFormat } from '../../lib/deck-utils'
 import type { DeckIntent } from '../../lib/deck-intent'
 import { structuralFieldsChanged } from '../../lib/use-staged-rederive'
-import type { TranslationKey } from '../../lib/i18n/types'
+import { RARITIES, RARITY_KEYS } from '../../lib/rarity'
 
-const ALL_COLORS: ManaColor[] = ['W', 'U', 'B', 'R', 'G']
-const RARITIES = ['common', 'uncommon', 'rare', 'mythic'] as const
-const RARITY_KEYS: Record<(typeof RARITIES)[number], TranslationKey> = {
-  common: 'strategy.common',
-  uncommon: 'strategy.uncommon',
-  rare: 'strategy.rare',
-  mythic: 'strategy.mythic',
-}
 const ARCHETYPES = getTraitsByCategory('archetype')
 
 interface DeckIntentPanelProps {
@@ -39,7 +32,7 @@ interface DeckIntentPanelProps {
 }
 
 function selectedColors(intent: DeckIntent): ManaColor[] {
-  return ALL_COLORS.filter((c) => intent.colors[c] === 'selected')
+  return MANA_COLORS.filter((c) => intent.colors[c] === 'selected')
 }
 
 function budgetReadout(min: number | null, max: number | null, unlimited: string): string {
@@ -217,7 +210,7 @@ export function DeckIntentPanel({ intent, format, onChange, seedColors, hasStore
               {t('intent.colorsCommitted')}
             </h4>
             <div className="flex items-center gap-3">
-              {ALL_COLORS.map((color) => (
+              {MANA_COLORS.map((color) => (
                 <ManaSymbol
                   key={color}
                   color={color}
