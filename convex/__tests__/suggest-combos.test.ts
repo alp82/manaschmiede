@@ -47,3 +47,25 @@ describe('parseComboResponse', () => {
     expect(() => parseComboResponse('{"explanation":"oops"}')).toThrow(/invalid format/)
   })
 })
+
+describe('parseComboResponse - tightened entry rules', () => {
+  it('drops a combo with an empty name', () => {
+    const result = parseComboResponse(
+      '{"combos":[' + COMBO + ',{"name":"","cards":["A","B"],"explanation":"x"}]}',
+    )
+    expect(result.combos.map((c) => c.name)).toEqual(['Splinter Twin'])
+  })
+
+  it('drops a combo whose cards array holds a non-string', () => {
+    // A null in here used to reach Scryfall as a card-name lookup.
+    const result = parseComboResponse(
+      '{"combos":[' + COMBO + ',{"name":"Bad","cards":["A",null,"B"],"explanation":"x"}]}',
+    )
+    expect(result.combos.map((c) => c.name)).toEqual(['Splinter Twin'])
+  })
+
+  it('keeps an empty explanation - only name and cards were tightened', () => {
+    const result = parseComboResponse('{"combos":[{"name":"Quiet","cards":["A","B"],"explanation":""}]}')
+    expect(result.combos).toHaveLength(1)
+  })
+})

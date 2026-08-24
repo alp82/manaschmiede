@@ -160,7 +160,7 @@ function DeckRow({ deck }: { deck: LocalDeck }) {
           <span className="h-px flex-1 bg-hairline" aria-hidden="true" />
         </div>
         <div className="flex items-center justify-center">
-          <DeckMeta format={deck.format} totalCards={totalCards} colors={deck.colors} />
+          <DeckMeta totalCards={totalCards} colors={deck.colors} />
         </div>
       </header>
 
@@ -337,7 +337,7 @@ function VariantTriptych({
  * Variant C — Featured + sidekicks
  *   Card 0 large on the left (~65% width), cards 1 and 2
  *   stacked vertically on the right (~35% width, ~50% height
- *   each). Mono format/colors line along the bottom.
+ *   each). Mono count/colors line along the bottom.
  * ──────────────────────────────────────────────────────────── */
 
 function VariantFeatured({
@@ -371,7 +371,7 @@ function VariantFeatured({
       </div>
       {/* Bottom metadata row */}
       <div className="border-t border-hairline px-4 py-3">
-        <DeckMeta format={deck.format} totalCards={getTotalCards(deck.cards)} colors={deck.colors} />
+        <DeckMeta totalCards={getTotalCards(deck.cards)} colors={deck.colors} />
       </div>
     </div>
   )
@@ -424,7 +424,7 @@ function VariantBanner({
 
       {/* Top-right floating metadata */}
       <div className="absolute right-3 top-3">
-        <DeckMeta format={deck.format} totalCards={getTotalCards(deck.cards)} colors={deck.colors} tone="overlay" />
+        <DeckMeta totalCards={getTotalCards(deck.cards)} colors={deck.colors} tone="overlay" />
       </div>
 
       {/* Lower-third deck name between hairlines */}

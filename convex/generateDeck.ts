@@ -1,9 +1,10 @@
 import { action } from './_generated/server'
 import type { ActionCtx } from './_generated/server'
 import { v } from 'convex/values'
-import { callAnthropic, callHaiku, isTruncated, TRUNCATED_RESPONSE_MESSAGE } from './lib/anthropic'
+import { MODELS, callAnthropic, callHaiku, isTruncated, TRUNCATED_RESPONSE_MESSAGE } from './lib/anthropic'
 import { startLlmLog, completeLlmLog, failLlmLog, parseAndLog } from './lib/logLlmUsage'
-import { parseJsonLadder } from './lib/jsonLadder'
+import { cardEntry, parseCardList } from './lib/parseCardList'
+import { BASIC_LAND_NAMES, MAX_COPIES } from './lib/deckRules'
 import {
   HARD_FILTER_PROMPT_RULES,
   HARD_FILTER_SCRYFALL_QUERY,
@@ -243,43 +244,36 @@ RULES:
 - If asked about something completely unrelated to MTG or the deck, politely redirect: "I'm here to help with your deck! Ask me about cards, strategy, or rules."
 - Respond in the same language the user writes in`
 
-/** The deck object, anchored on the `cards` key so prose objects don't match. */
-const DECK_OBJECT_PATTERN = /\{[\s\S]*"cards"\s*:\s*\[[\s\S]*\][\s\S]*\}/
-
 /**
- * Parse a deck response into a GeneratedDeck, dropping malformed cards and
- * clamping non-basics to the 4-copy rule.
+ * Parse a deck response into a GeneratedDeck, dropping malformed cards.
+ *
+ * Quantities are NOT clamped here - `enforceDeckSize` owns the 4-copy rule for
+ * a whole deck, because it also has to dedupe and re-balance to exactly 60.
  *
  * Throws 'Could not parse AI response as JSON' when no rung of the ladder
  * yields JSON, and 'AI response has an invalid format' when it yields
  * something that isn't a deck.
  */
 export function parseResponse(text: string): GeneratedDeck {
-  const deck = parseJsonLadder<GeneratedDeck>(text, DECK_OBJECT_PATTERN)
-
-  if (!deck.name || !deck.cards || !Array.isArray(deck.cards)) {
-    throw new Error('AI response has an invalid format')
-  }
-
-  deck.cards = deck.cards.filter(
-    (c) =>
-      typeof c.name === 'string' &&
-      c.name.length > 0 &&
-      typeof c.quantity === 'number' &&
-      c.quantity > 0,
-  )
+  const parsed = parseCardList<{ cards: GeneratedCard }>(text, {
+    lists: { cards: { entry: cardEntry(), required: true } },
+    // Anchored on the `cards` key so an object in surrounding prose can't match.
+    bareObjectAnchor: 'cards',
+    scalars: { name: undefined, description: '', explanation: undefined },
+    requiredScalars: ['name'],
+    onFailure: 'throw',
+  })
 
   return {
-    name: deck.name,
-    description: deck.description || '',
-    explanation: deck.explanation,
-    cards: deck.cards,
+    // requiredScalars guarantees a non-empty name; the ?? is for the type only.
+    name: parsed.scalars.name ?? '',
+    description: parsed.scalars.description ?? '',
+    explanation: parsed.scalars.explanation,
+    cards: parsed.lists.cards,
   }
 }
 
-const BASIC_LAND_NAMES = new Set(['Plains', 'Island', 'Swamp', 'Mountain', 'Forest'])
 const TARGET_SIZE = 60
-const MAX_COPIES = 4
 
 /** Color letter -> the basic land that produces it, for padding an undersized deck. */
 const COLOR_BASIC_LAND: Record<string, string> = {
@@ -458,7 +452,7 @@ async function generateWithEnforcement(
   lockedCards?: Array<{ name: string; quantity: number }>,
   options?: EnforceDeckSizeOptions,
 ): Promise<GeneratedDeck> {
-  const model = 'claude-haiku-4-5-20251001'
+  const model = MODELS.fast
   const logId = await startLlmLog(ctx, 'chat.generate', model, systemPrompt, messages)
   const result = await callAnthropic(systemPrompt, messages, { model, maxTokens: 4096 })
   const deck = await parseAndLog(ctx, logId, result, parseResponse)
@@ -482,7 +476,7 @@ async function classifyIntent(ctx: ActionCtx, messages: Array<{ role: string; co
   if (!lastUserMsg) return 'change'
 
   const inputMessages = [{ role: 'user', content: lastUserMsg.content }]
-  const logId = await startLlmLog(ctx, 'chat.classify', 'claude-haiku-4-5-20251001', INTENT_CLASSIFIER_PROMPT, inputMessages)
+  const logId = await startLlmLog(ctx, 'chat.classify', MODELS.fast, INTENT_CLASSIFIER_PROMPT, inputMessages)
   try {
     const result = await callHaiku(INTENT_CLASSIFIER_PROMPT, inputMessages)
     await completeLlmLog(ctx, logId, result)
@@ -564,7 +558,6 @@ interface ChatArgs {
   customStrategy?: string
   budgetMin?: number
   budgetMax?: number
-  format?: string
 }
 
 // Add/remove/swap verbs that hint the delta op for prompt framing and let a
@@ -619,7 +612,6 @@ async function generateDelta(ctx: ActionCtx, args: ChatArgs): Promise<DeltaResul
     archetypes: args.archetypes ?? [],
     traits: args.traits ?? [],
     customStrategy: args.customStrategy,
-    format: args.format,
     budgetMin: args.budgetMin,
     budgetMax: args.budgetMax,
   })
@@ -634,7 +626,7 @@ async function generateDelta(ctx: ActionCtx, args: ChatArgs): Promise<DeltaResul
   }
 
   const inputMessages = [{ role: 'user', content: buildDeltaUserMessage(op, userText) }]
-  const model = 'claude-haiku-4-5-20251001'
+  const model = MODELS.fast
   const logId = await startLlmLog(ctx, 'chat.delta', model, systemPrompt, inputMessages)
   const result = await callAnthropic(systemPrompt, inputMessages, { model, maxTokens: 1024 })
 
@@ -684,7 +676,6 @@ export const chat = action({
     customStrategy: v.optional(v.string()),
     budgetMin: v.optional(v.number()),
     budgetMax: v.optional(v.number()),
-    format: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<ChatResult> => {
     const intent = await classifyIntent(ctx, args.messages)
@@ -696,7 +687,7 @@ export const chat = action({
 
     if (intent === 'question') {
       const systemPrompt = QUESTION_SYSTEM_PROMPT + deckContext
-      const qModel = 'claude-haiku-4-5-20251001'
+      const qModel = MODELS.fast
       const logId = await startLlmLog(ctx, 'chat.question', qModel, systemPrompt, args.messages)
       const result = await callAnthropic(systemPrompt, args.messages, { model: qModel, maxTokens: 1024 })
       // Free text has no parse step to fail, so truncation is checked here.
@@ -739,7 +730,6 @@ export const chat = action({
       archetypes: args.archetypes ?? [],
       traits: args.traits ?? [],
       customStrategy: args.customStrategy,
-      format: args.format,
       budgetMin: args.budgetMin,
       budgetMax: args.budgetMax,
     })
@@ -801,34 +791,20 @@ interface SectionFillResult {
 
 /**
  * Parse a section-fill response, dropping malformed cards and clamping
- * non-basics to the 4-copy rule. No embedded-object rung: the fill prompt asks
- * for JSON only, so a response that needs one is malformed either way.
+ * non-basics to the 4-copy rule. A fill never runs `enforceDeckSize`, so the
+ * clamp has to happen here. No embedded-object rung: the fill prompt asks for
+ * JSON only, so a response that needs one is malformed either way.
  */
 export function parseSectionResponse(text: string): SectionFillResult {
-  const result = parseJsonLadder<SectionFillResult>(text)
-
-  if (!result.cards || !Array.isArray(result.cards)) {
-    throw new Error('AI response has an invalid format')
-  }
-
-  result.cards = result.cards.filter(
-    (c) =>
-      typeof c.name === 'string' &&
-      c.name.length > 0 &&
-      typeof c.quantity === 'number' &&
-      c.quantity > 0,
-  )
-
-  // Enforce 4-copy rule
-  for (const card of result.cards) {
-    if (!BASIC_LAND_NAMES.has(card.name)) {
-      card.quantity = Math.min(card.quantity, MAX_COPIES)
-    }
-  }
+  const parsed = parseCardList<{ cards: GeneratedCard }>(text, {
+    lists: { cards: { entry: cardEntry({ clampCopies: true }), required: true } },
+    scalars: { explanation: '' },
+    onFailure: 'throw',
+  })
 
   return {
-    cards: result.cards,
-    explanation: result.explanation || '',
+    cards: parsed.lists.cards,
+    explanation: parsed.scalars.explanation ?? '',
   }
 }
 
@@ -872,7 +848,6 @@ export const fillSection = action({
     archetypes: v.array(v.string()),
     traits: v.array(v.string()),
     customStrategy: v.optional(v.string()),
-    format: v.optional(v.string()),
     budgetLimit: v.optional(v.number()),
     deckComposition: v.optional(v.string()),
     rejectedCards: v.optional(
@@ -897,7 +872,6 @@ export const fillSection = action({
       archetypes: args.archetypes,
       traits: args.traits,
       customStrategy: args.customStrategy,
-      format: args.format,
       budgetMax: args.budgetLimit,
     })
 
@@ -918,7 +892,7 @@ export const fillSection = action({
     const userMessage = `Fill the "${args.sectionName}" section with exactly ${args.targetCount} cards total (sum of quantities = ${args.targetCount}).\n\nSection description: ${args.sectionDescription}`
 
     const inputMessages = [{ role: 'user', content: userMessage }]
-    const fillModel = 'claude-haiku-4-5-20251001'
+    const fillModel = MODELS.fast
     const logId = await startLlmLog(ctx, 'fillSection', fillModel, systemPrompt, inputMessages)
     const llmResult = await callAnthropic(systemPrompt, inputMessages, { model: fillModel, maxTokens: 1024 })
     const result = await parseAndLog(ctx, logId, llmResult, parseSectionResponse)

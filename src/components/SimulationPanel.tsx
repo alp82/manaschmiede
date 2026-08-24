@@ -7,7 +7,6 @@ import { useSimulation } from '../lib/simulation/use-simulation'
 import { loadDecks, type LocalDeck } from '../lib/deck-storage'
 import { getLocalizedCardData } from '../lib/scryfall/client'
 import { useI18n } from '../lib/i18n'
-import { FORMAT_LABELS } from '../lib/deck-utils'
 
 interface SimulationPanelProps {
   deckId: string
@@ -153,7 +152,7 @@ export function SimulationPanel({ deckId, deckName, cards, cardDataMap }: Simula
           <option value="mirror">MIRROR MATCH</option>
           {savedDecks.map((d) => (
             <option key={d.id} value={d.id}>
-              {d.name} — {FORMAT_LABELS[d.format]} — {d.cards.reduce((s, c) => s + c.quantity, 0)} cards
+              {d.name} — {d.cards.reduce((s, c) => s + c.quantity, 0)} cards
             </option>
           ))}
         </select>

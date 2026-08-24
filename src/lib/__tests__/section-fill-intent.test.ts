@@ -7,7 +7,6 @@
  *     selectedArchetypes: string[]
  *     selectedTraits: string[]
  *     customStrategy: string
- *     format: DeckFormat
  *     budgetMin: number | null
  *     budgetMax: number | null
  *     rarityFilter: string[]
@@ -27,7 +26,6 @@
  */
 import { describe, it, expect } from 'vitest'
 import { sectionFillIntentFromWizard, sectionFillIntentFromDeck } from '../section-fill-intent'
-import type { SectionFillIntent } from '../section-fill-intent'
 import { emptyIntent } from '../deck-intent'
 import type { DeckIntent } from '../deck-intent'
 import type { ManaColor } from '../mana-colors'
@@ -65,7 +63,6 @@ function defaultWizardState(): WizardState {
     maxStepReached: 1,
     seedCard: null,
     colors: { W: 'unselected', U: 'unselected', B: 'unselected', R: 'unselected', G: 'unselected' },
-    format: 'casual',
     selectedArchetypes: [],
     selectedTraits: [],
     customStrategy: '',
@@ -88,28 +85,6 @@ function emptyDeckIntent(): DeckIntent {
   return emptyIntent()
 }
 
-// ─── sectionFillIntentFromWizard — C1: format passthrough ─────────────────
-
-describe('sectionFillIntentFromWizard - C1: format passthrough', () => {
-  it("passes 'casual' through unchanged (adapter does NOT strip; callFillSection does)", () => {
-    const state: WizardState = { ...defaultWizardState(), format: 'casual' }
-    const result: SectionFillIntent = sectionFillIntentFromWizard(state)
-    expect(result.format).toBe('casual')
-  })
-
-  it("passes 'standard' through unchanged", () => {
-    const state: WizardState = { ...defaultWizardState(), format: 'standard' }
-    const result: SectionFillIntent = sectionFillIntentFromWizard(state)
-    expect(result.format).toBe('standard')
-  })
-
-  it("passes 'modern' through unchanged", () => {
-    const state: WizardState = { ...defaultWizardState(), format: 'modern' }
-    const result: SectionFillIntent = sectionFillIntentFromWizard(state)
-    expect(result.format).toBe('modern')
-  })
-})
-
 // ─── sectionFillIntentFromWizard — regression: all fields mapped ──────────
 
 describe('sectionFillIntentFromWizard - regression: all fields mapped', () => {
@@ -118,7 +93,6 @@ describe('sectionFillIntentFromWizard - regression: all fields mapped', () => {
     selectedArchetypes: ['aggro', 'midrange'],
     selectedTraits: ['tribal', 'graveyard'],
     customStrategy: 'Go wide and sacrifice',
-    format: 'modern',
     budgetMin: 0.25,
     budgetMax: 3.0,
     rarityFilter: ['common', 'uncommon'],
@@ -326,8 +300,8 @@ describe('sectionFillIntentFromDeck - field mapping', () => {
     expect(result.sectionAssignments).toEqual(assignments)
   })
 
-  it("format === 'casual' (RESOLVED GAP: app is hard 60-card-casual-only, constant default)", () => {
+  it('carries no format field — the app is 60-card casual only (#44)', () => {
     const result = sectionFillIntentFromDeck(intent, [])
-    expect(result.format).toBe('casual')
+    expect(result).not.toHaveProperty('format')
   })
 })

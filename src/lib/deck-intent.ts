@@ -110,7 +110,6 @@ export function buildChatIntentContext(
   traitIds: string[],
   opts: {
     customStrategy?: string
-    format?: string
     budgetMin?: number | null
     budgetMax?: number | null
   },
@@ -120,7 +119,6 @@ export function buildChatIntentContext(
     archetypes: archetypeIds.map((id) => getTraitById(id)?.label ?? id),
     traits: traitIds.map((id) => getTraitById(id)?.label ?? id),
     customStrategy: opts.customStrategy || undefined,
-    format: opts.format,
     budgetMin: opts.budgetMin,
     budgetMax: opts.budgetMax,
   }

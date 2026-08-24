@@ -1,7 +1,32 @@
-/** Per-million-token pricing (USD) */
+/**
+ * The models this app calls, one home so a model swap is a single edit.
+ *
+ * Named by role, not by tier: what matters at the call site is whether the job
+ * needs the quality model or the cheap one. Every entry needs a MODEL_PRICING
+ * row - `estimatedCostUsd` on every `llmUsageLogs` entry is only as good as
+ * that table.
+ */
+export const MODELS = {
+  /** Quality tier. Only reached as `callAnthropic`'s default - see below. */
+  main: 'claude-sonnet-4-20250514',
+  /**
+   * Cheap tier: classification, strategy parsing, deck generation, delta edits,
+   * section fill, combos. In practice every call site passes this explicitly.
+   */
+  fast: 'claude-haiku-4-5-20251001',
+} as const
+
+/**
+ * Per-million-token pricing (USD), input / output.
+ *
+ * Checked against Anthropic's published rates on 2026-08-24. Haiku 4.5 is
+ * $1.00 / $5.00 - the previous 0.80 / 4 understated every Haiku cost in
+ * `llmUsageLogs` by 20%. Sonnet 4 is $3 / $15 and is now a deprecated model;
+ * see the note on MODELS.main.
+ */
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
-  'claude-sonnet-4-20250514': { input: 3, output: 15 },
-  'claude-haiku-4-5-20251001': { input: 0.80, output: 4 },
+  [MODELS.main]: { input: 3, output: 15 },
+  [MODELS.fast]: { input: 1, output: 5 },
 }
 
 export interface LlmResult {
@@ -40,7 +65,7 @@ export async function callAnthropic(
     throw new Error('ANTHROPIC_API_KEY is not configured')
   }
 
-  const model = options?.model ?? 'claude-sonnet-4-20250514'
+  const model = options?.model ?? MODELS.main
   const maxTokens = options?.maxTokens ?? 4096
   const start = Date.now()
 
@@ -66,7 +91,13 @@ export async function callAnthropic(
 
   const data = await response.json()
   const durationMs = Date.now() - start
-  const text = data.content?.[0]?.text
+  // The first block is not necessarily the text one - a response can lead with
+  // a thinking or tool-use block, and reading content[0] blindly would report
+  // a perfectly good answer as "No response received".
+  const blocks: Array<{ type?: string; text?: string }> = Array.isArray(data.content)
+    ? data.content
+    : []
+  const text = blocks.find((block) => block?.type === 'text')?.text
   if (!text) {
     throw new Error('No response received from AI')
   }
@@ -87,7 +118,7 @@ export async function callHaiku(
   messages: Array<{ role: string; content: string }>,
 ): Promise<LlmResult> {
   return callAnthropic(system, messages, {
-    model: 'claude-haiku-4-5-20251001',
+    model: MODELS.fast,
     maxTokens: 256,
   })
 }

@@ -108,8 +108,8 @@ export function StepCoreCards({ state, dispatch, onNext, onBack, onReset }: Step
 
   // Fingerprint of strategy inputs that affect combo generation
   const currentFingerprint = useMemo(() =>
-    JSON.stringify([state.selectedArchetypes, state.selectedTraits, state.customStrategy, state.colors, state.format, state.seedCard?.id ?? null]),
-    [state.selectedArchetypes, state.selectedTraits, state.customStrategy, state.colors, state.format, state.seedCard],
+    JSON.stringify([state.selectedArchetypes, state.selectedTraits, state.customStrategy, state.colors, state.seedCard?.id ?? null]),
+    [state.selectedArchetypes, state.selectedTraits, state.customStrategy, state.colors, state.seedCard],
   )
   const combosAreStale = comboFingerprint !== '' && comboFingerprint !== currentFingerprint && state.coreCombos.length > 0
 
@@ -210,7 +210,7 @@ export function StepCoreCards({ state, dispatch, onNext, onBack, onReset }: Step
     } finally {
       setIsLoading(false)
     }
-  }, [state.colors, state.selectedArchetypes, state.selectedTraits, state.customStrategy, state.format, state.budgetMin, state.budgetMax, state.rarityFilter, state.coreCombos, state.seedCard, locale, dispatch, t, currentFingerprint, previouslyRejected, applyBatch, comboBuffer])
+  }, [state.colors, state.selectedArchetypes, state.selectedTraits, state.customStrategy, state.budgetMin, state.budgetMax, state.rarityFilter, state.coreCombos, state.seedCard, locale, dispatch, t, currentFingerprint, previouslyRejected, applyBatch, comboBuffer])
 
   const didFetch = useRef(false)
   useEffect(() => {
@@ -230,12 +230,11 @@ export function StepCoreCards({ state, dispatch, onNext, onBack, onReset }: Step
   const searchSuffix = useMemo(() => {
     const activeColors = getActiveColors(state.colors)
     return buildSearchFilterSuffix(activeColors, {
-      format: state.format,
       budgetMin: state.budgetMin,
       budgetMax: state.budgetMax,
       rarities: state.rarityFilter,
     })
-  }, [state.colors, state.format, state.budgetMin, state.budgetMax, state.rarityFilter])
+  }, [state.colors, state.budgetMin, state.budgetMax, state.rarityFilter])
 
   // Manual card search - searches name + oracle text
   useEffect(() => {

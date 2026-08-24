@@ -7,7 +7,7 @@
  * builders so all three honor the same free-text theme.
  */
 import { startLlmLog, completeLlmLog, failLlmLog } from './logLlmUsage'
-import { callHaiku } from './anthropic'
+import { MODELS, callHaiku } from './anthropic'
 import { extractStrategyQueries } from './strategyQueries'
 import { COLOR_NAMES } from './intentContext'
 import type { ActionCtx } from '../_generated/server'
@@ -28,7 +28,7 @@ MAPPING:
 
 RULES:
 - PREFER fragments that combine a type or keyword WITH the theme so results stay on-theme rather than flooding with off-theme cards.
-- Emit THEME ONLY. NEVER include c:/c<=/c>=, f:, r:/r>=, or usd/eur/tix — the app applies color, format, rarity, and budget itself.
+- Emit THEME ONLY. NEVER include c:/c<=/c>=, f:, r:/r>=, or usd/eur/tix — the app applies color, rarity, and budget itself, and never narrows by format.
 - Translate German creature types and themes into English Oracle vocabulary (e.g. "Albträume" -> t:nightmare).
 - Output JSON ONLY: {"queries":["...","..."]}. No prose, no code fence, no more than 3 fragments.`
 }
@@ -47,7 +47,6 @@ export async function parseStrategyQueries(
   args: {
     customStrategy: string
     selectedColors: string[]
-    format?: string
     language?: string
   },
   logLabel = 'parseStrategy',
@@ -56,16 +55,13 @@ export async function parseStrategyQueries(
     return { queries: [] }
   }
 
-  // Colors and format are CONTEXT for the translation, not filters — the
-  // model must not emit them as scoping tokens (the app applies those).
+  // Colors are CONTEXT for the translation, not filters — the model must not
+  // emit them as scoping tokens (the app applies those).
   let userPrompt = `Strategy: ${args.customStrategy}\n`
   if (args.selectedColors.length > 0) {
     const colorList = args.selectedColors.map((c) => `${COLOR_NAMES[c] || c} (${c})`).join(', ')
     userPrompt += `\nCONTEXT (for translation only, do NOT emit as filters):\n`
     userPrompt += `- Deck colors: ${colorList}\n`
-  }
-  if (args.format && args.format !== 'casual') {
-    userPrompt += `- Format: ${args.format}\n`
   }
   if (args.language === 'de') {
     userPrompt += `- The strategy may be written in German; translate types and themes to English Oracle vocabulary.\n`
@@ -73,7 +69,7 @@ export async function parseStrategyQueries(
 
   const systemPrompt = getParseSystemPrompt()
   const inputMessages = [{ role: 'user', content: userPrompt }]
-  const model = 'claude-haiku-4-5-20251001'
+  const model = MODELS.fast
   const logId = await startLlmLog(ctx, logLabel, model, systemPrompt, inputMessages)
 
   try {

@@ -197,7 +197,7 @@ function HomePage() {
                         {d.name}
                       </h3>
                       <div className="mt-3">
-                        <DeckMeta format={d.format} totalCards={totalCards} colors={d.colors} />
+                        <DeckMeta totalCards={totalCards} colors={d.colors} />
                       </div>
                     </div>
                   </Link>

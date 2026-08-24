@@ -136,8 +136,8 @@ describe('getChatCardRejection — Decision 1: fallback-resolved filters', () =>
 //
 // Budget and rarity filters express what the user wants to *buy*. Every basic
 // land fails both (price ~$0, rarity common), so judging them made every chat
-// request with a budget or rarity filter burn a guaranteed retry. Color and
-// format still apply: an off-color basic is a real mistake.
+// request with a budget or rarity filter burn a guaranteed retry. Color still
+// applies: an off-color basic is a real mistake.
 
 describe('getChatCardRejection — basic lands bypass budget and rarity', () => {
   const RARE_ONLY: DeckFilters = { colors: ['G'], rarities: ['rare'] }
@@ -202,12 +202,5 @@ describe('getFilterRejectionReason — basic-land exemption is shared by all cal
   it('still rejects an off-color basic', () => {
     const swamp = makeBasicLand(BASIC_LAND_IDS.B, 'Swamp', ['B'])
     expect(getFilterRejectionReason(swamp, { colors: ['G'], rarities: ['mythic'] })).not.toBeNull()
-  })
-
-  it('still rejects a basic that is illegal in the chosen format', () => {
-    const forest = makeBasicLand(BASIC_LAND_IDS.G, 'Forest', ['G'])
-    const result = getFilterRejectionReason(forest, { colors: ['G'], format: 'standard' })
-    expect(result).not.toBeNull()
-    expect(result!.toLowerCase()).toMatch(/legal/)
   })
 })

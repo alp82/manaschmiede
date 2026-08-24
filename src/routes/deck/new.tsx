@@ -181,7 +181,6 @@ function NewDeckWizard() {
       id: deckId,
       name,
       description,
-      format: state.format,
       colors,
       intent: intentFromWizard(state),
       cards: projectLocked(state.deckCards, new Set(state.lockedCardIds)),
@@ -296,7 +295,6 @@ function NewDeckWizard() {
               budgetMin={state.budgetMin}
               budgetMax={state.budgetMax}
               rarityFilter={state.rarityFilter}
-              format={state.format}
               dispatch={dispatch}
               onNext={handleNext}
               onSkipToDeck={handleSkipToDeck}

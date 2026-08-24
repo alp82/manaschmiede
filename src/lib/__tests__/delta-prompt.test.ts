@@ -249,3 +249,31 @@ describe('buildDeltaUserMessage', () => {
     expect(addMsg).not.toBe(swapMsg)
   })
 })
+
+// ─── Quantity handling ────────────────────────────────────────────────────────
+//
+// The delta path SUBSTITUTES one copy for a missing or invalid quantity where
+// the deck and section parsers DROP the entry. The named card is the point of a
+// delta edit; the count is incidental.
+
+describe('parseDeltaResponse — quantity defaults to 1 rather than dropping the entry', () => {
+  it('TC-DP-13: an add entry with no quantity survives as one copy', () => {
+    const result = parseDeltaResponse(JSON.stringify({ add: [{ name: 'Shock' }] }))
+    expect(result.add).toEqual([{ name: 'Shock', quantity: 1 }])
+  })
+
+  it('TC-DP-14: a non-positive or non-numeric quantity becomes one copy', () => {
+    const result = parseDeltaResponse(
+      JSON.stringify({ add: [{ name: 'A', quantity: 0 }, { name: 'B', quantity: 'four' }] }),
+    )
+    expect(result.add).toEqual([
+      { name: 'A', quantity: 1 },
+      { name: 'B', quantity: 1 },
+    ])
+  })
+
+  it('TC-DP-15: quantities are NOT clamped to the 4-copy rule', () => {
+    const result = parseDeltaResponse(JSON.stringify({ add: [{ name: 'Shock', quantity: 9 }] }))
+    expect(result.add).toEqual([{ name: 'Shock', quantity: 9 }])
+  })
+})

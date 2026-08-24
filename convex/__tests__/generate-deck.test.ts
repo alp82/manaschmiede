@@ -75,6 +75,20 @@ describe('parseResponse', () => {
       /invalid format/,
     )
   })
+
+  it('throws when the deck has no name', () => {
+    expect(() => parseResponse('{"description":"","cards":[{"name":"Plains","quantity":1}]}')).toThrow(
+      /invalid format/,
+    )
+    expect(() => parseResponse('{"name":"","cards":[{"name":"Plains","quantity":1}]}')).toThrow(
+      /invalid format/,
+    )
+  })
+
+  it('does NOT clamp quantities - enforceDeckSize owns the 4-copy rule here', () => {
+    const deck = parseResponse('{"name":"X","cards":[{"name":"Lightning Bolt","quantity":9}]}')
+    expect(deck.cards).toEqual([{ name: 'Lightning Bolt', quantity: 9 }])
+  })
 })
 
 describe('enforceDeckSize', () => {

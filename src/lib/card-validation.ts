@@ -7,7 +7,6 @@ export { getHardFilterRejectionReason, isPlayableCard } from '../../convex/lib/c
 
 export interface DeckFilters {
   colors: string[]
-  format?: string
   budgetMin?: number | null
   budgetMax?: number | null
   rarities?: string[]
@@ -20,8 +19,8 @@ export interface DeckFilters {
  * resolver itself had just added, and every chat request with a budget or
  * rarity intent burned a guaranteed retry round trip.
  *
- * Color identity and format still apply: an off-color basic is a real mistake,
- * not a filter artifact.
+ * Color identity still applies: an off-color basic is a real mistake, not a
+ * filter artifact.
  *
  * Matches on the type line so any printing counts, and on the canonical IDs so
  * a stub card record without a type line still resolves.
@@ -33,7 +32,7 @@ function isBasicLandPrinting(card: ScryfallCard): boolean {
 }
 
 /**
- * Check if a card violates the user's deck-building filters (colors, format, budget, rarity).
+ * Check if a card violates the user's deck-building filters (colors, budget, rarity).
  * Returns a rejection reason string, or null if the card passes all filters.
  *
  * Basic lands are exempt from the budget and rarity checks - see
@@ -49,14 +48,6 @@ export function getFilterRejectionReason(card: ScryfallCard, filters: DeckFilter
       if (!allowed.has(c)) {
         return `Card color identity (${card.color_identity.join('')}) doesn't match selected colors (${filters.colors.join('')})`
       }
-    }
-  }
-
-  // Format legality check
-  if (filters.format && filters.format !== 'casual') {
-    const legality = card.legalities[filters.format]
-    if (legality !== 'legal' && legality !== 'restricted') {
-      return `Card is not legal in ${filters.format}`
     }
   }
 
@@ -82,14 +73,14 @@ export function getFilterRejectionReason(card: ScryfallCard, filters: DeckFilter
 }
 
 /**
- * Color/format/budget/rarity gate for an AI-suggested card. Both AI paths use
+ * Color/budget/rarity gate for an AI-suggested card. Both AI paths use
  * it: chat proposals and section fills.
  *
  * Locked cards bypass the gate entirely (the user pinned them, so no intent
  * filter may evict them). Otherwise this delegates to getFilterRejectionReason
  * with the already-resolved DeckFilters — when filters.colors is empty there's
- * no color constraint, so the gate only rejects on a genuine color/format/
- * budget/rarity mismatch. Pure: no deck composition, no synergy reasoning.
+ * no color constraint, so the gate only rejects on a genuine color/budget/
+ * rarity mismatch. Pure: no deck composition, no synergy reasoning.
  */
 export function getIntentRejectionReason(
   card: ScryfallCard,

@@ -9,14 +9,12 @@
  * Kept side-effect free so they are unit-testable without a DOM or fetch and so
  * the delta arm of useDeckChat stays thin.
  */
-import type { DeckCard } from './deck-utils'
+import { MAX_COPIES, TARGET_DECK_SIZE, type DeckCard } from './deck-utils'
 import type { ScryfallCard } from './scryfall/types'
 import { getCardName } from './scryfall/types'
 import type { CardChange } from './deck-chat-types'
 import { BASIC_LAND_IDS, BASIC_LAND_ID_SET } from './basic-lands'
 
-const TARGET_DECK_SIZE = 60
-const MAX_COPIES = 4
 
 /**
  * Diff the current deck against a resolved deck map, producing the change

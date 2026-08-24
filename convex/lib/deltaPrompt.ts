@@ -7,12 +7,12 @@
  *
  * Zero runtime imports (no ActionCtx / fetch / callHaiku) so it is importable
  * from src/ node tests the same way cardPoolQueries.ts / strategyQueries.ts
- * are - the two modules it does import, jsonLadder.ts and cardFilters.ts, are
- * pure and zero-dependency themselves. generateDelta (in generateDeck.ts)
+ * are - the two modules it does import, parseCardList.ts and cardFilters.ts,
+ * are pure and zero-dependency themselves. generateDelta (in generateDeck.ts)
  * wraps parseDeltaResponse with ctx + logging.
  */
 
-import { ANY_OBJECT_PATTERN, parseJsonLadder } from './jsonLadder'
+import { cardEntry, nameEntry, parseCardList } from './parseCardList'
 import { HARD_FILTER_PROMPT_RULES } from './cardFilters'
 
 /** Maximum entries kept in each direction of a delta edit. */
@@ -65,55 +65,34 @@ export function buildDeltaUserMessage(op: DeltaOp, userText: string): string {
   return `${hint}\n\nRequest: ${userText}`
 }
 
-function safeEmpty(): DeltaResult {
-  return { remove: [], add: [], explanation: '' }
-}
-
-/** Coerce an unknown parsed value into a clean DeltaResult, never throwing. */
-function normalize(parsed: unknown): DeltaResult {
-  if (parsed === null || typeof parsed !== 'object') return safeEmpty()
-  const obj = parsed as Record<string, unknown>
-
-  const rawRemove = Array.isArray(obj.remove) ? obj.remove : []
-  const rawAdd = Array.isArray(obj.add) ? obj.add : []
-
-  const remove = rawRemove
-    .filter((e): e is { name: string } => {
-      return e != null && typeof (e as { name?: unknown }).name === 'string'
-    })
-    .map((e) => ({ name: e.name }))
-    .slice(0, DELTA_CAP)
-
-  const add = rawAdd
-    .filter((e): e is { name: string; quantity?: unknown } => {
-      return e != null && typeof (e as { name?: unknown }).name === 'string'
-    })
-    .map((e) => ({
-      name: e.name,
-      quantity: typeof e.quantity === 'number' && e.quantity > 0 ? e.quantity : 1,
-    }))
-    .slice(0, DELTA_CAP)
-
-  const explanation = typeof obj.explanation === 'string' ? obj.explanation : ''
-
-  return { remove, add, explanation }
-}
-
 /**
  * Parse a delta model response into a DeltaResult. Never throws.
  *
- * Runs the shared ladder and swallows its failure: anything
- * malformed/empty/prose-only degrades to a safe-empty result, so the caller
- * never sees an exception.
+ * `onFailure: 'empty'` swallows every failure the shared parser can raise:
+ * anything malformed/empty/prose-only degrades to a safe-empty result, so the
+ * caller never sees an exception. A quantity the model omitted or garbled
+ * becomes one copy rather than dropping the card - the named card is the point
+ * of a delta edit, the count is incidental.
  */
 export function parseDeltaResponse(text: string): DeltaResult {
-  if (typeof text !== 'string' || text.trim() === '') return safeEmpty()
+  const parsed = parseCardList<{
+    remove: { name: string }
+    add: { name: string; quantity: number }
+  }>(text, {
+    lists: {
+      remove: { entry: nameEntry, max: DELTA_CAP },
+      add: { entry: cardEntry({ invalidQuantity: 'one' }), max: DELTA_CAP },
+    },
+    // A generic object match, not a "cards"-anchored one - the delta shape has
+    // no "cards" key.
+    bareObjectAnchor: null,
+    scalars: { explanation: '' },
+    onFailure: 'empty',
+  })
 
-  // A generic object match, not a "cards"-anchored one - the delta shape has
-  // no "cards" key.
-  try {
-    return normalize(parseJsonLadder(text, ANY_OBJECT_PATTERN))
-  } catch {
-    return safeEmpty()
+  return {
+    remove: parsed.lists.remove,
+    add: parsed.lists.add,
+    explanation: parsed.scalars.explanation ?? '',
   }
 }

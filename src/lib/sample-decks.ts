@@ -1,15 +1,11 @@
-import type { DeckFormat } from './deck-utils'
-
 export interface SampleDeck {
   name: string
-  format: DeckFormat
   cards: { scryfallId: string; quantity: number; zone: 'main' }[]
 }
 
 export const SAMPLE_DECKS: SampleDeck[] = [
   {
     name: '5-Color Dragons',
-    format: 'casual',
     cards: [
       { scryfallId: '68625010-3e4e-4400-b503-bf381a7fd81b', quantity: 4, zone: 'main' }, // Chromatic Lantern
       { scryfallId: '1e845758-8f5a-4ed7-ae02-ba4286ae1b65', quantity: 2, zone: 'main' }, // Kyodai, Soul of Kamigawa
@@ -34,7 +30,6 @@ export const SAMPLE_DECKS: SampleDeck[] = [
   },
   {
     name: 'Lifegain',
-    format: 'casual',
     cards: [
       { scryfallId: 'db2510a5-55b5-4810-bdea-3bb1d854186b', quantity: 3, zone: 'main' }, // Arrest
       { scryfallId: '9005d98f-cd4f-416d-90d6-ed5fc35e1a29', quantity: 2, zone: 'main' }, // Soul Warden
@@ -53,7 +48,6 @@ export const SAMPLE_DECKS: SampleDeck[] = [
   },
   {
     name: 'Mono Black',
-    format: 'casual',
     cards: [
       { scryfallId: '2f67f77f-1a82-4ff5-b926-f31bd720ca4b', quantity: 4, zone: 'main' }, // Squelching Leeches
       { scryfallId: '07aa2c70-af67-44c0-9c3d-7825ba56795b', quantity: 4, zone: 'main' }, // Solemn Simulacrum
@@ -70,7 +64,6 @@ export const SAMPLE_DECKS: SampleDeck[] = [
   },
   {
     name: 'Merfolk Tribal',
-    format: 'casual',
     cards: [
       { scryfallId: '6ae8ea86-46c3-4855-92e9-7906e554becb', quantity: 4, zone: 'main' }, // Merrow Reejerey
       { scryfallId: '8088984a-115a-451c-a914-cdfc998ec3c0', quantity: 4, zone: 'main' }, // Merfolk of the Pearl Trident
@@ -91,7 +84,6 @@ export const SAMPLE_DECKS: SampleDeck[] = [
   },
   {
     name: 'Green Stompy',
-    format: 'casual',
     cards: [
       { scryfallId: 'b8b4ebbf-1613-42a0-97ff-2f36dc8d984a', quantity: 2, zone: 'main' }, // Dungrove Elder
       { scryfallId: '479722c7-3019-4517-a120-8864b7426b88', quantity: 1, zone: 'main' }, // Lignify
@@ -112,7 +104,6 @@ export const SAMPLE_DECKS: SampleDeck[] = [
   },
   {
     name: 'Rakdos Aggro',
-    format: 'casual',
     cards: [
       { scryfallId: '4f0993bf-ed8b-4597-84e9-5173483c8e58', quantity: 11, zone: 'main' }, // Mountain
       { scryfallId: '3a027e0d-f95d-4942-b70f-312ca5c5a95d', quantity: 11, zone: 'main' }, // Swamp

@@ -7,7 +7,6 @@ import { RangeSlider } from '../ui/RangeSlider'
 import { useT } from '../../lib/i18n'
 import { useDeckSounds } from '../../lib/sounds'
 import { getTraitsByCategory, getTraitById } from '../../lib/trait-mappings'
-import { FORMAT_LABELS, type DeckFormat } from '../../lib/deck-utils'
 import type { DeckIntent } from '../../lib/deck-intent'
 import { structuralFieldsChanged } from '../../lib/use-staged-rederive'
 import { RARITIES, RARITY_KEYS } from '../../lib/rarity'
@@ -16,7 +15,6 @@ const ARCHETYPES = getTraitsByCategory('archetype')
 
 interface DeckIntentPanelProps {
   intent: DeckIntent
-  format: DeckFormat
   onChange: (next: DeckIntent) => void
   /** Card-derived colors used to pre-seed a legacy deck's intent (once, on mount). */
   seedColors: ManaColor[]
@@ -51,7 +49,7 @@ function budgetReadout(min: number | null, max: number | null, unlimited: string
  * intent) are pre-seeded once from their card-derived colors so the readout
  * is never blank.
  */
-export function DeckIntentPanel({ intent, format, onChange, seedColors, hasStoredIntent, onStructuralCommit }: DeckIntentPanelProps) {
+export function DeckIntentPanel({ intent, onChange, seedColors, hasStoredIntent, onStructuralCommit }: DeckIntentPanelProps) {
   const t = useT()
   const sounds = useDeckSounds()
   const [editing, setEditing] = useState(false)
@@ -186,12 +184,6 @@ export function DeckIntentPanel({ intent, format, onChange, seedColors, hasStore
           <span className="normal-case text-cream-400">
             {budgetReadout(intent.budgetMin, intent.budgetMax, unlimited)}
           </span>
-          {format !== 'casual' && (
-            <>
-              <span aria-hidden className="text-cream-500">·</span>
-              <span>{FORMAT_LABELS[format]}</span>
-            </>
-          )}
         </div>
       ) : (
         /* ─── Editing (inert) ─────────────────────────────── */

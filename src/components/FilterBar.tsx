@@ -9,7 +9,6 @@ import { cn } from '../lib/utils'
 import { useT } from '../lib/i18n'
 import { useDeckSounds } from '../lib/sounds'
 import { setsListOptions } from '../lib/scryfall/queries'
-import type { DeckFormat } from '../lib/deck-utils'
 import type { TranslationKey } from '../lib/i18n/types'
 import { RARITIES, RARITY_KEYS } from '../lib/rarity'
 
@@ -18,7 +17,6 @@ export type ColorMode = 'all' | 'any'
 export type FilterType =
   | 'type'
   | 'cmc'
-  | 'format'
   | 'keyword'
   | 'rarity'
   | 'budget'
@@ -36,7 +34,6 @@ export type FilterType =
 const FILTER_META: Record<FilterType, { labelKey: TranslationKey; glyph: string }> = {
   type: { labelKey: 'filter.type', glyph: 'T' },
   cmc: { labelKey: 'filter.cmc', glyph: '①' },
-  format: { labelKey: 'filter.format', glyph: '§' },
   keyword: { labelKey: 'filter.keyword', glyph: '✦' },
   rarity: { labelKey: 'filter.rarity', glyph: '◆' },
   budget: { labelKey: 'filter.budget', glyph: '$' },
@@ -47,7 +44,6 @@ const FILTER_META: Record<FilterType, { labelKey: TranslationKey; glyph: string 
 const FILTER_ORDER: FilterType[] = [
   'type',
   'cmc',
-  'format',
   'keyword',
   'rarity',
   'budget',
@@ -75,13 +71,6 @@ const CMC_OPTIONS: { value: string; key: TranslationKey | '' }[] = [
   { value: '5', key: '' },
   { value: '6', key: '' },
   { value: '7+', key: '' },
-]
-
-const FORMAT_OPTIONS: { value: DeckFormat | ''; key: TranslationKey | '' }[] = [
-  { value: '', key: 'filter.allFormats' },
-  { value: 'standard', key: '' },
-  { value: 'modern', key: '' },
-  { value: 'casual', key: '' },
 ]
 
 const KEYWORD_OPTIONS: { value: string; key: TranslationKey }[] = [
@@ -149,8 +138,6 @@ interface FilterBarProps {
   onCardTypeChange: (type: string) => void
   cmc: string
   onCmcChange: (cmc: string) => void
-  format: string
-  onFormatChange: (format: string) => void
   budgetMin: number | null
   budgetMax: number | null
   onBudgetChange: (min: number | null, max: number | null) => void
@@ -188,8 +175,6 @@ export function FilterBar({
   onCardTypeChange,
   cmc,
   onCmcChange,
-  format,
-  onFormatChange,
   budgetMin,
   budgetMax,
   onBudgetChange,
@@ -219,10 +204,6 @@ export function FilterBar({
   const cmcOpts: DropdownOption[] = CMC_OPTIONS.map((c) => ({
     value: c.value,
     label: c.key ? t(c.key) : c.value,
-  }))
-  const formatOpts: DropdownOption[] = FORMAT_OPTIONS.map((f) => ({
-    value: f.value,
-    label: f.key ? t(f.key) : f.value.charAt(0).toUpperCase() + f.value.slice(1),
   }))
   const keywordOpts: DropdownOption[] = KEYWORD_OPTIONS.map((kw) => ({
     value: kw.value,
@@ -313,8 +294,6 @@ export function FilterBar({
                 onCardTypeChange,
                 cmc,
                 onCmcChange,
-                format,
-                onFormatChange,
                 keyword,
                 onKeywordChange,
                 selectedRarities,
@@ -333,7 +312,6 @@ export function FilterBar({
                 onSetCodeChange,
                 cardTypeOpts,
                 cmcOpts,
-                formatOpts,
                 keywordOpts,
                 setOpts,
               })}
@@ -486,8 +464,6 @@ interface ControlContext {
   onCardTypeChange: (type: string) => void
   cmc: string
   onCmcChange: (cmc: string) => void
-  format: string
-  onFormatChange: (format: string) => void
   keyword: string
   onKeywordChange: (keyword: string) => void
   selectedRarities: Set<string>
@@ -506,7 +482,6 @@ interface ControlContext {
   onSetCodeChange: (code: string) => void
   cardTypeOpts: DropdownOption[]
   cmcOpts: DropdownOption[]
-  formatOpts: DropdownOption[]
   keywordOpts: DropdownOption[]
   setOpts: DropdownOption[]
 }
@@ -517,8 +492,6 @@ function renderFilterControl(type: FilterType, ctx: ControlContext): React.React
       return <Dropdown className="w-full" value={ctx.cardType} onChange={ctx.onCardTypeChange} options={ctx.cardTypeOpts} ariaLabel="Card type" />
     case 'cmc':
       return <Dropdown className="w-full" value={ctx.cmc} onChange={ctx.onCmcChange} options={ctx.cmcOpts} ariaLabel="Mana value" />
-    case 'format':
-      return <Dropdown className="w-full" value={ctx.format} onChange={ctx.onFormatChange} options={ctx.formatOpts} ariaLabel="Format" />
     case 'keyword':
       return <Dropdown className="w-full" value={ctx.keyword} onChange={ctx.onKeywordChange} options={ctx.keywordOpts} ariaLabel="Keyword" />
     case 'rarity':

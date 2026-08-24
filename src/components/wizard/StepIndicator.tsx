@@ -103,13 +103,6 @@ function useStepSummary(stepNum: number, state: WizardState): React.ReactNode | 
             ))}
           </div>
         )}
-
-        {/* Format marginalia (only if non-default) */}
-        {state.format !== 'casual' && (
-          <span className="font-mono text-mono-marginal uppercase tracking-mono-marginal text-ink-red-bright">
-            {state.format}
-          </span>
-        )}
       </>
     )
   }

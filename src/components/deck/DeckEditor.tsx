@@ -99,7 +99,7 @@ interface DeckEditorProps {
   onUndo?: () => void
   onRedo?: () => void
   /**
-   * Appended to the search query (wizard supplies color/format/budget/rarity
+   * Appended to the search query (wizard supplies color/budget/rarity
    * constraints; the deck view searches unconstrained).
    */
   searchSuffix?: string

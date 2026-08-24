@@ -6,7 +6,7 @@ import { validateProposedCards } from './chat-validation'
 import type { IntentContext } from '../../convex/lib/intentContext'
 import type { ScryfallCard } from './scryfall/types'
 import { getCardName } from './scryfall/types'
-import type { DeckCard } from './deck-utils'
+import { TARGET_DECK_SIZE, type DeckCard } from './deck-utils'
 import { BASIC_LAND_IDS, BASIC_LAND_NAMES, BASIC_LAND_ID_SET } from './basic-lands'
 import { computeDeckDiff, applyDelta, resolveRemoveIds, enforceDeltaSize } from './deck-diff'
 import { buildCardSectionLabels } from './section-assignment'
@@ -14,7 +14,6 @@ import { analyzeComposition, summarizeComposition } from './synergy-validation'
 import type { CardChange } from './deck-chat-types'
 export type { CardChange } from './deck-chat-types'
 
-const TARGET_DECK_SIZE = 60
 
 function getColorIdentity(resolvedMap: Map<string, { card: ScryfallCard; quantity: number }>): string[] {
   const colors = new Set<string>()
@@ -279,7 +278,6 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
             customStrategy: intentContext?.customStrategy,
             budgetMin: intentContext?.budgetMin ?? undefined,
             budgetMax: intentContext?.budgetMax ?? undefined,
-            format: intentContext?.format,
           })
 
           if (result.intent === 'question' && result.answer) {

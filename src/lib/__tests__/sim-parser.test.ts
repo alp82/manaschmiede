@@ -39,9 +39,12 @@ describe('parseDeck', () => {
   })
 
   it('[R] skips cards outside the main deck', () => {
+    // 'main' is the only zone since #44, so the parser's zone guard can only
+    // fire for a deck persisted before the sideboard was deleted. The cast
+    // reproduces exactly that: a legacy entry must be dropped, not dealt.
     const deck: DeckCard[] = [
       { scryfallId: 'forest', quantity: 2, zone: 'main' },
-      { scryfallId: 'forest', quantity: 3, zone: 'sideboard' },
+      { scryfallId: 'forest', quantity: 3, zone: 'sideboard' } as unknown as DeckCard,
     ]
 
     expect(parseDeck(deck, cardMap(forest))).toHaveLength(2)

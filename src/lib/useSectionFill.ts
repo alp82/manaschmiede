@@ -91,7 +91,6 @@ async function callFillSection(
     archetypes: archetypeLabels,
     traits: traitLabels,
     customStrategy: intent.customStrategy || undefined,
-    format: intent.format !== 'casual' ? intent.format : undefined,
     budgetLimit: intent.budgetMax ?? undefined,
     deckComposition: options.deckComposition,
     rejectedCards: options.rejectedCards && options.rejectedCards.length > 0
@@ -148,7 +147,7 @@ function buildCompositionFromDeck(
  *   1. Hard filter (stickers, Un-sets, oversized, digital-only, etc.) — a
  *      non-playable card is rejected before anything else, because no
  *      user preference can legalize a card the app refuses to ship.
- *   2. Filter compliance (color identity, format, budget, rarity) — an
+ *   2. Filter compliance (color identity, budget, rarity) — an
  *      off-color card is rejected before any synergy reasoning, because
  *      no amount of synergy can legalize a color violation. Cards the user
  *      locked bypass this gate, matching the chat path: the user pinned them,
@@ -286,7 +285,6 @@ export function useSectionFill({
     if (!fill.ready || !fill.colors) return null
     return {
       colors: fill.colors,
-      format: intent.format,
       budgetMin: intent.budgetMin,
       budgetMax: intent.budgetMax,
       rarities: intent.rarityFilter,

@@ -230,12 +230,11 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
     const colors = selected.length > 0 ? selected : getActiveColors(state.colors)
     return {
       colors,
-      format: state.format,
       budgetMin: state.budgetMin,
       budgetMax: state.budgetMax,
       rarities: state.rarityFilter,
     }
-  }, [state.colors, state.format, state.budgetMin, state.budgetMax, state.rarityFilter])
+  }, [state.colors, state.budgetMin, state.budgetMax, state.rarityFilter])
 
   const intentContext = useMemo(
     () => buildChatIntentContext(
@@ -244,12 +243,11 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
       state.selectedTraits,
       {
         customStrategy: state.customStrategy || undefined,
-        format: state.format,
         budgetMin: state.budgetMin,
         budgetMax: state.budgetMax,
       },
     ),
-    [intentFilters.colors, state.selectedArchetypes, state.selectedTraits, state.customStrategy, state.format, state.budgetMin, state.budgetMax],
+    [intentFilters.colors, state.selectedArchetypes, state.selectedTraits, state.customStrategy, state.budgetMin, state.budgetMax],
   )
 
   const {
@@ -308,19 +306,18 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
   const searchSuffix = useMemo(() => {
     const activeColors = getActiveColors(state.colors)
     return buildSearchFilterSuffix(activeColors, {
-      format: state.format,
       budgetMin: state.budgetMin,
       budgetMax: state.budgetMax,
       rarities: state.rarityFilter,
     })
-  }, [state.colors, state.format, state.budgetMin, state.budgetMax, state.rarityFilter])
+  }, [state.colors, state.budgetMin, state.budgetMax, state.rarityFilter])
 
   // ─── Computed Values ─────────────────────────────────────────
 
   const analysis = useMemo(() => {
     if (state.deckCards.length === 0) return null
-    return analyzeDeck(state.deckCards, cardDataMap, state.format, t)
-  }, [state.deckCards, cardDataMap, state.format, t])
+    return analyzeDeck(state.deckCards, cardDataMap, t)
+  }, [state.deckCards, cardDataMap, t])
 
   const deckDisplay = useDeckDisplay(cards, cardDataMap)
 
@@ -510,9 +507,6 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
       {/* Header */}
       <header className="mb-6 flex flex-col gap-4 border-b border-hairline pb-5 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0 flex-1">
-          <span className="font-mono text-mono-marginal uppercase leading-none tracking-mono-marginal text-ink-red-bright">
-            {state.format.toUpperCase()}
-          </span>
           <input
             type="text"
             value={state.deckName}
@@ -520,7 +514,7 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
             onKeyDown={(e) => { if (e.key.length === 1) sounds.typing() }}
             placeholder={t('deck.namePlaceholder')}
             aria-label={t('deck.namePlaceholder')}
-            className="mt-2 w-full border-0 border-b border-hairline bg-transparent font-display text-2xl uppercase leading-tight tracking-display text-cream-100 placeholder-cream-500 focus:border-cream-200 focus:outline-none sm:text-display-section"
+            className="w-full border-0 border-b border-hairline bg-transparent font-display text-2xl uppercase leading-tight tracking-display text-cream-100 placeholder-cream-500 focus:border-cream-200 focus:outline-none sm:text-display-section"
           />
           <input
             type="text"

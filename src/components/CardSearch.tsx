@@ -21,7 +21,6 @@ interface BuildQueryInput {
   colorMode: ColorMode
   cardType: string
   cmc: string
-  format: string
   budgetMin: number | null
   budgetMax: number | null
   rarities: Set<string>
@@ -56,7 +55,6 @@ function buildScryfallQuery(input: BuildQueryInput): string {
     if (input.cmc === '7+') parts.push('cmc>=7')
     else parts.push('cmc=' + input.cmc)
   }
-  if (input.format && input.format !== 'casual') parts.push('f:' + input.format)
   if (input.budgetMin != null) parts.push('usd>=' + input.budgetMin.toFixed(2))
   if (input.budgetMax != null) parts.push('usd<=' + input.budgetMax.toFixed(2))
   if (input.rarities.size > 0 && input.rarities.size < 4) {
@@ -91,7 +89,6 @@ const RARITY_NAME_TO_CODE: Record<string, string> = {
 const FILTER_NAMES = new Set<FilterType>([
   'type',
   'cmc',
-  'format',
   'keyword',
   'rarity',
   'budget',
@@ -136,8 +133,6 @@ function filterResetPatch(type: FilterType): Record<string, null> {
       return { type: null }
     case 'cmc':
       return { cmc: null }
-    case 'format':
-      return { format: null }
     case 'keyword':
       return { keyword: null }
     case 'rarity':
@@ -190,7 +185,6 @@ export function CardSearch() {
       cmode: parseAsStringLiteral(['all', 'any'] as const).withDefault('all'),
       type: parseAsString.withDefault(''),
       cmc: parseAsString.withDefault(''),
-      format: parseAsString.withDefault(''),
       rarity: parseAsString.withDefault(''),
       keyword: parseAsString.withDefault(''),
       bmin: parseAsInteger,
@@ -212,7 +206,6 @@ export function CardSearch() {
   const colorMode: ColorMode = params.cmode
   const cardType = params.type
   const cmc = params.cmc
-  const format = params.format
   const selectedRarities = useMemo(() => decodeRarities(params.rarity), [params.rarity])
   const keyword = params.keyword
   const budgetMin = params.bmin
@@ -234,7 +227,6 @@ export function CardSearch() {
         colorMode,
         cardType,
         cmc,
-        format,
         budgetMin,
         budgetMax,
         rarities: selectedRarities,
@@ -251,7 +243,6 @@ export function CardSearch() {
       colorMode,
       cardType,
       cmc,
-      format,
       budgetMin,
       budgetMax,
       selectedRarities,
@@ -268,7 +259,6 @@ export function CardSearch() {
     selectedColors.size > 0 ||
     cardType !== '' ||
     cmc !== '' ||
-    format !== '' ||
     budgetMin != null ||
     budgetMax != null ||
     selectedRarities.size > 0 ||
@@ -381,8 +371,6 @@ export function CardSearch() {
         onCardTypeChange={(v) => setParams({ type: v || null })}
         cmc={cmc}
         onCmcChange={(v) => setParams({ cmc: v || null })}
-        format={format}
-        onFormatChange={(v) => setParams({ format: v || null })}
         budgetMin={budgetMin}
         budgetMax={budgetMax}
         onBudgetChange={(min, max) => setParams({ bmin: min, bmax: max })}

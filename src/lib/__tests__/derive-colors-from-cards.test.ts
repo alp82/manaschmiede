@@ -112,9 +112,11 @@ describe('deriveColorsFromCards', () => {
     expect(result).toEqual(['U'])
   })
 
-  it('sideboard card (zone=side) is included if present — deriveColorsFromCards is zone-agnostic', () => {
+  it('a card carrying a retired zone is still included — deriveColorsFromCards is zone-agnostic', () => {
     // The function does not filter by zone; it includes all DeckCard entries.
-    const cards = [{ scryfallId: 'sidecard', quantity: 1, zone: 'side' as const }]
+    // The cast stands in for a deck persisted before the sideboard zone was
+    // deleted (#44) — such an entry must still contribute its colors.
+    const cards = [{ scryfallId: 'sidecard', quantity: 1, zone: 'side' } as unknown as DeckCard]
     const cardDataMap = makeMap([['sidecard', ['B']]])
     const result = deriveColorsFromCards(cards, cardDataMap)
     expect(result).toEqual(['B'])

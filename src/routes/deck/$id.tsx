@@ -27,7 +27,7 @@ import { useDeckHistory } from '../../lib/use-deck-history'
 import { useSections, useSectionCards, useDeckDisplay } from '../../lib/use-deck-sections'
 import type { ScryfallCard } from '../../lib/scryfall/types'
 import type { DeckZone } from '../../lib/deck-utils'
-import { getTotalCards, copyDecklistToClipboard, mergeCardsIntoDeck, deriveLockedIds, deriveColorsFromCards, FORMAT_LABELS } from '../../lib/deck-utils'
+import { getTotalCards, copyDecklistToClipboard, mergeCardsIntoDeck, deriveLockedIds, deriveColorsFromCards } from '../../lib/deck-utils'
 import { useT, useI18n } from '../../lib/i18n'
 import { useDeckSounds } from '../../lib/sounds'
 
@@ -240,8 +240,8 @@ function DeckPage() {
   }, [])
 
   const intentFilters = useMemo(
-    () => ({ ...deriveIntentFilters(intent, fallbackColors), format: deck?.format }),
-    [intent, fallbackColors, deck?.format],
+    () => deriveIntentFilters(intent, fallbackColors),
+    [intent, fallbackColors],
   )
   // Fill intent driven by the deck's committed colors — backs the reopen-combo
   // picker. `getFillColors().ready` gates the affordance (SMOKE-2): false when
@@ -258,12 +258,11 @@ function DeckPage() {
       intent.traits,
       {
         customStrategy: intent.customStrategy || undefined,
-        format: deck?.format,
         budgetMin: intent.budgetMin,
         budgetMax: intent.budgetMax,
       },
     ),
-    [intentFilters.colors, intent.archetypes, intent.traits, intent.customStrategy, intent.budgetMin, intent.budgetMax, deck?.format],
+    [intentFilters.colors, intent.archetypes, intent.traits, intent.customStrategy, intent.budgetMin, intent.budgetMax],
   )
 
   // ─── Per-deck pending slot (persistence) ────────────────────
@@ -407,7 +406,7 @@ function DeckPage() {
 
   const analysis = useMemo(() => {
     if (!deck || deck.cards.length === 0) return null
-    return analyzeDeck(deck.cards, cardDataMap, 'casual', t)
+    return analyzeDeck(deck.cards, cardDataMap, t)
   }, [deck?.cards, cardDataMap, t])
 
   // Build section-based card groups
@@ -505,15 +504,12 @@ function DeckPage() {
         {/* ─── MASTHEAD ──────────────────────────────────────── */}
         <header className="flex flex-col gap-4 border-b border-hairline pb-6 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0 flex-1">
-            <span className="font-mono text-mono-marginal uppercase leading-none tracking-mono-marginal text-cream-500">
-              {FORMAT_LABELS[deck.format]}
-            </span>
             <input
               type="text"
               value={deckName}
               onChange={(e) => updateDeckName(e.target.value)}
               onKeyDown={(e) => e.key.length === 1 && sounds.typing()}
-              className="mt-2 w-full border-0 border-b border-hairline bg-transparent font-display text-2xl uppercase tracking-display text-cream-100 focus:border-cream-200 focus:outline-none sm:text-display-section"
+              className="w-full border-0 border-b border-hairline bg-transparent font-display text-2xl uppercase tracking-display text-cream-100 focus:border-cream-200 focus:outline-none sm:text-display-section"
               placeholder={t('deck.namePlaceholder')}
               aria-label={t('deck.namePlaceholder')}
             />
@@ -573,7 +569,6 @@ function DeckPage() {
         {/* ─── Collapsible intent strip ──────────────────────── */}
         <DeckIntentPanel
           intent={intent}
-          format={deck.format}
           onChange={updateIntent}
           seedColors={fallbackColors}
           hasStoredIntent={hasStoredIntent}
