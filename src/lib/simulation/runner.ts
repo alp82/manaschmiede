@@ -36,6 +36,40 @@ export function wilsonCI(wins: number, n: number): [number, number] {
   return [Math.max(0, center - margin), Math.min(1, center + margin)]
 }
 
+/** The `GameResult` fields `metricRate` can be asked about. */
+type MetricField = 'manaScrew' | 'manaFlood' | 'curveHit'
+
+/**
+ * How often `metric` was true, per deck, over the games that sampled it.
+ *
+ * The denominator is the sampled games and not the whole run. A `null` reading
+ * means the game ended before the metric's sample turn, and counting that as a
+ * miss puts game length back into the number: a deck that wins on turn six
+ * cannot flood on turn eight, so dividing by every game reports a fast deck as
+ * a disciplined one. A metric no game sampled reads 0 rather than NaN.
+ *
+ * Exported for the suite - the two denominators only disagree on a run holding
+ * both sampled and unsampled games, which is not something a seed can pin.
+ */
+export function metricRate(results: readonly GameResult[], metric: MetricField): PerPlayerRate {
+  const hits: PerPlayer<number> = [0, 0]
+  const sampled: PerPlayer<number> = [0, 0]
+
+  for (const result of results) {
+    for (const seat of [0, 1] as const) {
+      const reading = result[metric][seat]
+      if (reading === null) continue
+      sampled[seat]++
+      if (reading) hits[seat]++
+    }
+  }
+
+  return [
+    sampled[0] > 0 ? hits[0] / sampled[0] : 0,
+    sampled[1] > 0 ? hits[1] / sampled[1] : 0,
+  ]
+}
+
 const swap = <T,>([a, b]: PerPlayer<T>): PerPlayer<T> => [b, a]
 
 /**
@@ -76,7 +110,7 @@ export function runSimulation(
   const start = performance.now()
 
   const results: GameResult[] = []
-  const seatWins: [number, number] = [0, 0]
+  const seatWins: PerPlayer<number> = [0, 0]
   const BATCH_SIZE = 100
 
   for (let i = 0; i < games; i++) {
@@ -91,12 +125,9 @@ export function runSimulation(
   }
   onProgress(games)
 
-  const wins: [number, number] = [0, 0]
+  const wins: PerPlayer<number> = [0, 0]
   let draws = 0
   let totalTurns = 0
-  const manaScrewCount: [number, number] = [0, 0]
-  const manaFloodCount: [number, number] = [0, 0]
-  const curveHitCount: [number, number] = [0, 0]
   const winConditions: Record<GameResult['winCondition'], number> = { life: 0, mill: 0, draw: 0 }
   const turnCounts: number[] = []
   const turnDistribution: number[] = new Array(MAX_TURNS + 1).fill(0)
@@ -108,15 +139,7 @@ export function runSimulation(
     totalTurns += r.turns
     turnCounts.push(r.turns)
     if (r.turns <= MAX_TURNS) turnDistribution[r.turns]++
-    for (const seat of [0, 1] as const) {
-      if (r.manaScrew[seat]) manaScrewCount[seat]++
-      if (r.manaFlood[seat]) manaFloodCount[seat]++
-      if (r.curveHit[seat]) curveHitCount[seat]++
-    }
   }
-
-  const rate = (counts: [number, number]): PerPlayerRate =>
-    games > 0 ? [counts[0] / games, counts[1] / games] : [0, 0]
 
   turnCounts.sort((a, b) => a - b)
   const medianTurns = turnCounts.length > 0
@@ -135,9 +158,9 @@ export function runSimulation(
     winConditions,
     avgTurns: games > 0 ? totalTurns / games : 0,
     medianTurns,
-    manaScrewRate: rate(manaScrewCount),
-    manaFloodRate: rate(manaFloodCount),
-    curveHitRate: rate(curveHitCount),
+    manaScrewRate: metricRate(results, 'manaScrew'),
+    manaFloodRate: metricRate(results, 'manaFlood'),
+    curveHitRate: metricRate(results, 'curveHit'),
     winRateCI95: wilsonCI(wins[0], games),
     elapsed,
     turnDistribution,

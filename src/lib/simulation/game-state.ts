@@ -399,16 +399,26 @@ export function runTurn(state: GameState, rng: () => number): TurnOutcome {
   return CONTINUE
 }
 
+/** The last turn `CURVE_TURNS` asks about, so the turn the metric is complete. */
+const CURVE_TURN = Math.max(...CURVE_TURNS)
+
 /** What one player's game looked like, for the metrics the panel reports. */
 interface PlayerObservations {
   /** One flag per entry in `CURVE_TURNS`: did the player cast anything? */
   castOnCurve: boolean[]
   screwed: boolean
   flooded: boolean
+  /** The last turn this player took. A metric sampled after it never happened. */
+  lastTurn: number
 }
 
 function blankObservations(): PlayerObservations {
-  return { castOnCurve: CURVE_TURNS.map(() => false), screwed: false, flooded: false }
+  return {
+    castOnCurve: CURVE_TURNS.map(() => false),
+    screwed: false,
+    flooded: false,
+    lastTurn: 0,
+  }
 }
 
 /**
@@ -419,6 +429,8 @@ function blankObservations(): PlayerObservations {
  * than on how the player's draws went.
  */
 function observe(obs: PlayerObservations, player: PlayerState, turn: number): void {
+  obs.lastTurn = turn
+
   const curveIdx = CURVE_TURNS.indexOf(turn)
   if (curveIdx >= 0 && player.spellsCastThisTurn > 0) obs.castOnCurve[curveIdx] = true
 
@@ -430,6 +442,19 @@ function observe(obs: PlayerObservations, player: PlayerState, turn: number): vo
     const spellsInHand = player.hand.filter((c) => c.cardType !== 'land').length
     obs.flooded = lands >= FLOOD_LANDS && spellsInHand < FLOOD_HAND_SPELLS
   }
+}
+
+/**
+ * The metric, or `null` when the game ended before its sample turn.
+ *
+ * Counting an unsampled game as a miss is the length confound the fixed-turn
+ * sample was meant to remove, coming back through the denominator: a deck that
+ * wins on turn six can't flood on turn eight, so reporting flood over every
+ * game makes a fast deck look disciplined and a slow one look greedy.
+ * `runSimulation` divides by the games that reached the turn instead.
+ */
+function sampledAt(sampleTurn: number, obs: PlayerObservations, value: boolean): boolean | null {
+  return obs.lastTurn >= sampleTurn ? value : null
 }
 
 export function runGame(deckA: SimCard[], deckB: SimCard[], rng: () => number): GameResult {
@@ -472,11 +497,17 @@ function makeResult(
     winner,
     turns,
     winCondition,
-    manaScrew: [observations[0].screwed, observations[1].screwed],
-    manaFlood: [observations[0].flooded, observations[1].flooded],
+    manaScrew: [
+      sampledAt(SCREW_TURN, observations[0], observations[0].screwed),
+      sampledAt(SCREW_TURN, observations[1], observations[1].screwed),
+    ],
+    manaFlood: [
+      sampledAt(FLOOD_TURN, observations[0], observations[0].flooded),
+      sampledAt(FLOOD_TURN, observations[1], observations[1].flooded),
+    ],
     curveHit: [
-      observations[0].castOnCurve.every(Boolean),
-      observations[1].castOnCurve.every(Boolean),
+      sampledAt(CURVE_TURN, observations[0], observations[0].castOnCurve.every(Boolean)),
+      sampledAt(CURVE_TURN, observations[1], observations[1].castOnCurve.every(Boolean)),
     ],
   }
 }

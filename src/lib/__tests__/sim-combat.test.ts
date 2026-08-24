@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   canBlock,
+  damageToCreature,
   forecastCombat,
   killedBeforeDealingDamage,
   lethalDamage,
@@ -288,6 +289,24 @@ describe('canBlock', () => {
 
   it('[R] lets a defender block', () => {
     expect(canBlock(withKeyword('wall', 'defender'), ground())).toBe(true)
+  })
+})
+
+describe('damageToCreature', () => {
+  it('[R] is the power of a creature without deathtouch', () => {
+    expect(damageToCreature(permanent(simCard({ id: 'bear', power: 2, toughness: 2 })))).toBe(2)
+  })
+
+  it('[R] exceeds any toughness the model can hold for a deathtouch creature', () => {
+    // Deathtouch is damage here, not a flag `isDestroyedBySba` reads, so the
+    // number has to out-run the largest printed toughness. The three callers -
+    // `killedBeforeDealingDamage`, `damageStep`, and the AI's `blockersKill` -
+    // all price a kill through this one function so they can't disagree.
+    const mouse = permanent(
+      simCard({ id: 'mouse', power: 1, toughness: 1, keywords: new Set<Keyword>(['deathtouch']) }),
+    )
+
+    expect(damageToCreature(mouse)).toBeGreaterThan(100)
   })
 })
 

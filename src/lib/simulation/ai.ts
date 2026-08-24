@@ -1,4 +1,5 @@
 import type {
+  BlockAssignments,
   DeclaredAttacker,
   ManaColor,
   ManaSource,
@@ -6,7 +7,13 @@ import type {
   SimCard,
 } from './types'
 import { MANA_COLORS, payCost } from './mana'
-import { canBlock, forecastCombat, killedBeforeDealingDamage, lethalDamage } from './combat'
+import {
+  canBlock,
+  damageToCreature,
+  forecastCombat,
+  killedBeforeDealingDamage,
+  lethalDamage,
+} from './combat'
 
 export function shouldMulligan(hand: SimCard[], mulliganCount: number): boolean {
   if (mulliganCount >= 2) return false
@@ -228,18 +235,15 @@ export function chooseAttackers(
  * Assigns blockers, first for value and then for survival.
  *
  * The value pass only commits a block it comes out ahead on, which on its own
- * makes the AI decline every chump block and die on board. So a second pass
- * runs whenever the damage still coming through is lethal: it throws the
- * cheapest creatures in front of the biggest attackers until the defender
- * lives. If even every creature it has can't get the damage below `myLife`,
- * the second pass is discarded - blocks that don't change the result are just
- * creatures thrown away.
+ * makes the AI decline every chump block and die on board. `addSurvivalBlocks`
+ * is the other half: it spends creatures purely to stay alive, over two rounds
+ * with different horizons. See its own docs for what each round buys.
  */
 export function chooseBlockers(
   myBoard: Permanent[],
   attackers: DeclaredAttacker[],
   myLife: number,
-): Map<number, number[]> {
+): BlockAssignments {
   const assignments = new Map<number, number[]>()
   if (attackers.length === 0) return assignments
 
@@ -324,10 +328,7 @@ export function chooseBlockers(
 function blockersKill(attacker: Permanent, blockers: readonly Permanent[]): boolean {
   if (attacker.card.keywords.has('indestructible')) return false
   if (killedBeforeDealingDamage(attacker, blockers)) return true
-  const dealt = blockers.reduce(
-    (sum, b) => sum + (b.card.keywords.has('deathtouch') ? 999 : b.card.power),
-    0,
-  )
+  const dealt = blockers.reduce((sum, b) => sum + damageToCreature(b), 0)
   return attacker.damage + dealt >= attacker.card.toughness
 }
 
@@ -444,7 +445,7 @@ interface BlockDecision {
   available: number[]
   attackers: DeclaredAttacker[]
   myLife: number
-  assignments: Map<number, number[]>
+  assignments: BlockAssignments
   used: Set<number>
 }
 

@@ -163,9 +163,14 @@ export interface GameResult {
   winner: 0 | 1 | -1
   turns: number
   winCondition: 'life' | 'mill' | 'draw'
-  manaScrew: PerPlayer<boolean>
-  manaFlood: PerPlayer<boolean>
-  curveHit: PerPlayer<boolean>
+  /**
+   * The mana metrics, per seat, or `null` where the game ended before the turn
+   * the metric is sampled on. `runSimulation` leaves an unsampled game out of
+   * that metric's denominator rather than counting it as a miss.
+   */
+  manaScrew: PerPlayer<boolean | null>
+  manaFlood: PerPlayer<boolean | null>
+  curveHit: PerPlayer<boolean | null>
 }
 
 /**
@@ -178,23 +183,36 @@ export interface GameResult {
  */
 export type PerPlayer<T> = [T, T]
 
+/**
+ * Who blocks whom, as attacker index -> the indices of the blockers on it.
+ *
+ * The indices are into the two battlefields `resolveCombat` is handed, so an
+ * assignment only means anything alongside the boards it was built from.
+ */
+export type BlockAssignments = Map<number, number[]>
+
 export type PerPlayerRate = PerPlayer<number>
 
 export interface SimulationResult {
   totalGames: number
   /** Games won, by deck: `[deck A, deck B]`, across both seats. */
-  wins: [number, number]
+  wins: PerPlayer<number>
   /**
    * Games won by seat: `[on the play, on the draw]`. Reported separately
    * because it answers a different question from `wins` - how much this
    * matchup turns on who moves first, rather than on which deck is better.
    */
-  seatWins: [number, number]
+  seatWins: PerPlayer<number>
   draws: number
   /** Games ending each way. `draw` is `draws`, repeated here for completeness. */
   winConditions: Record<GameResult['winCondition'], number>
   avgTurns: number
   medianTurns: number
+  /**
+   * The mana metrics per deck, each over the games that ran long enough to
+   * sample it - not over `totalGames`. A game decided on turn six says nothing
+   * about who was flooded on turn eight.
+   */
   manaScrewRate: PerPlayerRate
   manaFloodRate: PerPlayerRate
   curveHitRate: PerPlayerRate
