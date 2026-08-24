@@ -117,3 +117,16 @@ export function buildCardSectionLabels(
   }
   return byCard
 }
+
+/**
+ * Collect a localized section plan into the section-id-to-label record
+ * useDeckChat labels the AI deck snapshot with. Both chat callers (the wizard
+ * fill step and the deck route) build it off the plan they already render, so
+ * the label in a targeted "add N more cards to <lane>" request matches the
+ * label on the cards the model is handed.
+ */
+export function buildSectionLabelMap(sections: DeckSection[]): Record<string, string> {
+  const labels: Record<string, string> = {}
+  for (const section of sections) labels[section.id] = section.label
+  return labels
+}

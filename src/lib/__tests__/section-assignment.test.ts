@@ -29,7 +29,7 @@
  *   - diff-only dispatch optimization (relies on React state, not unit-tested)
  */
 import { describe, it, expect } from 'vitest'
-import { applySectionInheritance, buildCardSectionLabels } from '../section-assignment'
+import { applySectionInheritance, buildCardSectionLabels, buildSectionLabelMap } from '../section-assignment'
 import type { CardChange } from '../deck-chat-types'
 import type { DeckSection } from '../section-plan'
 import type { ScryfallCard } from '../scryfall/types'
@@ -390,7 +390,7 @@ describe('applySectionInheritance - shared invariants (both modes)', () => {
 })
 
 /**
- * RED tests — buildCardSectionLabels does not exist yet (issue #16).
+ * buildCardSectionLabels (issue #16).
  *
  * Asserted signature:
  *   buildCardSectionLabels(
@@ -446,5 +446,35 @@ describe('buildCardSectionLabels', () => {
       { removal: 'Removal', 'card-draw': 'Card Draw' },
     )
     expect(result.get('card-1')).toBe('Card Draw')
+  })
+})
+
+/**
+ * RED tests — buildSectionLabelMap does not exist yet (issue #16).
+ *
+ * Asserted signature:
+ *   buildSectionLabelMap(sections: DeckSection[]): Record<string, string>
+ *
+ * Both chat callers (the wizard fill step and the deck route) hand
+ * useDeckChat a section-id-to-label record built off the localized plan they
+ * already render. One helper keeps the two from drifting.
+ */
+describe('buildSectionLabelMap', () => {
+  it('keys each section label by its section id', () => {
+    const sections = [
+      { ...makeSection('removal', 'interaction'), label: 'Removal' },
+      { ...makeSection('card-draw', 'spells'), label: 'Card Draw' },
+    ]
+    expect(buildSectionLabelMap(sections)).toEqual({ removal: 'Removal', 'card-draw': 'Card Draw' })
+  })
+
+  it('returns an empty record for an empty plan', () => {
+    expect(buildSectionLabelMap([])).toEqual({})
+  })
+
+  it('round-trips into buildCardSectionLabels', () => {
+    const sections = [{ ...makeSection('removal', 'interaction'), label: 'Removal' }]
+    const byCard = buildCardSectionLabels({ removal: ['card-1'] }, buildSectionLabelMap(sections))
+    expect(byCard.get('card-1')).toBe('Removal')
   })
 })

@@ -17,8 +17,8 @@ import { useDeckChat } from '../../lib/useDeckChat'
 import type { CardChange } from '../../lib/deck-chat-types'
 import { loadDeck, persistDeck, pickFeaturedCardIds, type LocalDeck } from '../../lib/deck-storage'
 import { emptyIntent, deriveIntentFilters, buildChatIntentContext, type DeckIntent } from '../../lib/deck-intent'
-import { localizeDeckSection, pickSectionForCard } from '../../lib/section-plan'
-import { applySectionInheritance } from '../../lib/section-assignment'
+import { pickSectionForCard } from '../../lib/section-plan'
+import { applySectionInheritance, buildSectionLabelMap } from '../../lib/section-assignment'
 import { useStagedRederive, refillCountFor } from '../../lib/use-staged-rederive'
 import { useDeckPending } from '../../lib/use-deck-pending'
 import { sectionFillIntentFromDeck } from '../../lib/section-fill-intent'
@@ -274,19 +274,49 @@ function DeckPage() {
   const { pending: deckPending, setStagedPlan, setOfferedCombos, setRefillChat, clearCardLevelPending } =
     useDeckPending(id, intent)
 
-  // Section labels for the AI deck snapshot. Built off the committed
-  // sectionPlan (in scope here — the localized plan is derived further down,
-  // after the staged re-derive) so a lane re-fill describes a section the
-  // model can actually see on the cards it is handed. A lane that exists only
-  // in a staged, not-yet-accepted plan holds no cards yet, so it can't miss a
-  // label here; buildCardSectionLabels falls back to the section id slug.
-  const chatSectionLabels = useMemo(() => {
-    const labels: Record<string, string> = {}
-    for (const section of deck?.sectionPlan ?? []) {
-      labels[section.id] = localizeDeckSection(section, t).label
-    }
-    return labels
-  }, [deck?.sectionPlan, t])
+  const deckDisplay = useDeckDisplay(deck?.cards ?? [], cardDataMap)
+
+  const resolveCard = useCallback((cid: string) => cardDataMap.get(cid), [cardDataMap])
+
+  // ─── Staged re-derive (persistence-backed) ──────────────────
+  // A structural intent change stages a re-derived section plan in its OWN
+  // layer (NOT useDeckChat.pending). It never writes to deck.cards / triggers
+  // autosave until acceptPlan, which rewrites sectionPlan + re-buckets
+  // sectionAssignments only. The deck (and its autosave/color/PDF effects) stays
+  // bound to the committed deck the whole time. The staged plan rehydrates from
+  // (and persists to) the pending slot so a mid-review reload resumes it.
+  const {
+    stagedPlan,
+    staleLaneIds,
+    deficitFor,
+    resumed: stagedPlanResumed,
+    stage: stageRederive,
+    acceptPlan,
+    discardPlan,
+  } = useStagedRederive({
+    displayCards: deckDisplay,
+    t,
+    setDeck,
+    resolveCard,
+    initialPlan: deckPending.stagedPlan,
+    onStagedChange: setStagedPlan,
+    committedPlan: deck?.sectionPlan ?? [],
+  })
+
+  // Localized section plan — a staged re-derive (when present) takes precedence
+  // over the persisted plan; both re-localize against the active locale.
+  const localizedPlan = useSections({
+    sectionPlan: deck?.sectionPlan ?? [],
+    stagedPlan: stagedPlan ?? undefined,
+    t,
+  })
+
+  // Section labels for the AI deck snapshot. Read off the SAME localizedPlan
+  // that refillLane names the lane from, so "add N more cards to <lane>"
+  // and the cards the model is handed speak one vocabulary — including for a
+  // staged, not-yet-accepted lane, whose label can differ from the committed
+  // one (a tribal lane keeps its id across a tribe switch).
+  const chatSectionLabels = useMemo(() => buildSectionLabelMap(localizedPlan), [localizedPlan])
 
   const {
     messages,
@@ -358,43 +388,6 @@ function DeckPage() {
     if (!deck || deck.cards.length === 0) return null
     return analyzeDeck(deck.cards, cardDataMap, 'casual', t)
   }, [deck?.cards, cardDataMap, t])
-
-  const deckDisplay = useDeckDisplay(deck?.cards ?? [], cardDataMap)
-
-  const resolveCard = useCallback((cid: string) => cardDataMap.get(cid), [cardDataMap])
-
-  // ─── Staged re-derive (persistence-backed) ──────────────────
-  // A structural intent change stages a re-derived section plan in its OWN
-  // layer (NOT useDeckChat.pending). It never writes to deck.cards / triggers
-  // autosave until acceptPlan, which rewrites sectionPlan + re-buckets
-  // sectionAssignments only. The deck (and its autosave/color/PDF effects) stays
-  // bound to the committed deck the whole time. The staged plan rehydrates from
-  // (and persists to) the pending slot so a mid-review reload resumes it.
-  const {
-    stagedPlan,
-    staleLaneIds,
-    deficitFor,
-    resumed: stagedPlanResumed,
-    stage: stageRederive,
-    acceptPlan,
-    discardPlan,
-  } = useStagedRederive({
-    displayCards: deckDisplay,
-    t,
-    setDeck,
-    resolveCard,
-    initialPlan: deckPending.stagedPlan,
-    onStagedChange: setStagedPlan,
-    committedPlan: deck?.sectionPlan ?? [],
-  })
-
-  // Localized section plan — a staged re-derive (when present) takes precedence
-  // over the persisted plan; both re-localize against the active locale.
-  const localizedPlan = useSections({
-    sectionPlan: deck?.sectionPlan ?? [],
-    stagedPlan: stagedPlan ?? undefined,
-    t,
-  })
 
   // Build section-based card groups
   const sectionCards = useSectionCards({

@@ -22,7 +22,7 @@ import type { WizardState, WizardAction } from '../../lib/wizard-state'
 import { getActiveColors, getSelectedColors } from '../../lib/wizard-state'
 import { buildChatIntentContext } from '../../lib/deck-intent'
 import { sectionFillIntentFromWizard } from '../../lib/section-fill-intent'
-import { applySectionInheritance } from '../../lib/section-assignment'
+import { applySectionInheritance, buildSectionLabelMap } from '../../lib/section-assignment'
 import type { DeckFilters } from '../../lib/card-validation'
 import { useDeckSounds } from '../../lib/sounds'
 import { useDeckHistory } from '../../lib/use-deck-history'
@@ -208,11 +208,7 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
 
   // ─── Chat (for free-text refinement) ─────────────────────────
 
-  const sectionLabels = useMemo(() => {
-    const labels: Record<string, string> = {}
-    for (const s of sections) labels[s.id] = s.label
-    return labels
-  }, [sections])
+  const sectionLabels = useMemo(() => buildSectionLabelMap(sections), [sections])
 
   // Allowed colors for AI enforcement = committed (selected) colors; fall back
   // to active colors (selected + maybe) only when nothing is committed, so the
