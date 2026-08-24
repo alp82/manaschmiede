@@ -4,7 +4,6 @@ import { cardSupply } from './card-supply'
 import { scryfallKeys } from './keys'
 import type { ScryfallCard } from './types'
 
-export { scryfallKeys }
 
 const STALE_24H = 1000 * 60 * 60 * 24
 

@@ -4,7 +4,7 @@ import { v } from 'convex/values'
 import { MODELS, callAnthropic, callHaiku, isTruncated, TRUNCATED_RESPONSE_MESSAGE } from './lib/anthropic'
 import { startLlmLog, completeLlmLog, failLlmLog, parseAndLog } from './lib/logLlmUsage'
 import { cardEntry, parseCardList } from './lib/parseCardList'
-import { BASIC_LAND_NAMES, MAX_COPIES } from './lib/deckRules'
+import { BASIC_LAND_NAMES, MAX_COPIES, TARGET_DECK_SIZE } from './lib/deckRules'
 import {
   HARD_FILTER_PROMPT_RULES,
   HARD_FILTER_SCRYFALL_QUERY,
@@ -273,8 +273,6 @@ export function parseResponse(text: string): GeneratedDeck {
   }
 }
 
-const TARGET_SIZE = 60
-
 /** Color letter -> the basic land that produces it, for padding an undersized deck. */
 const COLOR_BASIC_LAND: Record<string, string> = {
   W: 'Plains',
@@ -352,7 +350,7 @@ export function enforceDeckSize(
   let total = deck.cards.reduce((s, c) => s + c.quantity, 0)
 
   // Step 3: Trim if over 60
-  if (total > TARGET_SIZE) {
+  if (total > TARGET_DECK_SIZE) {
     // Priority 0 = unlocked spells, 1 = unlocked lands, 2 = locked cards.
     // Locked cards come down to their locked quantity only, and only after
     // everything else has hit its floor.
@@ -365,7 +363,7 @@ export function enforceDeckSize(
       }))
       .sort((a, b) => a.priority - b.priority || b.quantity - a.quantity)
 
-    let excess = total - TARGET_SIZE
+    let excess = total - TARGET_DECK_SIZE
 
     // Pass 1: shrink stacks down to each card's floor.
     for (const entry of trimOrder) {
@@ -406,8 +404,8 @@ export function enforceDeckSize(
   }
 
   // Step 4: Pad if under 60 - add basic lands proportionally
-  if (total < TARGET_SIZE) {
-    const deficit = TARGET_SIZE - total
+  if (total < TARGET_DECK_SIZE) {
+    const deficit = TARGET_DECK_SIZE - total
     // The deck's declared colors are the truth about which basics belong here;
     // a mono-blue deck the model returned with no lands must pad with Islands.
     // Without colors, fall back to the basics the deck already runs, then to

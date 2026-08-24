@@ -1,9 +1,7 @@
-import { Dropdown, type DropdownOption } from '../../ui/Dropdown'
-import { useT } from '../../../lib/i18n'
-import type { TranslationKey } from '../../../lib/i18n/types'
-import type { FilterControlProps, FilterSpec } from '../spec'
+import { dropdownControl, type DropdownChoice } from '../dropdown-control'
+import type { FilterSpec } from '../spec'
 
-const KEYWORD_OPTIONS: { value: string; key: TranslationKey }[] = [
+const KEYWORD_OPTIONS: DropdownChoice[] = [
   { value: '', key: 'filter.allKeywords' },
   { value: 'flying', key: 'trait.flying' },
   { value: 'trample', key: 'trait.trample' },
@@ -33,22 +31,5 @@ export const keywordFilter = {
   encode: (slice) => ({ keyword: slice.keyword || null }),
   isActive: (state) => state.keyword !== '',
   toQuery: (state) => (state.keyword ? [`keyword:${state.keyword}`] : []),
-  Control: KeywordControl,
+  Control: dropdownControl('keyword', KEYWORD_OPTIONS),
 } satisfies FilterSpec
-
-function KeywordControl({ state, onChange, ariaLabel }: FilterControlProps) {
-  const t = useT()
-  const options: DropdownOption[] = KEYWORD_OPTIONS.map((kw) => ({
-    value: kw.value,
-    label: t(kw.key),
-  }))
-  return (
-    <Dropdown
-      className="w-full"
-      value={state.keyword}
-      onChange={(keyword) => onChange({ keyword })}
-      options={options}
-      ariaLabel={ariaLabel}
-    />
-  )
-}

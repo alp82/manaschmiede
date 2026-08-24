@@ -260,9 +260,13 @@ content dims slightly.
 ### Tooltip
 
 Tiny mono-tag label, hairline underline 1px above, no box, 6px offset,
-`click-soft @ 0.05` volume on mount. What ships today is
-`src/components/ui/HoverTooltip.tsx` — a hairline-framed hover label, no
-sound yet; the color-mode switch and the stats filter's LINKED yoke use it.
+`click-soft @ 0.05` volume on mount.
+
+`src/components/ui/HoverTooltip.tsx` is the only tooltip in the app (the
+color-mode switch and the stats filter's LINKED yoke use it) and it does
+**not** meet that spec — it draws a bordered box, offsets 8px, and plays no
+sound. Treat that as debt, not as the standard: use the component, and if you
+are already editing it, bring it to the spec above.
 
 ### Toast (default: margin variant)
 
@@ -290,8 +294,11 @@ so far — reach for it rather than an inline "Copied" flag.
 
 Centered Cinzel display-section title, Geist body-small italic cream-400,
 optional caller-supplied action (Button or Pill — the component hardcodes no
-CTA styling). No illustrations. `src/components/ui/EmptyState.tsx`, six
-callers — use it instead of hand-rolling another centered block.
+CTA styling). No illustrations. `src/components/ui/EmptyState.tsx`, four
+callers — use it instead of hand-rolling another centered block. Two sites are
+still hand-rolled and marked `TODO: migrate to <EmptyState>`: the AiChat
+sidebar and DeckCardList, both of which sit in narrow columns the centered
+block doesn't suit. Migrate them when you next touch either.
 
 ### Error states
 

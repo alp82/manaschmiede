@@ -1,9 +1,7 @@
-import { Dropdown, type DropdownOption } from '../../ui/Dropdown'
-import { useT } from '../../../lib/i18n'
-import type { TranslationKey } from '../../../lib/i18n/types'
-import type { FilterControlProps, FilterSpec } from '../spec'
+import { dropdownControl, type DropdownChoice } from '../dropdown-control'
+import type { FilterSpec } from '../spec'
 
-const CMC_OPTIONS: { value: string; key: TranslationKey | '' }[] = [
+const CMC_OPTIONS: DropdownChoice[] = [
   { value: '', key: 'filter.allCmc' },
   { value: '0', key: '' },
   { value: '1', key: '' },
@@ -30,22 +28,5 @@ export const cmcFilter = {
     if (!state.cmc) return []
     return [state.cmc === '7+' ? 'cmc>=7' : `cmc=${state.cmc}`]
   },
-  Control: CmcControl,
+  Control: dropdownControl('cmc', CMC_OPTIONS),
 } satisfies FilterSpec
-
-function CmcControl({ state, onChange, ariaLabel }: FilterControlProps) {
-  const t = useT()
-  const options: DropdownOption[] = CMC_OPTIONS.map((c) => ({
-    value: c.value,
-    label: c.key ? t(c.key) : c.value,
-  }))
-  return (
-    <Dropdown
-      className="w-full"
-      value={state.cmc}
-      onChange={(cmc) => onChange({ cmc })}
-      options={options}
-      ariaLabel={ariaLabel}
-    />
-  )
-}
