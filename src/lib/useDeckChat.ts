@@ -1,18 +1,15 @@
 import { useState, useCallback, useRef, useMemo } from 'react'
 import { getCardByName, getLocalizedCardData } from './scryfall/client'
 import { useI18n } from './i18n'
-import { getCardRejectionReason, getChatCardRejectionReason, type DeckFilters } from './card-validation'
+import { getCardRejectionReason, type DeckFilters } from './card-validation'
+import { validateProposedCards } from './chat-validation'
 import type { IntentContext } from '../../convex/lib/intentContext'
 import type { ScryfallCard } from './scryfall/types'
 import { getCardName } from './scryfall/types'
 import type { DeckCard } from './deck-utils'
 import { BASIC_LAND_IDS, BASIC_LAND_NAMES, BASIC_LAND_ID_SET } from './basic-lands'
 import { computeDeckDiff, applyDelta, resolveRemoveIds, enforceDeltaSize } from './deck-diff'
-import {
-  analyzeComposition,
-  findSynergyIssue,
-  summarizeComposition,
-} from './synergy-validation'
+import { analyzeComposition, summarizeComposition } from './synergy-validation'
 import type { CardChange } from './deck-chat-types'
 export type { CardChange } from './deck-chat-types'
 
@@ -443,44 +440,6 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
           return
         }
 
-        // Validate suggestions against the proposed deck composition. If the
-        // AI inserted dead cards (e.g. tribal payoffs without the tribe),
-        // re-prompt once with explicit rejection feedback. `judgeIds` scopes
-        // WHICH cards are judged (the composition is always the full deck): the
-        // change path judges every card, the delta path judges only the cards
-        // it added so an off-intent card already sitting in the deck doesn't
-        // trigger spurious retries that could alter the targeted edit.
-        const validateProposed = (
-          resolvedMap: Map<string, { card: ScryfallCard; quantity: number }>,
-          judgeIds?: Set<string>,
-        ) => {
-          const proposedEntries: Array<{ card: ScryfallCard; quantity: number }> = []
-          for (const [, { card, quantity }] of resolvedMap) {
-            proposedEntries.push({ card, quantity })
-          }
-          const proposedComposition = analyzeComposition(proposedEntries)
-          const rejected: Array<{ name: string; reason: string }> = []
-          for (const [sid, { card }] of resolvedMap) {
-            if (judgeIds && !judgeIds.has(sid)) continue
-            const isLocked = lockedCardIds?.has(card.id) ?? false
-            // Locked cards stay regardless - the user pinned them.
-            if (isLocked) continue
-            // Intent gate (color/budget/rarity) runs before synergy: no amount
-            // of synergy can legalize an off-intent card. Empty filters.colors
-            // means no color constraint, so this only fires on a real mismatch.
-            if (intentFilters) {
-              const filterIssue = getChatCardRejectionReason(card, intentFilters, isLocked)
-              if (filterIssue) {
-                rejected.push({ name: card.name, reason: filterIssue })
-                continue
-              }
-            }
-            const issue = findSynergyIssue(card, proposedComposition)
-            if (issue) rejected.push({ name: card.name, reason: issue.reason })
-          }
-          return rejected
-        }
-
         // Both change and delta resolve to a card map that the intent/synergy
         // gate vets; on rejection we re-prompt once with the same machinery.
         // Delta judges only the cards it added (the rest of the deck is the
@@ -494,7 +453,12 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
                     .map((c) => c.scryfallId),
                 )
               : undefined
-          const rejected = validateProposed(outcome.resolvedMap, judgeIds)
+          const rejected = validateProposedCards({
+            resolvedMap: outcome.resolvedMap,
+            intentFilters,
+            lockedCardIds,
+            judgeIds,
+          })
           if (rejected.length > 0) {
             const retry = await callAndResolve(rejected)
             if (abortRef.current) return

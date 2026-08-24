@@ -1,5 +1,7 @@
 import type { ScryfallCard } from './scryfall/types'
 import { getHardFilterRejectionReason } from '../../convex/lib/cardFilters'
+import { isBasicLand } from './deck-utils'
+import { BASIC_LAND_ID_SET } from './basic-lands'
 
 export { getHardFilterRejectionReason, isPlayableCard } from '../../convex/lib/cardFilters'
 
@@ -12,10 +14,33 @@ export interface DeckFilters {
 }
 
 /**
+ * Basic lands are mana, not a purchase. Budget and rarity express what the
+ * user wants to *buy*, and every basic fails both gates - price is ~$0 and the
+ * rarity is common - so judging them rejected the canonical basics the
+ * resolver itself had just added, and every chat request with a budget or
+ * rarity intent burned a guaranteed retry round trip.
+ *
+ * Color identity and format still apply: an off-color basic is a real mistake,
+ * not a filter artifact.
+ *
+ * Matches on the type line so any printing counts, and on the canonical IDs so
+ * a stub card record without a type line still resolves.
+ */
+function isBasicLandPrinting(card: ScryfallCard): boolean {
+  // ID first: isBasicLand reads card.type_line unguarded, so a stub record
+  // without one would throw before the fallback ever ran.
+  return BASIC_LAND_ID_SET.has(card.id) || isBasicLand(card)
+}
+
+/**
  * Check if a card violates the user's deck-building filters (colors, format, budget, rarity).
  * Returns a rejection reason string, or null if the card passes all filters.
+ *
+ * Basic lands are exempt from the budget and rarity checks - see
+ * isBasicLandPrinting.
  */
 export function getFilterRejectionReason(card: ScryfallCard, filters: DeckFilters): string | null {
+  const isBasic = isBasicLandPrinting(card)
   // Color identity check - card must fit within the selected colors
   if (filters.colors.length > 0) {
     const allowed = new Set(filters.colors.map((c) => c.toUpperCase()))
@@ -36,7 +61,7 @@ export function getFilterRejectionReason(card: ScryfallCard, filters: DeckFilter
   }
 
   // Budget range check
-  if ((filters.budgetMin != null || filters.budgetMax != null) && card.prices) {
+  if (!isBasic && (filters.budgetMin != null || filters.budgetMax != null) && card.prices) {
     const price = parseFloat(card.prices.usd ?? card.prices.usd_foil ?? '0')
     if (filters.budgetMin != null && price < filters.budgetMin) {
       return `Card price ($${price.toFixed(2)}) is below minimum budget ($${filters.budgetMin.toFixed(2)})`
@@ -47,7 +72,7 @@ export function getFilterRejectionReason(card: ScryfallCard, filters: DeckFilter
   }
 
   // Rarity check
-  if (filters.rarities && filters.rarities.length > 0 && filters.rarities.length < 4) {
+  if (!isBasic && filters.rarities && filters.rarities.length > 0 && filters.rarities.length < 4) {
     if (!filters.rarities.includes(card.rarity)) {
       return `Card rarity (${card.rarity}) not in allowed rarities`
     }
@@ -57,7 +82,8 @@ export function getFilterRejectionReason(card: ScryfallCard, filters: DeckFilter
 }
 
 /**
- * Color/format/budget/rarity gate for an AI-suggested chat card.
+ * Color/format/budget/rarity gate for an AI-suggested card. Both AI paths use
+ * it: chat proposals and section fills.
  *
  * Locked cards bypass the gate entirely (the user pinned them, so no intent
  * filter may evict them). Otherwise this delegates to getFilterRejectionReason
@@ -65,7 +91,7 @@ export function getFilterRejectionReason(card: ScryfallCard, filters: DeckFilter
  * no color constraint, so the gate only rejects on a genuine color/format/
  * budget/rarity mismatch. Pure: no deck composition, no synergy reasoning.
  */
-export function getChatCardRejectionReason(
+export function getIntentRejectionReason(
   card: ScryfallCard,
   filters: DeckFilters,
   isLocked: boolean,

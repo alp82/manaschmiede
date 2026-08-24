@@ -165,6 +165,7 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
     onDeckUpdate: handleSectionDeckUpdate,
     onCardDataUpdate: handleCardDataUpdate,
     onSectionAssign: handleSectionAssign,
+    lockedCardIds,
   })
 
   const handleFillSection = useCallback((sectionId: string) => {
