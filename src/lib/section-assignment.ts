@@ -94,3 +94,26 @@ export function applySectionInheritance(
 
   return next
 }
+
+/**
+ * Reverse lookup: scryfallId -> section label, for the deck snapshot sent to
+ * the AI. Without it every card reads as unsectioned, so a targeted "add N
+ * more cards to <lane>" request describes a section the model can't see
+ * (issue #16).
+ *
+ * `labels` is optional. Section ids are semantic slugs ("removal",
+ * "card-draw"), so a caller without a localized plan in scope still gives the
+ * model a usable label. When a card sits in two sections, the last one wins.
+ */
+export function buildCardSectionLabels(
+  assignments: Record<string, string[]> | undefined,
+  labels?: Record<string, string>,
+): Map<string, string> {
+  const byCard = new Map<string, string>()
+  if (!assignments) return byCard
+  for (const [sectionId, ids] of Object.entries(assignments)) {
+    const label = labels?.[sectionId] ?? sectionId
+    for (const id of ids) byCard.set(id, label)
+  }
+  return byCard
+}

@@ -29,7 +29,7 @@
  *   - diff-only dispatch optimization (relies on React state, not unit-tested)
  */
 import { describe, it, expect } from 'vitest'
-import { applySectionInheritance } from '../section-assignment'
+import { applySectionInheritance, buildCardSectionLabels } from '../section-assignment'
 import type { CardChange } from '../deck-chat-types'
 import type { DeckSection } from '../section-plan'
 import type { ScryfallCard } from '../scryfall/types'
@@ -387,4 +387,64 @@ describe('applySectionInheritance - shared invariants (both modes)', () => {
       expect(result).not.toBe(assignments)
     })
   }
+})
+
+/**
+ * RED tests — buildCardSectionLabels does not exist yet (issue #16).
+ *
+ * Asserted signature:
+ *   buildCardSectionLabels(
+ *     assignments: Record<string, string[]> | undefined,
+ *     labels?: Record<string, string>,
+ *   ): Map<string, string>
+ *
+ * The AI deck snapshot labels each card with its section. The labels map is
+ * optional: without it every card falls back to its section id, which is a
+ * semantic slug ("removal", "card-draw") and still readable to the model.
+ */
+describe('buildCardSectionLabels', () => {
+  it('maps every assigned card to its section label', () => {
+    const result = buildCardSectionLabels(
+      { removal: ['card-1', 'card-2'], 'card-draw': ['card-3'] },
+      { removal: 'Removal', 'card-draw': 'Card Draw' },
+    )
+    expect(result.get('card-1')).toBe('Removal')
+    expect(result.get('card-2')).toBe('Removal')
+    expect(result.get('card-3')).toBe('Card Draw')
+  })
+
+  it('falls back to the section id when no labels map is passed', () => {
+    const result = buildCardSectionLabels({ removal: ['card-1'], 'win-conditions': ['card-2'] })
+    expect(result.get('card-1')).toBe('removal')
+    expect(result.get('card-2')).toBe('win-conditions')
+  })
+
+  it('falls back to the section id for a section missing from the labels map', () => {
+    const result = buildCardSectionLabels(
+      { removal: ['card-1'], 'card-draw': ['card-2'] },
+      { removal: 'Removal' },
+    )
+    expect(result.get('card-1')).toBe('Removal')
+    expect(result.get('card-2')).toBe('card-draw')
+  })
+
+  it('returns an empty map when assignments are missing', () => {
+    expect(buildCardSectionLabels(undefined).size).toBe(0)
+    expect(buildCardSectionLabels(undefined, { removal: 'Removal' }).size).toBe(0)
+    expect(buildCardSectionLabels({}).size).toBe(0)
+  })
+
+  it('skips empty sections and leaves unassigned cards unlabelled', () => {
+    const result = buildCardSectionLabels({ removal: [], 'card-draw': ['card-1'] })
+    expect(result.size).toBe(1)
+    expect(result.get('card-9')).toBeUndefined()
+  })
+
+  it('lets the last section win when a card is assigned twice', () => {
+    const result = buildCardSectionLabels(
+      { removal: ['card-1'], 'card-draw': ['card-1'] },
+      { removal: 'Removal', 'card-draw': 'Card Draw' },
+    )
+    expect(result.get('card-1')).toBe('Card Draw')
+  })
 })

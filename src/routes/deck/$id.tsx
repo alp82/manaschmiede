@@ -17,7 +17,7 @@ import { useDeckChat } from '../../lib/useDeckChat'
 import type { CardChange } from '../../lib/deck-chat-types'
 import { loadDeck, persistDeck, pickFeaturedCardIds, type LocalDeck } from '../../lib/deck-storage'
 import { emptyIntent, deriveIntentFilters, buildChatIntentContext, type DeckIntent } from '../../lib/deck-intent'
-import { pickSectionForCard } from '../../lib/section-plan'
+import { localizeDeckSection, pickSectionForCard } from '../../lib/section-plan'
 import { applySectionInheritance } from '../../lib/section-assignment'
 import { useStagedRederive, refillCountFor } from '../../lib/use-staged-rederive'
 import { useDeckPending } from '../../lib/use-deck-pending'
@@ -274,6 +274,20 @@ function DeckPage() {
   const { pending: deckPending, setStagedPlan, setOfferedCombos, setRefillChat, clearCardLevelPending } =
     useDeckPending(id, intent)
 
+  // Section labels for the AI deck snapshot. Built off the committed
+  // sectionPlan (in scope here — the localized plan is derived further down,
+  // after the staged re-derive) so a lane re-fill describes a section the
+  // model can actually see on the cards it is handed. A lane that exists only
+  // in a staged, not-yet-accepted plan holds no cards yet, so it can't miss a
+  // label here; buildCardSectionLabels falls back to the section id slug.
+  const chatSectionLabels = useMemo(() => {
+    const labels: Record<string, string> = {}
+    for (const section of deck?.sectionPlan ?? []) {
+      labels[section.id] = localizeDeckSection(section, t).label
+    }
+    return labels
+  }, [deck?.sectionPlan, t])
+
   const {
     messages,
     isLoading: chatLoading,
@@ -290,6 +304,8 @@ function DeckPage() {
     onDeckUpdate: handleDeckUpdate,
     onCardDataUpdate: handleCardDataUpdate,
     lockedCardIds,
+    sectionAssignments: deck?.sectionAssignments ?? {},
+    sectionLabels: chatSectionLabels,
     intentFilters,
     intentContext,
     initialMessages: deckPending.refillChat,

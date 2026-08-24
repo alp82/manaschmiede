@@ -9,6 +9,7 @@ import { getCardName } from './scryfall/types'
 import type { DeckCard } from './deck-utils'
 import { BASIC_LAND_IDS, BASIC_LAND_NAMES, BASIC_LAND_ID_SET } from './basic-lands'
 import { computeDeckDiff, applyDelta, resolveRemoveIds, enforceDeltaSize } from './deck-diff'
+import { buildCardSectionLabels } from './section-assignment'
 import { analyzeComposition, summarizeComposition } from './synergy-validation'
 import type { CardChange } from './deck-chat-types'
 export type { CardChange } from './deck-chat-types'
@@ -189,14 +190,10 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
       setIsLoading(true)
 
       try {
-        // Build reverse lookup: scryfallId -> section label
-        const cardSectionLabel = new Map<string, string>()
-        if (sectionAssignments && sectionLabels) {
-          for (const [sectionId, ids] of Object.entries(sectionAssignments)) {
-            const label = sectionLabels[sectionId] ?? sectionId
-            for (const id of ids) cardSectionLabel.set(id, label)
-          }
-        }
+        // Build reverse lookup: scryfallId -> section label. Labels are
+        // optional — a caller with assignments but no plan in scope still
+        // labels each card by its section id slug, which the model can read.
+        const cardSectionLabel = buildCardSectionLabels(sectionAssignments, sectionLabels)
 
         const currentCards = cards
           .filter((c) => c.zone === 'main')
