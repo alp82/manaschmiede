@@ -151,15 +151,26 @@ export function assembleQueries(
  * Scope the strategy fragments to the deck's colors, then merge them with the
  * already-scoped trait queries into the final candidate list.
  *
+ * Each fragment is parenthesized before the color clause is appended. Scryfall
+ * binds implicit AND tighter than OR, so the bare concatenation
+ * `t:elf OR t:goblin` + ` c<=wu` reads as `t:elf OR (t:goblin c<=wu)` and the
+ * left branch escapes the color scope. The fragments come from a Haiku parse of
+ * the player's free text, so their shape is not under our control and the
+ * grouping has to be forced here. `(t:elf) c<=wu` is equivalent to
+ * `t:elf c<=wu`, so single-clause fragments keep their meaning.
+ *
  * Assumes strategyQueries is already capped at MAX_STRATEGY_QUERIES upstream;
  * relies on assembleQueries for the strategy-first ordering + MAX_TOTAL_QUERIES
- * cap. An empty strategy yields a trait-only pool identical to today.
+ * cap. An empty strategy yields a trait-only pool identical to today, and an
+ * empty colorFilter appends nothing and so needs no grouping.
  */
 export function buildStrategyTraitPool(
   strategyQueries: string[],
   traitQueries: string[],
   colorFilter: string,
 ): string[] {
-  const scopedStrategy = strategyQueries.map((q) => q + colorFilter)
+  const scopedStrategy = strategyQueries.map((q) =>
+    colorFilter === '' ? q : `(${q})${colorFilter}`,
+  )
   return assembleQueries(scopedStrategy, traitQueries)
 }

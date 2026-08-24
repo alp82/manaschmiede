@@ -1,8 +1,7 @@
 /**
- * RED tests — buildStrategyTraitPool (convex/lib/strategyQueries.ts) and
- * colorCastableClause (convex/lib/intentContext.ts) do not exist yet.
- * These tests will fail with "does not provide an export named" until the
- * implementer adds those exports. That is the intended red state.
+ * Unit tests for buildStrategyTraitPool (convex/lib/strategyQueries.ts) and
+ * colorCastableClause (convex/lib/intentContext.ts) — the two halves of "scope
+ * the strategy fragments to the deck's colors".
  */
 import { describe, it, expect } from 'vitest'
 import {
@@ -21,8 +20,8 @@ describe('buildStrategyTraitPool', () => {
       ' c<=b',
     )
     expect(result).toEqual([
-      't:nightmare c<=b',
-      'o:"loses life" c<=b',
+      '(t:nightmare) c<=b',
+      '(o:"loses life") c<=b',
       'o:destroy c:b',
     ])
   })
@@ -33,8 +32,8 @@ describe('buildStrategyTraitPool', () => {
       ['t:creature c:b', 'o:graveyard c:b'],
       ' c<=b',
     )
-    expect(result[0]).toBe('t:zombie c<=b')
-    expect(result.indexOf('t:zombie c<=b')).toBeLessThan(
+    expect(result[0]).toBe('(t:zombie) c<=b')
+    expect(result.indexOf('(t:zombie) c<=b')).toBeLessThan(
       result.indexOf('t:creature c:b'),
     )
   })
@@ -56,19 +55,21 @@ describe('buildStrategyTraitPool', () => {
     ]
     const result = buildStrategyTraitPool(strategy, traits, ' c<=b')
     expect(result).toHaveLength(10)
-    expect(result[0]).toBe('t:nightmare c<=b')
-    expect(result[1]).toBe('t:zombie c<=b')
-    expect(result[2]).toBe('t:vampire c<=b')
+    expect(result[0]).toBe('(t:nightmare) c<=b')
+    expect(result[1]).toBe('(t:zombie) c<=b')
+    expect(result[2]).toBe('(t:vampire) c<=b')
     expect(result).not.toContain('t:i c:b')
   })
 
-  it('TC-SP-05 (dedup): scoped strategy + matching trait -> appears exactly once', () => {
+  it('TC-SP-05 (dedup): scoped strategy + byte-identical trait -> appears exactly once', () => {
+    // De-duplication is byte-exact, so a trait query only collides with a
+    // strategy fragment once it is written in the same parenthesized form.
     const result = buildStrategyTraitPool(
       ['t:zombie'],
-      ['t:zombie c<=b', 'o:graveyard c:b'],
+      ['(t:zombie) c<=b', 'o:graveyard c:b'],
       ' c<=b',
     )
-    const count = result.filter((q) => q === 't:zombie c<=b').length
+    const count = result.filter((q) => q === '(t:zombie) c<=b').length
     expect(count).toBe(1)
     expect(result).toContain('o:graveyard c:b')
   })
@@ -84,12 +85,20 @@ describe('buildStrategyTraitPool', () => {
 
   it('TC-SP-07 (empty traits): only scoped strategy queries returned', () => {
     const result = buildStrategyTraitPool(['t:nightmare'], [], ' c<=b')
-    expect(result).toEqual(['t:nightmare c<=b'])
+    expect(result).toEqual(['(t:nightmare) c<=b'])
   })
 
   it('TC-SP-08 (both empty): returns []', () => {
     const result = buildStrategyTraitPool([], [], ' c<=b')
     expect(result).toEqual([])
+  })
+
+  it('TC-SP-09 (grouping): an OR fragment is parenthesized so the color clause scopes both branches', () => {
+    const result = buildStrategyTraitPool(['t:elf OR t:goblin'], [], ' c<=wu')
+    // Scryfall binds implicit AND tighter than OR, so the bare concatenation
+    // 't:elf OR t:goblin c<=wu' reads as 't:elf OR (t:goblin c<=wu)' and lets
+    // the left branch escape the color scope entirely.
+    expect(result).toEqual(['(t:elf OR t:goblin) c<=wu'])
   })
 })
 
