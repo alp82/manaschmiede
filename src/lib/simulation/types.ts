@@ -147,7 +147,11 @@ export type Phase = 'untap' | 'upkeep' | 'draw' | 'main1' | 'combat' | 'main2' |
 
 export interface GameState {
   players: [PlayerState, PlayerState]
-  turn: number
+  /**
+   * The round in progress, counting from 1. A round is a turn for each player,
+   * so in round N each player takes their Nth turn.
+   */
+  round: number
   activePlayer: 0 | 1
   phase: Phase
 }
@@ -161,7 +165,12 @@ export interface GameState {
  */
 export interface GameResult {
   winner: 0 | 1 | -1
-  turns: number
+  /**
+   * Rounds the game lasted. The winner ends the game on their `rounds`th turn;
+   * the loser has taken either that many turns or one fewer, depending on which
+   * seat closed it out.
+   */
+  rounds: number
   winCondition: 'life' | 'mill' | 'draw'
   /**
    * The mana metrics, per seat, or `null` where the game ended before the turn
@@ -206,8 +215,13 @@ export interface SimulationResult {
   draws: number
   /** Games ending each way. `draw` is `draws`, repeated here for completeness. */
   winConditions: Record<GameResult['winCondition'], number>
-  avgTurns: number
-  medianTurns: number
+  /**
+   * Game length in rounds. The panel labels these as turns, because the number
+   * is the turn the winner ended the game on - which is the "decided on turn
+   * N" reading a Magic player expects.
+   */
+  avgRounds: number
+  medianRounds: number
   /**
    * The mana metrics per deck, each over the games that ran long enough to
    * sample it - not over `totalGames`. A game decided on turn six says nothing
@@ -223,7 +237,8 @@ export interface SimulationResult {
    */
   winRateCI95: [number, number]
   elapsed: number
-  turnDistribution: number[]
+  /** Games indexed by the round they ended on; index 0 is always empty. */
+  roundDistribution: number[]
 }
 
 export type WorkerIncoming =

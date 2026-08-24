@@ -1,5 +1,5 @@
 import type { GameResult, PerPlayer, PerPlayerRate, SimCard, SimulationResult } from './types'
-import { MAX_TURNS, runGame } from './game-state'
+import { MAX_ROUNDS, runGame } from './game-state'
 
 function xorshift128(seed: number) {
   let s0 = seed | 0 || 1
@@ -127,25 +127,25 @@ export function runSimulation(
 
   const wins: PerPlayer<number> = [0, 0]
   let draws = 0
-  let totalTurns = 0
+  let totalRounds = 0
   const winConditions: Record<GameResult['winCondition'], number> = { life: 0, mill: 0, draw: 0 }
-  const turnCounts: number[] = []
-  const turnDistribution: number[] = new Array(MAX_TURNS + 1).fill(0)
+  const roundCounts: number[] = []
+  const roundDistribution: number[] = new Array(MAX_ROUNDS + 1).fill(0)
 
   for (const r of results) {
     if (r.winner === -1) draws++
     else wins[r.winner]++
     winConditions[r.winCondition]++
-    totalTurns += r.turns
-    turnCounts.push(r.turns)
-    if (r.turns <= MAX_TURNS) turnDistribution[r.turns]++
+    totalRounds += r.rounds
+    roundCounts.push(r.rounds)
+    if (r.rounds <= MAX_ROUNDS) roundDistribution[r.rounds]++
   }
 
-  turnCounts.sort((a, b) => a - b)
-  const medianTurns = turnCounts.length > 0
-    ? turnCounts.length % 2 === 0
-      ? (turnCounts[turnCounts.length / 2 - 1] + turnCounts[turnCounts.length / 2]) / 2
-      : turnCounts[Math.floor(turnCounts.length / 2)]
+  roundCounts.sort((a, b) => a - b)
+  const medianRounds = roundCounts.length > 0
+    ? roundCounts.length % 2 === 0
+      ? (roundCounts[roundCounts.length / 2 - 1] + roundCounts[roundCounts.length / 2]) / 2
+      : roundCounts[Math.floor(roundCounts.length / 2)]
     : 0
 
   const elapsed = performance.now() - start
@@ -156,13 +156,13 @@ export function runSimulation(
     seatWins,
     draws,
     winConditions,
-    avgTurns: games > 0 ? totalTurns / games : 0,
-    medianTurns,
+    avgRounds: games > 0 ? totalRounds / games : 0,
+    medianRounds,
     manaScrewRate: metricRate(results, 'manaScrew'),
     manaFloodRate: metricRate(results, 'manaFlood'),
     curveHitRate: metricRate(results, 'curveHit'),
     winRateCI95: wilsonCI(wins[0], games),
     elapsed,
-    turnDistribution,
+    roundDistribution,
   }
 }

@@ -20,7 +20,9 @@ import {
 
 /**
  * The cap on rounds - one round being a turn for each player, which is what
- * `GameResult.turns` counts.
+ * `GameResult.rounds` counts. The per-turn sample constants below (`CURVE_TURNS`,
+ * `SCREW_TURN`, `FLOOD_TURN`) are read at the end of one player's own turn, so
+ * those genuinely count turns.
  *
  * A board stall is meant to be broken by decking, not by this cap: behind a
  * seven-card opener a 60-card deck has 53 cards left, so the player on the draw
@@ -29,7 +31,7 @@ import {
  * decks genuinely cannot kill each other rather than that the simulation gave
  * up.
  */
-export const MAX_TURNS = 60
+export const MAX_ROUNDS = 60
 
 /** Turns a player is expected to cast something on for `curveHit`. */
 const CURVE_TURNS = [2, 3, 4]
@@ -329,7 +331,7 @@ export function runTurn(state: GameState, rng: () => number): TurnOutcome {
   // Draw (skip first player's first turn). A player who cannot draw loses on
   // the attempt - an empty library is not itself a loss, which is why nothing
   // checks library size between turns.
-  if (!(state.turn === 1 && active === 0)) {
+  if (!(state.round === 1 && active === 0)) {
     if (!drawCard(player)) {
       return { kind: 'win', winner: defending, condition: 'mill' }
     }
@@ -460,7 +462,7 @@ function sampledAt(sampleTurn: number, obs: PlayerObservations, value: boolean):
 export function runGame(deckA: SimCard[], deckB: SimCard[], rng: () => number): GameResult {
   const state: GameState = {
     players: [createPlayer(deckA, rng), createPlayer(deckB, rng)],
-    turn: 0,
+    round: 0,
     activePlayer: 0,
     phase: 'untap',
   }
@@ -470,32 +472,34 @@ export function runGame(deckA: SimCard[], deckB: SimCard[], rng: () => number): 
     blankObservations(),
   ]
 
-  for (let turn = 1; turn <= MAX_TURNS; turn++) {
-    state.turn = turn
+  for (let round = 1; round <= MAX_ROUNDS; round++) {
+    state.round = round
 
     for (let active = 0; active < 2; active++) {
       state.activePlayer = active as 0 | 1
       const outcome = runTurn(state, rng)
-      observe(observations[active], state.players[active as 0 | 1], turn)
+      // In round N each player takes their Nth turn, so the round number is
+      // also this player's turn number - which is what `observe` samples on.
+      observe(observations[active], state.players[active as 0 | 1], round)
 
       if (outcome.kind === 'win') {
-        return makeResult(outcome.winner, turn, outcome.condition, observations)
+        return makeResult(outcome.winner, round, outcome.condition, observations)
       }
     }
   }
 
-  return makeResult(-1, MAX_TURNS, 'draw', observations)
+  return makeResult(-1, MAX_ROUNDS, 'draw', observations)
 }
 
 function makeResult(
   winner: 0 | 1 | -1,
-  turns: number,
+  rounds: number,
   winCondition: 'life' | 'mill' | 'draw',
   observations: [PlayerObservations, PlayerObservations],
 ): GameResult {
   return {
     winner,
-    turns,
+    rounds,
     winCondition,
     manaScrew: [
       sampledAt(SCREW_TURN, observations[0], observations[0].screwed),

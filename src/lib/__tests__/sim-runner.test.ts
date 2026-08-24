@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { metricRate, runSimulation, wilsonCI } from '../simulation/runner'
-import { MAX_TURNS } from '../simulation/game-state'
+import { MAX_ROUNDS } from '../simulation/game-state'
 import type { GameResult, SimulationResult } from '../simulation/types'
 import { deckOf, forest, land, simCard } from './sim-fixtures'
 
@@ -180,25 +180,25 @@ describe('the accounting', () => {
     expect(result.seatWins[0] + result.seatWins[1]).toBe(result.wins[0] + result.wins[1])
   })
 
-  it('[R] reports one turn bucket per round, plus a zero bucket', () => {
-    expect(result.turnDistribution).toHaveLength(MAX_TURNS + 1)
-    expect(result.turnDistribution[0]).toBe(0)
+  it('[R] reports one bucket per round, plus a zero bucket', () => {
+    expect(result.roundDistribution).toHaveLength(MAX_ROUNDS + 1)
+    expect(result.roundDistribution[0]).toBe(0)
   })
 
-  it('[R] puts every game in a turn bucket', () => {
-    // A game that reached the cap still has `turns === MAX_TURNS`, so nothing
+  it('[R] puts every game in a round bucket', () => {
+    // A game that reached the cap still has `rounds === MAX_ROUNDS`, so nothing
     // falls off the end of the histogram.
-    const counted = result.turnDistribution.reduce((a, b) => a + b, 0)
+    const counted = result.roundDistribution.reduce((a, b) => a + b, 0)
 
     expect(counted).toBe(result.totalGames)
   })
 
   it('[R] reports averages consistent with the histogram', () => {
-    const weighted = result.turnDistribution.reduce((sum, count, turn) => sum + count * turn, 0)
+    const weighted = result.roundDistribution.reduce((sum, count, round) => sum + count * round, 0)
 
-    expect(result.avgTurns).toBeCloseTo(weighted / result.totalGames, 10)
-    expect(result.medianTurns).toBeGreaterThan(0)
-    expect(result.medianTurns).toBeLessThanOrEqual(MAX_TURNS)
+    expect(result.avgRounds).toBeCloseTo(weighted / result.totalGames, 10)
+    expect(result.medianRounds).toBeGreaterThan(0)
+    expect(result.medianRounds).toBeLessThanOrEqual(MAX_ROUNDS)
   })
 
   it('[R] reports every rate as a fraction of the games that sampled it', () => {
@@ -223,11 +223,11 @@ describe('the accounting', () => {
     expect(empty.totalGames).toBe(0)
     expect(empty.wins).toEqual([0, 0])
     expect(empty.draws).toBe(0)
-    expect(empty.avgTurns).toBe(0)
-    expect(empty.medianTurns).toBe(0)
+    expect(empty.avgRounds).toBe(0)
+    expect(empty.medianRounds).toBe(0)
     expect(empty.manaScrewRate).toEqual([0, 0])
     expect(empty.winRateCI95).toEqual([0, 0])
-    expect(empty.turnDistribution.reduce((a, b) => a + b, 0)).toBe(0)
+    expect(empty.roundDistribution.reduce((a, b) => a + b, 0)).toBe(0)
   })
 })
 
@@ -335,7 +335,7 @@ describe('metricRate', () => {
     manaFlood: [boolean | null, boolean | null] = [null, null],
   ): GameResult => ({
     winner: 0,
-    turns: 10,
+    rounds: 10,
     winCondition: 'life',
     manaScrew,
     manaFlood,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_TURNS, runGame, runTurn, stateBasedActions } from '../simulation/game-state'
+import { MAX_ROUNDS, runGame, runTurn, stateBasedActions } from '../simulation/game-state'
 import type { CardEffect, Permanent, SimCard } from '../simulation/types'
 import {
   RIGGED_RNG,
@@ -32,7 +32,7 @@ describe('runGame with a non-creature win condition', () => {
 
     expect(result.winner).toBe(0)
     expect(result.winCondition).toBe('life')
-    expect(result.turns).toBeLessThan(10)
+    expect(result.rounds).toBeLessThan(10)
   })
 })
 
@@ -208,7 +208,7 @@ describe('running out of cards', () => {
     // away and, in a stalled mirror, handed the win to the wrong player.
     const result = runGame(emptyLibrary(), deckOf([], forest()), RIGGED_RNG)
 
-    expect(result.turns).toBe(2)
+    expect(result.rounds).toBe(2)
   })
 
   it('[R] reports the loss as a mill', () => {
@@ -262,7 +262,7 @@ describe('mana metrics', () => {
 
     const result = runGame(sevenCards, deckOf([], forest()), RIGGED_RNG)
 
-    expect(result.turns).toBe(2)
+    expect(result.rounds).toBe(2)
     expect(result.manaScrew[0]).toBeNull()
     expect(result.manaFlood[0]).toBeNull()
     expect(result.curveHit[0]).toBeNull()
@@ -467,7 +467,7 @@ describe('the end of a turn', () => {
   it('[R] discards down to seven, most expensive first', () => {
     const state = stateWith([], [])
     // Turn 2 so the draw step runs - player 0 skips it only on turn 1.
-    state.turn = 2
+    state.round = 2
     state.players[0].library = [brick('drawn', 1)]
     state.players[0].hand = [
       brick('one', 1),
@@ -518,8 +518,8 @@ describe('runGame', () => {
 
     expect(result.winner).toBe(0)
     expect(result.winCondition).toBe('life')
-    expect(result.turns).toBeGreaterThanOrEqual(1)
-    expect(result.turns).toBeLessThanOrEqual(MAX_TURNS)
+    expect(result.rounds).toBeGreaterThanOrEqual(1)
+    expect(result.rounds).toBeLessThanOrEqual(MAX_ROUNDS)
   })
 
   it('[R] reports one flag per player for each mana metric', () => {

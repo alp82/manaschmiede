@@ -131,7 +131,7 @@ export function playerWith(battlefield: Permanent[]): PlayerState {
 export function stateWith(p0: Permanent[], p1: Permanent[]): GameState {
   return {
     players: [playerWith(p0), playerWith(p1)],
-    turn: 1,
+    round: 1,
     activePlayer: 0,
     phase: 'combat',
   }
