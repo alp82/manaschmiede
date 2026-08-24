@@ -20,29 +20,11 @@
  *   - addCard-does-not-consult-gate (structural/code-review)
  */
 import { describe, it, expect } from 'vitest'
-import { getChatCardRejectionReason as getChatCardRejection } from '../card-validation'
+import { getIntentRejectionReason as getChatCardRejection, getFilterRejectionReason } from '../card-validation'
 import type { DeckFilters } from '../card-validation'
 import type { ScryfallCard } from '../scryfall/types'
-
-// ─── Fixture helpers ───────────────────────────────────────────────────────
-
-function makeCard(id: string, color_identity: string[]): ScryfallCard {
-  return {
-    id,
-    name: `Card ${id}`,
-    lang: 'en',
-    layout: 'normal',
-    cmc: 2,
-    type_line: 'Creature',
-    oracle_text: '',
-    color_identity,
-    set: 'tst',
-    set_name: 'Test Set',
-    rarity: 'common',
-    collector_number: '1',
-    legalities: {},
-  }
-}
+import { BASIC_LAND_IDS } from '../basic-lands'
+import { makeCard, makeBasicLand } from './card-fixtures'
 
 const WU_FILTERS: DeckFilters = { colors: ['W', 'U'] }
 const EMPTY_FILTERS: DeckFilters = { colors: [] }
@@ -147,5 +129,85 @@ describe('getChatCardRejection — Decision 1: fallback-resolved filters', () =>
   it('filters with colors:[] : any color card -> null (truly unconstrained)', () => {
     const result = getChatCardRejection(makeCard('5c', ['W', 'U', 'B', 'R', 'G']), EMPTY_FILTERS, false)
     expect(result).toBeNull()
+  })
+})
+
+// ─── Basic-land exemption (issue #13) ─────────────────────────────────────
+//
+// Budget and rarity filters express what the user wants to *buy*. Every basic
+// land fails both (price ~$0, rarity common), so judging them made every chat
+// request with a budget or rarity filter burn a guaranteed retry. Color and
+// format still apply: an off-color basic is a real mistake.
+
+describe('getChatCardRejection — basic lands bypass budget and rarity', () => {
+  const RARE_ONLY: DeckFilters = { colors: ['G'], rarities: ['rare'] }
+  const EXPENSIVE_ONLY: DeckFilters = { colors: ['G'], budgetMin: 5 }
+
+  it('basic land under rarities:[rare] -> null (not rejected on rarity)', () => {
+    const forest = makeBasicLand(BASIC_LAND_IDS.G, 'Forest', ['G'])
+    expect(getChatCardRejection(forest, RARE_ONLY, false)).toBeNull()
+  })
+
+  it('basic land under budgetMin:5 -> null (not rejected on price)', () => {
+    const forest = makeBasicLand(BASIC_LAND_IDS.G, 'Forest', ['G'])
+    expect(getChatCardRejection(forest, EXPENSIVE_ONLY, false)).toBeNull()
+  })
+
+  it('basic land under budgetMax:0.01 -> null (not rejected on price)', () => {
+    const forest = makeBasicLand(BASIC_LAND_IDS.G, 'Forest', ['G'])
+    expect(getChatCardRejection(forest, { colors: ['G'], budgetMax: 0.01 }, false)).toBeNull()
+  })
+
+  it('non-canonical printing of a basic is exempt too (matched on type line)', () => {
+    const forest = makeBasicLand('some-other-printing', 'Forest', ['G'])
+    expect(getChatCardRejection(forest, RARE_ONLY, false)).toBeNull()
+  })
+
+  it('off-color basic land is still rejected (color gate stays active)', () => {
+    const island = makeBasicLand(BASIC_LAND_IDS.U, 'Island', ['U'])
+    const result = getChatCardRejection(island, RARE_ONLY, false)
+    expect(result).not.toBeNull()
+    expect(result!.toLowerCase()).toMatch(/color/)
+  })
+
+  it('a non-land common is still rejected under rarities:[rare]', () => {
+    const spell = makeCard('common-spell', ['G'])
+    const result = getChatCardRejection(spell, RARE_ONLY, false)
+    expect(result).not.toBeNull()
+    expect(result!.toLowerCase()).toMatch(/rarity/)
+  })
+
+  it('a nonbasic land is NOT exempt (only basics are mana-tax-free)', () => {
+    const dual = makeCard('breeding-pool', ['G'], { type_line: 'Land — Forest Island' })
+    const result = getChatCardRejection(dual, RARE_ONLY, false)
+    expect(result).not.toBeNull()
+    expect(result!.toLowerCase()).toMatch(/rarity/)
+  })
+})
+
+// The exemption lives in getFilterRejectionReason, so it also covers the
+// section-fill preview gate and the combo generator, not just the chat path.
+
+describe('getFilterRejectionReason — basic-land exemption is shared by all callers', () => {
+  it('exempts a basic from rarity for callers that skip the locked bypass', () => {
+    const forest = makeBasicLand(BASIC_LAND_IDS.G, 'Forest', ['G'])
+    expect(getFilterRejectionReason(forest, { colors: ['G'], rarities: ['mythic'] })).toBeNull()
+  })
+
+  it('exempts a basic from a budget floor for those callers too', () => {
+    const forest = makeBasicLand(BASIC_LAND_IDS.G, 'Forest', ['G'])
+    expect(getFilterRejectionReason(forest, { colors: ['G'], budgetMin: 20 })).toBeNull()
+  })
+
+  it('still rejects an off-color basic', () => {
+    const swamp = makeBasicLand(BASIC_LAND_IDS.B, 'Swamp', ['B'])
+    expect(getFilterRejectionReason(swamp, { colors: ['G'], rarities: ['mythic'] })).not.toBeNull()
+  })
+
+  it('still rejects a basic that is illegal in the chosen format', () => {
+    const forest = makeBasicLand(BASIC_LAND_IDS.G, 'Forest', ['G'])
+    const result = getFilterRejectionReason(forest, { colors: ['G'], format: 'standard' })
+    expect(result).not.toBeNull()
+    expect(result!.toLowerCase()).toMatch(/legal/)
   })
 })

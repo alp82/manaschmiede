@@ -14,7 +14,7 @@ import {
   findSynergyIssue,
   summarizeComposition,
 } from './synergy-validation'
-import { getCardRejectionReason, getFilterRejectionReason, type DeckFilters } from './card-validation'
+import { getCardRejectionReason, getIntentRejectionReason, type DeckFilters } from './card-validation'
 
 interface PreviewCard {
   name: string
@@ -44,6 +44,12 @@ interface UseSectionFillOptions {
   onDeckUpdate: (cards: DeckCard[]) => void
   onCardDataUpdate: (card: ScryfallCard) => void
   onSectionAssign: (sectionId: string, scryfallIds: string[]) => void
+  /**
+   * Cards the user pinned. They bypass the intent gate, matching the chat
+   * path - the user pinned them, so no intent filter may reject them back out
+   * of a suggestion. Omit and the gate applies to every suggestion.
+   */
+  lockedCardIds?: Set<string>
 }
 
 
@@ -139,7 +145,9 @@ function buildCompositionFromDeck(
  *      user preference can legalize a card the app refuses to ship.
  *   2. Filter compliance (color identity, format, budget, rarity) — an
  *      off-color card is rejected before any synergy reasoning, because
- *      no amount of synergy can legalize a color violation.
+ *      no amount of synergy can legalize a color violation. Cards the user
+ *      locked bypass this gate, matching the chat path: the user pinned them,
+ *      so no intent filter may reject them back out of a suggestion.
  *   3. Synergy (tribal payoffs, triggered abilities, keyword gates).
  */
 function validateSection(
@@ -147,6 +155,7 @@ function validateSection(
   currentDeck: DeckCard[],
   cardDataMap: Map<string, ScryfallCard>,
   filters: DeckFilters,
+  lockedCardIds: Set<string>,
 ): { kept: PreviewCard[]; rejected: Array<{ name: string; reason: string }> } {
   // Composition includes the existing deck AND every preview card, so a
   // tribal payoff is fine if the same batch also adds enough creatures.
@@ -163,7 +172,11 @@ function validateSection(
       rejected.push({ name: p.name, reason: hardIssue })
       continue
     }
-    const filterIssue = getFilterRejectionReason(p.scryfallCard, filters)
+    const filterIssue = getIntentRejectionReason(
+      p.scryfallCard,
+      filters,
+      lockedCardIds.has(p.scryfallCard.id),
+    )
     if (filterIssue) {
       rejected.push({ name: p.name, reason: filterIssue })
       continue
@@ -178,6 +191,9 @@ function validateSection(
   return { kept, rejected }
 }
 
+/** Stable identity so the ref assignment below doesn't churn each render. */
+const EMPTY_LOCKED_IDS: Set<string> = new Set()
+
 export function useSectionFill({
   sections,
   deckCards,
@@ -186,6 +202,7 @@ export function useSectionFill({
   onDeckUpdate,
   onCardDataUpdate,
   onSectionAssign,
+  lockedCardIds,
 }: UseSectionFillOptions) {
   const [sectionStates, setSectionStates] = useState<Record<string, SectionFillState>>({})
   const [fillProgress, setFillProgress] = useState<FillProgress | null>(null)
@@ -197,6 +214,8 @@ export function useSectionFill({
   deckCardsRef.current = deckCards
   const cardDataMapRef = useRef(cardDataMap)
   cardDataMapRef.current = cardDataMap
+  const lockedIdsRef = useRef<Set<string>>(lockedCardIds ?? EMPTY_LOCKED_IDS)
+  lockedIdsRef.current = lockedCardIds ?? EMPTY_LOCKED_IDS
 
   const getSectionState = useCallback(
     (sectionId: string): SectionFillState => sectionStates[sectionId] ?? { status: 'idle' },
@@ -270,7 +289,7 @@ export function useSectionFill({
         scryfallLang,
         { deckComposition: compositionSummary },
       )
-      const firstResult = validateSection(firstBatch, deckCardsRef.current, cardDataMapRef.current, filters)
+      const firstResult = validateSection(firstBatch, deckCardsRef.current, cardDataMapRef.current, filters, lockedIdsRef.current)
       let kept = firstResult.kept
 
       // If the validator caught dead cards, retry once with explicit rejection feedback.
@@ -284,7 +303,7 @@ export function useSectionFill({
           scryfallLang,
           { deckComposition: compositionSummary, rejectedCards: firstResult.rejected },
         )
-        const retryResult = validateSection(retryBatch, deckCardsRef.current, cardDataMapRef.current, filters)
+        const retryResult = validateSection(retryBatch, deckCardsRef.current, cardDataMapRef.current, filters, lockedIdsRef.current)
         // Prefer retry - it knows about rejections. Fall back only if retry
         // produced nothing usable.
         if (retryResult.kept.length > 0) {
@@ -453,7 +472,7 @@ export function useSectionFill({
           scryfallLang,
           { deckComposition: compositionSummary },
         )
-        const firstResult = validateSection(firstBatch, accumulated, cardDataMapRef.current, filters)
+        const firstResult = validateSection(firstBatch, accumulated, cardDataMapRef.current, filters, lockedIdsRef.current)
         let previewCards = firstResult.kept
 
         if (firstResult.rejected.length > 0) {
@@ -466,7 +485,7 @@ export function useSectionFill({
             scryfallLang,
             { deckComposition: compositionSummary, rejectedCards: firstResult.rejected },
           )
-          const retryResult = validateSection(retryBatch, accumulated, cardDataMapRef.current, filters)
+          const retryResult = validateSection(retryBatch, accumulated, cardDataMapRef.current, filters, lockedIdsRef.current)
           // Prefer retry's cards - they know about the rejections. Fall back
           // to the first attempt's keepers only if retry produced nothing.
           if (retryResult.kept.length > 0) {
