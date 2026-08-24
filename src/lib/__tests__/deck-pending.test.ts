@@ -30,6 +30,7 @@ import {
   intentFingerprint,
   isPendingStale,
   hydratePending,
+  evictStalePending,
   buildPendingUpdate,
   clearCardLevelPending,
 } from '../deck-pending'
@@ -409,6 +410,87 @@ describe('hydratePending(loaded, currentIntent)', () => {
     }
     const result = hydratePending(freshLoaded, baseIntent)
     expect(result.refillChat).toEqual(refillChat)
+  })
+})
+
+// ─── evictStalePending (G2: eviction on every render, not just on mount) ─────
+//
+// The mount-only eviction let a stale slot be laundered: an intent change made
+// the slot stale, then any setter re-stamped the CURRENT fingerprint while
+// preserving the other keys, so the next reload saw a fresh-looking slot
+// holding a plan derived against an intent the user had since changed.
+// `evictStalePending` is the render-phase core that closes that window.
+
+describe('evictStalePending(pending, fingerprint)', () => {
+  const baseIntent = makeIntent()
+  const currentFp = intentFingerprint(baseIntent)
+  const staleFp = intentFingerprint(makeIntent({ archetypes: ['control'] }))
+
+  it('G2-a: fingerprint matches → returns the SAME reference (caller uses !== to decide whether to write)', () => {
+    const slot = { ...makePending(), intentFingerprint: currentFp }
+    expect(evictStalePending(slot, currentFp)).toBe(slot)
+  })
+
+  it('G2-b: fingerprint matches → every field survives', () => {
+    const slot = { ...makePending(), intentFingerprint: currentFp }
+    const result = evictStalePending(slot, currentFp)
+    expect(result.stagedPlan).toEqual(slot.stagedPlan)
+    expect(result.offeredCombos).toEqual(slot.offeredCombos)
+    expect(result.refillChat).toEqual(slot.refillChat)
+  })
+
+  it('G2-c: fingerprint moved → collapses to the empty slot under the NEW fingerprint', () => {
+    const slot = { ...makePending(), intentFingerprint: staleFp }
+    const result = evictStalePending(slot, currentFp)
+    expect(result).toEqual({ intentFingerprint: currentFp })
+    expect(result).not.toHaveProperty('stagedPlan')
+    expect(result).not.toHaveProperty('offeredCombos')
+    expect(result).not.toHaveProperty('refillChat')
+  })
+
+  it('G2-d: already-empty slot under a moved fingerprint → empty slot, no throw', () => {
+    expect(evictStalePending({ intentFingerprint: staleFp }, currentFp)).toEqual({
+      intentFingerprint: currentFp,
+    })
+  })
+
+  it('G2-e: does not mutate the input slot', () => {
+    const slot = { ...makePending(), intentFingerprint: staleFp }
+    const before = JSON.parse(JSON.stringify(slot))
+    evictStalePending(slot, currentFp)
+    expect(slot).toEqual(before)
+  })
+
+  it('G2-f: laundering path — a setter fired after an intent change cannot resurrect the staged layer', () => {
+    // Slot derived against the OLD intent, still holding the staged layer.
+    const slot = { ...makePending(), intentFingerprint: staleFp }
+    // The user commits a structural intent change, then types in the chat.
+    // The hook evicts first, so the setter writes onto the EMPTY slot.
+    const evicted = evictStalePending(slot, currentFp)
+    const afterSetter = buildPendingUpdate(
+      'refillChat',
+      [{ role: 'user' as const, content: 'more burn' }],
+      evicted,
+      currentFp,
+    )
+    expect(afterSetter.intentFingerprint).toBe(currentFp)
+    expect(afterSetter.refillChat).toHaveLength(1)
+    expect(afterSetter).not.toHaveProperty('stagedPlan')
+    expect(afterSetter).not.toHaveProperty('offeredCombos')
+    // And the slot is no longer stale, so a reload resumes nothing stale.
+    expect(isPendingStale(afterSetter, baseIntent)).toBe(false)
+  })
+
+  it('G2-g: without the eviction the same setter DOES launder the slot (the bug this closes)', () => {
+    const slot = { ...makePending(), intentFingerprint: staleFp }
+    const laundered = buildPendingUpdate(
+      'refillChat',
+      [{ role: 'user' as const, content: 'more burn' }],
+      slot,
+      currentFp,
+    )
+    expect(laundered).toHaveProperty('stagedPlan')
+    expect(isPendingStale(laundered, baseIntent)).toBe(false)
   })
 })
 

@@ -42,7 +42,11 @@ export function intentFingerprint(intent: DeckIntent): string {
   return structuralKey(intent)
 }
 
-/** Whether the slot was derived against a different structural intent. */
+/**
+ * Whether the slot was derived against a different structural intent — the
+ * predicate form of `evictStalePending`, which does the same comparison and
+ * acts on it. Change one and change the other.
+ */
 export function isPendingStale(pending: DeckPending, currentIntent: DeckIntent): boolean {
   return intentFingerprint(currentIntent) !== pending.intentFingerprint
 }
@@ -102,14 +106,35 @@ export function clearCardLevelPending(prev: DeckPending, fingerprint: string): D
 }
 
 /**
+ * Pure core of the decision-6 eviction, expressed over a FINGERPRINT rather
+ * than an intent so it can run on every render instead of only on mount. The
+ * predicate it acts on is the one `isPendingStale` reports.
+ *
+ * A slot whose `intentFingerprint` still matches is returned unchanged — the
+ * SAME reference, so a caller can use `!==` to decide whether it has to write.
+ * A slot derived against a different structural intent collapses to the empty
+ * slot: the staged plan, the offered combos, and the re-fill chat were all
+ * derived against an intent the user has since changed.
+ *
+ * Running this only on mount is what let a stale slot be laundered: the intent
+ * changed, then any setter re-stamped the current fingerprint onto the old keys
+ * (`buildPendingUpdate` always re-stamps), and the next reload resumed a plan
+ * that no longer matched the committed intent.
+ */
+export function evictStalePending(pending: DeckPending, fingerprint: string): DeckPending {
+  if (pending.intentFingerprint === fingerprint) return pending
+  return { intentFingerprint: fingerprint }
+}
+
+/**
  * Pure initialiser for the pending-slot: the decision-6 eviction path.
  *
  * Given a loaded slot (or `null`) and the current committed intent:
  * - `null`   → return an empty slot `{ intentFingerprint: <current> }`
- * - stale    → drop `stagedPlan` + `offeredCombos`, return `{ intentFingerprint: <current> }`
- * - fresh    → return the loaded data, updating the fingerprint to the current
- *              one (they are structurally identical, so the update is a no-op in
- *              practice but keeps the slot self-consistent).
+ * - stale    → drop the whole staged layer (`stagedPlan`, `offeredCombos`, and
+ *              `refillChat`), return `{ intentFingerprint: <current> }`
+ * - fresh    → return the loaded data as-is (its fingerprint already equals the
+ *              current one, so there is nothing to update).
  *
  * Extracted so it can be tested in isolation (the initialiser function of
  * `useState` is otherwise invisible to unit tests).
@@ -117,8 +142,5 @@ export function clearCardLevelPending(prev: DeckPending, fingerprint: string): D
 export function hydratePending(loaded: DeckPending | null, currentIntent: DeckIntent): DeckPending {
   const fingerprint = intentFingerprint(currentIntent)
   if (!loaded) return { intentFingerprint: fingerprint }
-  if (isPendingStale(loaded, currentIntent)) {
-    return { intentFingerprint: fingerprint }
-  }
-  return { ...loaded, intentFingerprint: fingerprint }
+  return evictStalePending(loaded, fingerprint)
 }
