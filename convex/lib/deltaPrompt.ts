@@ -7,11 +7,13 @@
  *
  * Zero runtime imports (no ActionCtx / fetch / callHaiku) so it is importable
  * from src/ node tests the same way cardPoolQueries.ts / strategyQueries.ts
- * are. generateDelta (in generateDeck.ts) wraps parseDeltaResponse with ctx +
- * logging.
+ * are - the two modules it does import, jsonLadder.ts and cardFilters.ts, are
+ * pure and zero-dependency themselves. generateDelta (in generateDeck.ts)
+ * wraps parseDeltaResponse with ctx + logging.
  */
 
 import { ANY_OBJECT_PATTERN, parseJsonLadder } from './jsonLadder'
+import { HARD_FILTER_PROMPT_RULES } from './cardFilters'
 
 /** Maximum entries kept in each direction of a delta edit. */
 const DELTA_CAP = 3
@@ -37,6 +39,7 @@ RULES:
 - Honor the deck's intent constraints (colors, archetypes, traits, strategy, budget) in DECK CONTEXT.
 - On a swap, the replacement should serve the same role and fit the same section as the card it replaces.
 - Only suggest real, existing Magic cards.
+${HARD_FILTER_PROMPT_RULES}
 
 OUTPUT FORMAT (JSON ONLY, no other text):
 {

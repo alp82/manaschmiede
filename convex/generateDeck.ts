@@ -4,6 +4,11 @@ import { v } from 'convex/values'
 import { callAnthropic, callHaiku, isTruncated, TRUNCATED_RESPONSE_MESSAGE } from './lib/anthropic'
 import { startLlmLog, completeLlmLog, failLlmLog, parseAndLog } from './lib/logLlmUsage'
 import { parseJsonLadder } from './lib/jsonLadder'
+import {
+  HARD_FILTER_PROMPT_RULES,
+  HARD_FILTER_SCRYFALL_QUERY,
+  isPlayableCard,
+} from './lib/cardFilters'
 import { buildIntentContextPrompt, colorFilterClause, colorCastableClause } from './lib/intentContext'
 import { extractSearchQueries, buildCombinedStrategy } from './lib/cardPoolQueries'
 import { buildStrategyTraitPool } from './lib/strategyQueries'
@@ -15,7 +20,7 @@ import {
   type DeltaOp,
   type DeltaResult,
 } from './lib/deltaPrompt'
-const SYSTEM_PROMPT = `You are an expert Magic: The Gathering casual deck builder.
+export const SYSTEM_PROMPT = `You are an expert Magic: The Gathering casual deck builder.
 
 RULES:
 - ALWAYS exactly 60 cards in the main deck. Count all cards including lands.
@@ -26,6 +31,7 @@ RULES:
 - Use ONLY real, existing Magic cards with ENGLISH Oracle names
 - Land base must support all colors proportionally
 - For 3+ colors, include mana-fixing artifacts
+${HARD_FILTER_PROMPT_RULES}
 
 Cards are validated automatically after generation — invalid cards get rejected and re-requested. Focus on synergy and fun.
 
@@ -57,15 +63,32 @@ interface GeneratedDeck {
   cards: GeneratedCard[]
 }
 
+/**
+ * The slice of a Scryfall search hit the pool needs: the prompt fields, plus
+ * the hard-filter fields so `isPlayableCard` can run on the response. Every
+ * field is one Scryfall returns on a search hit.
+ */
+interface PoolSearchHit {
+  name: string
+  type_line: string
+  oracle_text?: string
+  mana_cost?: string
+  cmc: number
+  color_identity: string[]
+  layout: string
+  set: string
+  set_name: string
+  legalities: Record<string, string>
+  border_color?: string
+  security_stamp?: string
+  set_type?: string
+  games?: string[]
+  oversized?: boolean
+  digital?: boolean
+}
+
 interface ScryfallSearchResult {
-  data?: Array<{
-    name: string
-    type_line: string
-    oracle_text?: string
-    mana_cost?: string
-    cmc: number
-    color_identity: string[]
-  }>
+  data?: PoolSearchHit[]
 }
 
 /**
@@ -84,10 +107,17 @@ interface CardPool {
   cardTypes: Record<string, string>
 }
 
-// Search Scryfall for cards matching a query
+// Search Scryfall for cards matching a query. The hard filter rides along on
+// every pool search, so the block the model reads can't offer it the cards the
+// app rejects downstream - mirroring searchCards in src/lib/scryfall/client.ts.
+//
+// The query is parenthesized first. Scryfall binds implicit AND tighter than
+// OR, so appending the filter to a bare `t:elf OR t:goblin` would exclude
+// planeswalkers from the right branch only, and these queries come from a
+// model that is free to write one.
 async function scryfallSearch(query: string): Promise<PoolCard[]> {
   const url = new URL('https://api.scryfall.com/cards/search')
-  url.searchParams.set('q', query)
+  url.searchParams.set('q', `(${query}) ${HARD_FILTER_SCRYFALL_QUERY}`)
   url.searchParams.set('order', 'edhrec') // sort by popularity
   url.searchParams.set('unique', 'cards')
 
@@ -97,7 +127,10 @@ async function scryfallSearch(query: string): Promise<PoolCard[]> {
     })
     if (!res.ok) return []
     const data: ScryfallSearchResult = await res.json()
-    return (data.data ?? []).map((c) => {
+    // Belt and suspenders, the same pairing searchCards uses: the query asks
+    // Scryfall to exclude these, and the pass here catches anything the query
+    // misses. A pool card the app would reject costs a retry downstream.
+    return (data.data ?? []).filter(isPlayableCard).map((c) => {
       const type = c.type_line.replace(/ —.*/, '') // "Creature" not "Creature — Elf Wizard"
       // The prompt gets the trimmed type; the map keeps the full type_line so
       // "Land Creature — Forest Dryad" still reads as a land downstream.
@@ -143,7 +176,7 @@ function withParseTimeout(p: Promise<{ queries: string[] }>): Promise<{ queries:
  * card data the server has: the model answers with bare names, so this map is
  * what lets enforceDeckSize tell a dual land from a spell.
  */
-async function buildCardPoolBlock(
+export async function buildCardPoolBlock(
   queries: string[],
   sliceSize: number,
 ): Promise<CardPool> {
@@ -193,7 +226,7 @@ async function buildCardPool(
 
 type ChatIntent = 'change' | 'question' | 'delta'
 
-const INTENT_CLASSIFIER_PROMPT = `Classify the user's latest message about their Magic: The Gathering deck into one of these intents:
+export const INTENT_CLASSIFIER_PROMPT = `Classify the user's latest message about their Magic: The Gathering deck into one of these intents:
 
 - "delta": A small, targeted edit that names 1-3 specific cards to add, remove, or swap (e.g. "swap Lightning Bolt for Shock", "add 2 Counterspell", "cut Craw Wurm"). The deck stays the same except for those few cards.
 - "change": A broader rebuild or a vague direction with no specific cards (e.g. "make it more aggressive", "rebuild this as a control deck", "improve the mana base", "build me an Elf deck").
@@ -201,7 +234,7 @@ const INTENT_CLASSIFIER_PROMPT = `Classify the user's latest message about their
 
 Respond with ONLY the intent word: "delta", "change", or "question". Nothing else.`
 
-const QUESTION_SYSTEM_PROMPT = `You are an expert Magic: The Gathering advisor helping a player understand their 60-card casual deck.
+export const QUESTION_SYSTEM_PROMPT = `You are an expert Magic: The Gathering advisor helping a player understand their 60-card casual deck.
 
 RULES:
 - Answer questions about the current deck, card interactions, strategy, rules, and MTG concepts
@@ -737,7 +770,7 @@ export const chat = action({
 
 // ─── Section Fill ───────────────────────────────────────────
 
-const SECTION_FILL_SYSTEM_PROMPT = `You are filling ONE SECTION of a Magic: The Gathering 60-card casual deck.
+export const SECTION_FILL_SYSTEM_PROMPT = `You are filling ONE SECTION of a Magic: The Gathering 60-card casual deck.
 
 RULES:
 - Card quantities MUST sum to the target count specified
@@ -746,6 +779,7 @@ RULES:
 - Pick cards that fit the section description and synergize with existing deck cards
 - Do NOT duplicate cards already in the deck
 - Stay within the allowed color identity (see DECK CONTEXT)
+${HARD_FILTER_PROMPT_RULES}
 
 Cards are validated automatically — wrong colors, bad synergies, and invalid cards get rejected.
 

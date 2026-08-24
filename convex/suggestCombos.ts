@@ -4,7 +4,12 @@ import { callAnthropic } from './lib/anthropic'
 import { startLlmLog, parseAndLog } from './lib/logLlmUsage'
 import { parseStrategyQueries } from './lib/strategyParse'
 import { parseJsonLadder } from './lib/jsonLadder'
-function getSystemPrompt(language: string): string {
+import { HARD_FILTER_PROMPT_RULES } from './lib/cardFilters'
+/**
+ * The combo system prompt. Exported so the hard-filter wiring is testable in
+ * both languages - the rules block sits inside the localized RULES list.
+ */
+export function getComboSystemPrompt(language: string): string {
   const langInstruction = language === 'de'
     ? `- Write combo names and explanations in German
 - Use ENGLISH card names (official Oracle names) in the "cards" array - these are needed for Scryfall lookups`
@@ -45,6 +50,7 @@ ${langInstruction}
 - Explain WHY the cards work together in 1-2 sentences
 - Prefer Modern/Legacy legal cards
 - 60-card deck, NOT Commander
+${HARD_FILTER_PROMPT_RULES}
 
 OUTPUT FORMAT (JSON ONLY):
 {
@@ -192,7 +198,7 @@ export const suggest = action({
       userPrompt += `\nHere are real cards that match the theme (prefer picking from these, but you can suggest others you know exist):\n${args.cardPool}`
     }
 
-    const systemPrompt = getSystemPrompt(language)
+    const systemPrompt = getComboSystemPrompt(language)
     const inputMessages = [{ role: 'user', content: userPrompt }]
     const model = 'claude-haiku-4-5-20251001'
     const logId = await startLlmLog(ctx, 'suggestCombos', model, systemPrompt, inputMessages)
