@@ -7,7 +7,7 @@ import { DeckCardList } from '../DeckCardList'
 import { Button } from '../ui/Button'
 import { UndoRedoButtons } from '../ui/UndoRedoButtons'
 import { analyzeDeck } from '../../lib/balance'
-import { useDeckChat, type ChatMessage as DeckChatMessage } from '../../lib/useDeckChat'
+import { useDeckChat, type ChatMessage as DeckChatMessage, type PendingChanges } from '../../lib/useDeckChat'
 import { useSectionFill } from '../../lib/useSectionFill'
 import { BASIC_LAND_ID_SET } from '../../lib/basic-lands'
 import { pickSectionForCard } from '../../lib/section-plan'
@@ -61,8 +61,13 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
 
   const cards = useMemo(() => projectLocked(state.deckCards, lockedCardIds), [state.deckCards, lockedCardIds])
 
-  const handleDeckUpdate = useCallback((updated: DeckCard[], name?: string, description?: string) => {
-    dispatch({ type: 'SET_DECK', cards: projectLocked(updated, lockedCardIds), name, description })
+  const handleDeckUpdate = useCallback((proposal: PendingChanges) => {
+    dispatch({
+      type: 'SET_DECK',
+      cards: projectLocked(proposal.resolvedCards, lockedCardIds),
+      name: proposal.deckName,
+      description: proposal.description,
+    })
   }, [dispatch, lockedCardIds])
 
   const handleCardDataUpdate = useCallback((card: ScryfallCard) => {
@@ -268,7 +273,6 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
 
     if (pending?.changes) {
       const next = applySectionInheritance(state.sectionAssignments, pending.changes, {
-        strictSingleSwap: false,
         targetSection: pending.targetSection,
         resolveCard: (id) => cardDataMap.get(id),
         sections,

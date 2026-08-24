@@ -14,7 +14,7 @@ import { UndoRedoButtons } from '../../components/ui/UndoRedoButtons'
 import { useToast } from '../../components/ui/Toast'
 import { analyzeDeck } from '../../lib/balance'
 import { useDeckChat } from '../../lib/useDeckChat'
-import type { CardChange } from '../../lib/deck-chat-types'
+import type { PendingChanges } from '../../lib/useDeckChat'
 import { loadDeck, persistDeck, pickFeaturedCardIds, type LocalDeck } from '../../lib/deck-storage'
 import { emptyIntent, deriveIntentFilters, buildChatIntentContext, type DeckIntent } from '../../lib/deck-intent'
 import { pickSectionForCard } from '../../lib/section-plan'
@@ -27,7 +27,7 @@ import { useDeckCardData } from '../../lib/use-deck-card-data'
 import { useDeckHistory } from '../../lib/use-deck-history'
 import { useSections, useSectionCards, useDeckDisplay } from '../../lib/use-deck-sections'
 import type { ScryfallCard } from '../../lib/scryfall/types'
-import type { DeckCard, DeckZone } from '../../lib/deck-utils'
+import type { DeckZone } from '../../lib/deck-utils'
 import { getTotalCards, copyDecklistToClipboard, mergeCardsIntoDeck, deriveLockedIds, deriveColorsFromCards, FORMAT_LABELS } from '../../lib/deck-utils'
 import { useT, useI18n } from '../../lib/i18n'
 import { useDeckSounds } from '../../lib/sounds'
@@ -176,24 +176,26 @@ function DeckPage() {
   // ─── AI Chat (edit mode) ────────────────────────────────────
 
   const handleDeckUpdate = useCallback(
-    (newCards: DeckCard[], name?: string, description?: string, changes?: CardChange[]) => {
+    (proposal: PendingChanges) => {
+      const { resolvedCards, deckName, description, changes, targetSection } = proposal
       setDeck((prev) => {
         if (!prev) return prev
 
         // Inherit section assignments for the applied change set via the shared
         // helper: a swap's added card takes the removed card's section, removed
-        // ids are purged, and remaining adds are routed by pickSectionForCard.
+        // ids are purged, and remaining adds go to the lane the caller targeted
+        // (a re-fill or top-up) or else are routed by pickSectionForCard.
         // Skip entirely when no plan exists — applySectionInheritance with an
         // empty `sections` would drop every add into unassigned; the prior
         // direct sectionAssignments is the correct no-plan fallback.
         let sectionAssignments = prev.sectionAssignments
         const plan = prev.sectionPlan ?? []
-        if (changes && changes.length > 0 && plan.length > 0) {
+        if (changes.length > 0 && plan.length > 0) {
           sectionAssignments = applySectionInheritance(
             sectionAssignments ?? {},
             changes,
             {
-              strictSingleSwap: true,
+              targetSection,
               resolveCard: (cid) => cardDataMap.get(cid),
               sections: plan,
             },
@@ -202,14 +204,14 @@ function DeckPage() {
 
         return {
           ...prev,
-          cards: newCards,
+          cards: resolvedCards,
           sectionAssignments,
-          name: name || prev.name,
+          name: deckName || prev.name,
           description: description || prev.description,
           updatedAt: Date.now(),
         }
       })
-      if (name) setDeckName(name)
+      if (deckName) setDeckName(deckName)
       if (description) setDeckDescription(description)
     },
     [cardDataMap],

@@ -104,11 +104,12 @@ interface UseDeckChatOptions {
   cardDataMap: Map<string, ScryfallCard>
   deckDescription: string
   /**
-   * Commit a proposed deck. `changes` carries the applied CardChange[] so the
-   * edit route can inherit sections per card (swaps inherit the removed card's
-   * section); the wizard handler ignores it and keeps its own section logic.
+   * Commit a proposed deck. Takes the whole staged proposal: `changes` lets a
+   * caller inherit sections per card (swaps inherit the removed card's
+   * section), and `targetSection` carries the lane a re-fill or top-up asked
+   * for, which the section assignment must honour (issue #17).
    */
-  onDeckUpdate: (cards: DeckCard[], name?: string, description?: string, changes?: CardChange[]) => void
+  onDeckUpdate: (proposal: PendingChanges) => void
   onCardDataUpdate: (card: ScryfallCard) => void
   lockedCardIds?: Set<string>
   sectionAssignments?: Record<string, string[]>
@@ -560,6 +561,13 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
         // resolvedMap, so they show up in the diff like any other change.
         const actualChanges = computeDeckDiff(cards, resolvedMap, cardDataMap)
 
+        // targetSection rides this path too, and must: the classifier reads a
+        // lane re-fill ("add N more cards to <lane>", naming no card) as a
+        // 'change', so gating it to the delta path would leave the re-fill it
+        // exists to serve routing by role. The prompt tells the model to keep
+        // the existing cards, so the diff is normally the handful of adds the
+        // lane asked for. A model that rebuilds instead funnels every add into
+        // that one lane - visible as a full ledger the user discards.
         setPending({
           deckName: deckResult.name,
           description: deckResult.description,
@@ -598,7 +606,7 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
 
   const applyChanges = useCallback(() => {
     if (!pending) return
-    onDeckUpdate(pending.resolvedCards, pending.deckName, pending.description, pending.changes)
+    onDeckUpdate(pending)
     const assistantMsg: ChatMessage = {
       role: 'assistant',
       content: pending.explanation ?? `${pending.deckName}: ${pending.description}`,
