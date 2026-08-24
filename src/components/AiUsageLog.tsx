@@ -16,6 +16,8 @@ interface LlmLog {
   outputTokens?: number
   durationMs?: number
   estimatedCostUsd?: number
+  // Anthropic's stop_reason. 'max_tokens' means the model was cut off.
+  stopReason?: string
   error?: string
 }
 
@@ -88,6 +90,7 @@ function LogEntry({ log }: { log: LlmLog }) {
               <span>{formatDuration(log.durationMs ?? 0)}</span>
             </>
           )}
+          {log.stopReason === 'max_tokens' && <span className="text-ink-red">TRUNCATED</span>}
           {log.status === 'error' && <span className="text-ink-red">FAILED</span>}
         </div>
       </button>

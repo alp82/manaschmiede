@@ -11,6 +11,8 @@
  * logging.
  */
 
+import { ANY_OBJECT_PATTERN, parseJsonLadder } from './jsonLadder'
+
 /** Maximum entries kept in each direction of a delta edit. */
 const DELTA_CAP = 3
 
@@ -97,40 +99,18 @@ function normalize(parsed: unknown): DeltaResult {
 /**
  * Parse a delta model response into a DeltaResult. Never throws.
  *
- * Ladder: JSON.parse -> fenced ```json -> bare ``` fence -> the first bare
- * embedded JSON object in surrounding prose. Anything malformed/empty/prose-only
- * degrades to a safe-empty result so the caller never sees an exception.
+ * Runs the shared ladder and swallows its failure: anything
+ * malformed/empty/prose-only degrades to a safe-empty result, so the caller
+ * never sees an exception.
  */
 export function parseDeltaResponse(text: string): DeltaResult {
   if (typeof text !== 'string' || text.trim() === '') return safeEmpty()
 
-  // 1. Plain JSON.
+  // A generic object match, not a "cards"-anchored one - the delta shape has
+  // no "cards" key.
   try {
-    return normalize(JSON.parse(text))
+    return normalize(parseJsonLadder(text, ANY_OBJECT_PATTERN))
   } catch {
-    // fall through
+    return safeEmpty()
   }
-
-  // 2. Fenced ```json ... ``` or bare ``` ... ``` fence.
-  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/)
-  if (fenceMatch) {
-    try {
-      return normalize(JSON.parse(fenceMatch[1].trim()))
-    } catch {
-      // fall through
-    }
-  }
-
-  // 3. First bare embedded JSON object in surrounding prose. Generic object
-  // match (not "cards"-anchored) - the delta shape has no "cards" key.
-  const objMatch = text.match(/\{[\s\S]*\}/)
-  if (objMatch) {
-    try {
-      return normalize(JSON.parse(objMatch[0]))
-    } catch {
-      // fall through
-    }
-  }
-
-  return safeEmpty()
 }

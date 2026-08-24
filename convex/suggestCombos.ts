@@ -1,8 +1,9 @@
 import { action } from './_generated/server'
 import { v } from 'convex/values'
 import { callAnthropic } from './lib/anthropic'
-import { startLlmLog, completeLlmLog } from './lib/logLlmUsage'
+import { startLlmLog, parseAndLog } from './lib/logLlmUsage'
 import { parseStrategyQueries } from './lib/strategyParse'
+import { parseJsonLadder } from './lib/jsonLadder'
 function getSystemPrompt(language: string): string {
   const langInstruction = language === 'de'
     ? `- Write combo names and explanations in German
@@ -65,6 +66,29 @@ interface ComboResult {
     cards: string[]
     explanation: string
   }>
+}
+
+/**
+ * Parse a combo response and drop malformed combos. No embedded-object rung:
+ * the prompt asks for JSON only, so a response that needs one is malformed
+ * either way.
+ */
+export function parseComboResponse(text: string): ComboResult {
+  const result = parseJsonLadder<ComboResult>(text)
+
+  if (!result.combos || !Array.isArray(result.combos)) {
+    throw new Error('AI response has an invalid format')
+  }
+
+  return {
+    combos: result.combos.filter(
+      (c) =>
+        typeof c.name === 'string' &&
+        Array.isArray(c.cards) &&
+        c.cards.length >= 2 &&
+        typeof c.explanation === 'string',
+    ),
+  }
 }
 
 export const suggest = action({
@@ -173,35 +197,8 @@ export const suggest = action({
     const model = 'claude-haiku-4-5-20251001'
     const logId = await startLlmLog(ctx, 'suggestCombos', model, systemPrompt, inputMessages)
     const llmResult = await callAnthropic(systemPrompt, inputMessages, { model, maxTokens: 4096 })
-    await completeLlmLog(ctx, logId, llmResult)
 
-    // Parse the response
-    let result: ComboResult
-    try {
-      result = JSON.parse(llmResult.text)
-    } catch {
-      const match = llmResult.text.match(/```(?:json)?\s*([\s\S]*?)```/)
-      if (match) {
-        result = JSON.parse(match[1].trim())
-      } else {
-        throw new Error('Could not parse AI response as JSON')
-      }
-    }
-
-    if (!result.combos || !Array.isArray(result.combos)) {
-      throw new Error('AI response has an invalid format')
-    }
-
-    // Validate and clean up
-    result.combos = result.combos.filter(
-      (c) =>
-        typeof c.name === 'string' &&
-        Array.isArray(c.cards) &&
-        c.cards.length >= 2 &&
-        typeof c.explanation === 'string',
-    )
-
-    return result
+    return parseAndLog(ctx, logId, llmResult, parseComboResponse)
   },
 })
 

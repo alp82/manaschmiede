@@ -45,6 +45,9 @@ export default defineSchema({
     outputTokens: v.optional(v.number()),
     durationMs: v.optional(v.number()),
     estimatedCostUsd: v.optional(v.number()),
+    // Anthropic's stop_reason. 'max_tokens' means the response was cut off,
+    // which is otherwise invisible in the log.
+    stopReason: v.optional(v.string()),
     error: v.optional(v.string()),
   }).index('by_action', ['action']),
 })

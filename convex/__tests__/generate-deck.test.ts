@@ -55,6 +55,21 @@ describe('parseResponse', () => {
     )
   })
 
+  it('reports a truncated code fence as an unparseable response', () => {
+    // The fence regex matches, but the JSON inside was cut off mid-object. The
+    // inner parse must not leak its SyntaxError to the caller.
+    expect(() =>
+      parseResponse('```json\n{"name":"X","cards":[{"name":"Plains"\n```'),
+    ).toThrow(/Could not parse AI response as JSON/)
+  })
+
+  it('falls through to the embedded-object rung after a failed fence', () => {
+    const deck = parseResponse(
+      '```json\ntruncated...\n```\n{"name":"Zombies","description":"","cards":[{"name":"Swamp","quantity":24}]}',
+    )
+    expect(deck.name).toBe('Zombies')
+  })
+
   it('throws when the JSON has no cards array', () => {
     expect(() => parseResponse('{"name":"X","description":""}')).toThrow(
       /invalid format/,
@@ -473,6 +488,12 @@ describe('parseSectionResponse', () => {
     expect(() => parseSectionResponse('no json here')).toThrow(
       /Could not parse AI response as JSON/,
     )
+  })
+
+  it('reports a truncated code fence as an unparseable response', () => {
+    expect(() =>
+      parseSectionResponse('```json\n{"cards":[{"name":"Shock"\n```'),
+    ).toThrow(/Could not parse AI response as JSON/)
   })
 
   it('throws when the JSON has no cards array', () => {

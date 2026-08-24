@@ -1,8 +1,9 @@
 import { action } from './_generated/server'
 import type { ActionCtx } from './_generated/server'
 import { v } from 'convex/values'
-import { callAnthropic, callHaiku } from './lib/anthropic'
-import { startLlmLog, completeLlmLog } from './lib/logLlmUsage'
+import { callAnthropic, callHaiku, isTruncated, TRUNCATED_RESPONSE_MESSAGE } from './lib/anthropic'
+import { startLlmLog, completeLlmLog, failLlmLog, parseAndLog } from './lib/logLlmUsage'
+import { parseJsonLadder } from './lib/jsonLadder'
 import { buildIntentContextPrompt, colorFilterClause, colorCastableClause } from './lib/intentContext'
 import { extractSearchQueries, buildCombinedStrategy } from './lib/cardPoolQueries'
 import { buildStrategyTraitPool } from './lib/strategyQueries'
@@ -209,25 +210,19 @@ RULES:
 - If asked about something completely unrelated to MTG or the deck, politely redirect: "I'm here to help with your deck! Ask me about cards, strategy, or rules."
 - Respond in the same language the user writes in`
 
+/** The deck object, anchored on the `cards` key so prose objects don't match. */
+const DECK_OBJECT_PATTERN = /\{[\s\S]*"cards"\s*:\s*\[[\s\S]*\][\s\S]*\}/
+
+/**
+ * Parse a deck response into a GeneratedDeck, dropping malformed cards and
+ * clamping non-basics to the 4-copy rule.
+ *
+ * Throws 'Could not parse AI response as JSON' when no rung of the ladder
+ * yields JSON, and 'AI response has an invalid format' when it yields
+ * something that isn't a deck.
+ */
 export function parseResponse(text: string): GeneratedDeck {
-  let deck: GeneratedDeck
-  try {
-    deck = JSON.parse(text)
-  } catch {
-    // Try code fence
-    const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/)
-    if (fenceMatch) {
-      deck = JSON.parse(fenceMatch[1].trim())
-    } else {
-      // Try to find a JSON object anywhere in the response
-      const jsonMatch = text.match(/\{[\s\S]*"cards"\s*:\s*\[[\s\S]*\][\s\S]*\}/)
-      if (jsonMatch) {
-        deck = JSON.parse(jsonMatch[0])
-      } else {
-        throw new Error('Could not parse AI response as JSON')
-      }
-    }
-  }
+  const deck = parseJsonLadder<GeneratedDeck>(text, DECK_OBJECT_PATTERN)
 
   if (!deck.name || !deck.cards || !Array.isArray(deck.cards)) {
     throw new Error('AI response has an invalid format')
@@ -433,8 +428,7 @@ async function generateWithEnforcement(
   const model = 'claude-haiku-4-5-20251001'
   const logId = await startLlmLog(ctx, 'chat.generate', model, systemPrompt, messages)
   const result = await callAnthropic(systemPrompt, messages, { model, maxTokens: 4096 })
-  await completeLlmLog(ctx, logId, result)
-  const deck = parseResponse(result.text)
+  const deck = await parseAndLog(ctx, logId, result, parseResponse)
 
   // Programmatic enforcement: force exactly 60 cards, 4-copy rule, land padding
   return enforceDeckSize(deck, lockedCards, options)
@@ -455,16 +449,20 @@ async function classifyIntent(ctx: ActionCtx, messages: Array<{ role: string; co
   if (!lastUserMsg) return 'change'
 
   const inputMessages = [{ role: 'user', content: lastUserMsg.content }]
+  const logId = await startLlmLog(ctx, 'chat.classify', 'claude-haiku-4-5-20251001', INTENT_CLASSIFIER_PROMPT, inputMessages)
   try {
-    const logId = await startLlmLog(ctx, 'chat.classify', 'claude-haiku-4-5-20251001', INTENT_CLASSIFIER_PROMPT, inputMessages)
     const result = await callHaiku(INTENT_CLASSIFIER_PROMPT, inputMessages)
     await completeLlmLog(ctx, logId, result)
+    // Truncation needs no special handling here: the answer is one word, and a
+    // cut-off one falls through to 'change' like any other unexpected label.
     const intent = result.text.trim().toLowerCase()
     if (intent === 'question') return 'question'
     if (intent === 'delta') return 'delta'
     return 'change'
-  } catch {
-    // Default to change on classification failure
+  } catch (err) {
+    // Default to change on classification failure. The log entry is marked
+    // errored rather than left pending forever.
+    await failLlmLog(ctx, logId, err instanceof Error ? err.message : String(err))
     return 'change'
   }
 }
@@ -606,9 +604,8 @@ async function generateDelta(ctx: ActionCtx, args: ChatArgs): Promise<DeltaResul
   const model = 'claude-haiku-4-5-20251001'
   const logId = await startLlmLog(ctx, 'chat.delta', model, systemPrompt, inputMessages)
   const result = await callAnthropic(systemPrompt, inputMessages, { model, maxTokens: 1024 })
-  await completeLlmLog(ctx, logId, result)
 
-  return parseDeltaResponse(result.text)
+  return parseAndLog(ctx, logId, result, parseDeltaResponse)
 }
 
 export const chat = action({
@@ -669,6 +666,13 @@ export const chat = action({
       const qModel = 'claude-haiku-4-5-20251001'
       const logId = await startLlmLog(ctx, 'chat.question', qModel, systemPrompt, args.messages)
       const result = await callAnthropic(systemPrompt, args.messages, { model: qModel, maxTokens: 1024 })
+      // Free text has no parse step to fail, so truncation is checked here.
+      // A cut-off answer reads exactly like a finished one, and half an answer
+      // about a rules interaction is worse than none.
+      if (isTruncated(result)) {
+        await failLlmLog(ctx, logId, TRUNCATED_RESPONSE_MESSAGE, result)
+        throw new Error(TRUNCATED_RESPONSE_MESSAGE)
+      }
       await completeLlmLog(ctx, logId, result)
       return { intent: 'question', answer: result.text }
     }
@@ -761,18 +765,13 @@ interface SectionFillResult {
   explanation: string
 }
 
+/**
+ * Parse a section-fill response, dropping malformed cards and clamping
+ * non-basics to the 4-copy rule. No embedded-object rung: the fill prompt asks
+ * for JSON only, so a response that needs one is malformed either way.
+ */
 export function parseSectionResponse(text: string): SectionFillResult {
-  let result: SectionFillResult
-  try {
-    result = JSON.parse(text)
-  } catch {
-    const match = text.match(/```(?:json)?\s*([\s\S]*?)```/)
-    if (match) {
-      result = JSON.parse(match[1].trim())
-    } else {
-      throw new Error('Could not parse AI response as JSON')
-    }
-  }
+  const result = parseJsonLadder<SectionFillResult>(text)
 
   if (!result.cards || !Array.isArray(result.cards)) {
     throw new Error('AI response has an invalid format')
@@ -888,9 +887,7 @@ export const fillSection = action({
     const fillModel = 'claude-haiku-4-5-20251001'
     const logId = await startLlmLog(ctx, 'fillSection', fillModel, systemPrompt, inputMessages)
     const llmResult = await callAnthropic(systemPrompt, inputMessages, { model: fillModel, maxTokens: 1024 })
-    await completeLlmLog(ctx, logId, llmResult)
-
-    const result = parseSectionResponse(llmResult.text)
+    const result = await parseAndLog(ctx, logId, llmResult, parseSectionResponse)
 
     // Enforce target count - trim excess from end
     let total = result.cards.reduce((s, c) => s + c.quantity, 0)
