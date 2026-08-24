@@ -35,7 +35,7 @@ import type { DeckCard } from '../deck-utils'
 const noBasics = (_id: string) => false
 const isForest = (id: string) => id === 'forest'
 
-function main(scryfallId: string, quantity: number, locked?: boolean): DeckCard {
+function makeCard(scryfallId: string, quantity: number, locked?: boolean): DeckCard {
   return locked
     ? { scryfallId, quantity, zone: 'main', locked: true }
     : { scryfallId, quantity, zone: 'main' }
@@ -46,7 +46,7 @@ function main(scryfallId: string, quantity: number, locked?: boolean): DeckCard 
 describe('mergeSectionFill - union with prior assignments', () => {
   it('a section that already holds ids keeps them alongside the new ones', () => {
     const { assignedIds } = mergeSectionFill({
-      deckCards: [main('bolt', 4), main('shock', 2)],
+      deckCards: [makeCard('bolt', 4), makeCard('shock', 2)],
       additions: [{ scryfallId: 'opt', quantity: 2 }],
       assignments: { spells: ['bolt', 'shock'] },
       sectionId: 'spells',
@@ -82,7 +82,7 @@ describe('mergeSectionFill - union with prior assignments', () => {
 
   it('re-adding an id already filed under the section does not duplicate it', () => {
     const { assignedIds } = mergeSectionFill({
-      deckCards: [main('elf', 2)],
+      deckCards: [makeCard('elf', 2)],
       additions: [{ scryfallId: 'elf', quantity: 1 }],
       assignments: { creatures: ['elf'] },
       sectionId: 'creatures',
@@ -111,7 +111,7 @@ describe('mergeSectionFill - union with prior assignments', () => {
 describe('mergeSectionFill - assigns only what the merge accepted', () => {
   it('an addition rejected by the 4-copy cap leaves the assignment untouched', () => {
     const { assignedIds, merged } = mergeSectionFill({
-      deckCards: [main('bolt', 4)],
+      deckCards: [makeCard('bolt', 4)],
       additions: [{ scryfallId: 'bolt', quantity: 2 }],
       assignments: { spells: ['bolt'] },
       sectionId: 'spells',
@@ -123,7 +123,7 @@ describe('mergeSectionFill - assigns only what the merge accepted', () => {
 
   it('a capped addition of an unassigned card produces no phantom entry', () => {
     const { assignedIds } = mergeSectionFill({
-      deckCards: [main('bolt', 4)],
+      deckCards: [makeCard('bolt', 4)],
       additions: [{ scryfallId: 'bolt', quantity: 1 }],
       assignments: { spells: ['shock'] },
       sectionId: 'spells',
@@ -134,7 +134,7 @@ describe('mergeSectionFill - assigns only what the merge accepted', () => {
 
   it('a locked card is not topped up and is not assigned', () => {
     const { assignedIds, merged } = mergeSectionFill({
-      deckCards: [main('bolt', 2, true)],
+      deckCards: [makeCard('bolt', 2, true)],
       additions: [{ scryfallId: 'bolt', quantity: 2 }],
       assignments: {},
       sectionId: 'spells',
@@ -157,7 +157,7 @@ describe('mergeSectionFill - assigns only what the merge accepted', () => {
 
   it('basic lands bypass the 4-copy cap and are assigned', () => {
     const { assignedIds, merged } = mergeSectionFill({
-      deckCards: [main('forest', 10)],
+      deckCards: [makeCard('forest', 10)],
       additions: [{ scryfallId: 'forest', quantity: 14 }],
       assignments: { lands: ['forest'] },
       sectionId: 'lands',
@@ -173,7 +173,7 @@ describe('mergeSectionFill - assigns only what the merge accepted', () => {
 describe('mergeSectionFill - merged deck', () => {
   it('a new card is appended to the main zone', () => {
     const { merged } = mergeSectionFill({
-      deckCards: [main('bolt', 4)],
+      deckCards: [makeCard('bolt', 4)],
       additions: [{ scryfallId: 'elf', quantity: 3 }],
       assignments: {},
       sectionId: 'creatures',
@@ -184,7 +184,7 @@ describe('mergeSectionFill - merged deck', () => {
 
   it('an existing card is topped up in place, not duplicated', () => {
     const { merged } = mergeSectionFill({
-      deckCards: [main('elf', 1)],
+      deckCards: [makeCard('elf', 1)],
       additions: [{ scryfallId: 'elf', quantity: 2 }],
       assignments: {},
       sectionId: 'creatures',
@@ -211,7 +211,7 @@ describe('mergeSectionFill - purity', () => {
   })
 
   it('does not mutate the input deck', () => {
-    const deckCards = [main('elf', 1)]
+    const deckCards = [makeCard('elf', 1)]
     mergeSectionFill({
       deckCards,
       additions: [{ scryfallId: 'elf', quantity: 2 }],

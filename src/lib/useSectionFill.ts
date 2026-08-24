@@ -44,10 +44,9 @@ interface UseSectionFillOptions {
   onDeckUpdate: (cards: DeckCard[]) => void
   onCardDataUpdate: (card: ScryfallCard) => void
   /**
-   * Replace a section's assigned ids. REPLACE, not merge - the wizard reducer
-   * overwrites the key wholesale. Callers must never send the added ids alone;
-   * route every write through `assignSection` below, which unions them with
-   * what the section already held (issue #18).
+   * Replace a section's assigned ids - replace, not merge. `mergeAndAssign` is
+   * the hook's only caller and supplies the union this contract needs; see
+   * mergeSectionFill in section-assignment.ts for why.
    */
   replaceSectionAssignment: (sectionId: string, scryfallIds: string[]) => void
   /**
@@ -227,9 +226,8 @@ export function useSectionFill({
 
   /**
    * Merge additions into a deck and file the accepted ids under `sectionId`.
-   * The only path to `replaceSectionAssignment` — it unions the accepted ids
-   * with what the section already held, which the replace-semantics consumer
-   * needs and cannot compute itself (issue #18).
+   * The only path to `replaceSectionAssignment` — see mergeSectionFill in
+   * section-assignment.ts for why the union is mandatory.
    *
    * `priorAssignments` overrides the rendered assignments map. `fillAllRemaining`
    * passes its own snapshot because it writes several sections in one async run,
@@ -555,6 +553,11 @@ export function useSectionFill({
     setFillProgress(null)
   }, [sections, sectionStates, intent, onCardDataUpdate, mergeAndAssign, updateSection, buildFilters, scryfallLang])
 
+  // Mirrors both of fillLands's early returns: unresolved colors (buildFilters
+  // returns null) and a resolved-but-empty color identity, which getFillColors
+  // reports as ready when no combo is chosen and no color is selected.
+  const canFillLands = (buildFilters()?.colors.length ?? 0) > 0
+
   const cancelFillAll = useCallback(() => {
     abortRef.current = true
     setFillProgress(null)
@@ -562,12 +565,13 @@ export function useSectionFill({
 
   return {
     /**
-     * False while the fill-phase color identity is still resolving. Callers must
-     * check it before any destructive preparation — `handleFillLands` strips the
-     * deck's basic lands before calling `fillLands`, which would otherwise leave
-     * the deck short when the gate blocks the refill.
+     * Whether `fillLands` can do anything: the fill colors have resolved AND at
+     * least one of them is present. Both of `fillLands`'s early returns, so a
+     * caller that checks it knows the call will not no-op. `handleFillLands`
+     * strips the deck's basic lands before calling, and a no-op after the strip
+     * leaves the deck with no lands at all.
      */
-    fillReady: buildFilters() !== null,
+    canFillLands,
     getSectionState,
     fillSection,
     applySection,
