@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { manaSources, parseLandColors, payCost } from '../simulation/mana'
+import { manaSources, parseCost, parseLandColors, payCost } from '../simulation/mana'
 import {
   cost,
   forest,
@@ -181,5 +181,77 @@ describe('parseLandColors', () => {
     const text = '{T}: Add {G}. {T}: Target creature gains {U} protection.'
 
     expect(parseLandColors(text, 'Land')).toEqual(['G'])
+  })
+})
+
+describe('parseCost', () => {
+  it('[R] reads an empty cost as free', () => {
+    expect(parseCost('')).toEqual({ generic: 0, colored: {}, cmc: 0 })
+  })
+
+  it('[R] reads a generic-and-colored cost', () => {
+    expect(parseCost('{2}{G}')).toEqual({ generic: 2, colored: { G: 1 }, cmc: 3 })
+  })
+
+  it('[R] counts repeated pips of the same color', () => {
+    expect(parseCost('{G}{G}{G}')).toEqual({ generic: 0, colored: { G: 3 }, cmc: 3 })
+  })
+
+  it('[R] counts pips of several colors', () => {
+    expect(parseCost('{1}{W}{U}')).toEqual({ generic: 1, colored: { W: 1, U: 1 }, cmc: 3 })
+  })
+
+  it('[R] reads a generic cost of ten as one symbol', () => {
+    expect(parseCost('{10}')).toEqual({ generic: 10, colored: {}, cmc: 10 })
+  })
+
+  it('[R] counts X as zero', () => {
+    // X is 0 everywhere except on the stack, and a card in hand or library is
+    // the only place the sim reads a cost.
+    expect(parseCost('{X}{R}')).toEqual({ generic: 0, colored: { R: 1 }, cmc: 1 })
+  })
+
+  it('[R] counts a Phyrexian pip as one mana of its color', () => {
+    expect(parseCost('{2}{W/P}')).toEqual({ generic: 2, colored: { W: 1 }, cmc: 3 })
+  })
+
+  it('[R] counts a hybrid pip as one mana', () => {
+    expect(parseCost('{W/U}').cmc).toBe(1)
+  })
+
+  it('[C] pins a hybrid pip to the first color it names', () => {
+    // Issue #37.
+    // A {W/U} spell is castable off either color, but the cost carries one W
+    // pip, so a mono-blue board reads it as uncastable. Widening this means
+    // `ManaCost.colored` growing a notion of alternatives - `payCost` matches
+    // pips to sources, so the alternative belongs on the pip, not the source.
+    expect(parseCost('{W/U}')).toEqual({ generic: 0, colored: { W: 1 }, cmc: 1 })
+  })
+
+  it('[C] reads a monocolor hybrid pip as costing one, not two', () => {
+    // Issue #37.
+    // {2/W} is "two generic or one white", and its mana value is 2. Reading it
+    // as 1 makes such a card look a turn cheaper than it is, and the AI sorts
+    // its casts by `cmc`. The `/P` branch runs first, then the generic `/`
+    // branch takes the first part that names a color - the `2` is dropped.
+    expect(parseCost('{2/W}')).toEqual({ generic: 0, colored: { W: 1 }, cmc: 1 })
+  })
+
+  it('[C] drops a colorless pip entirely', () => {
+    // Issue #37.
+    // {C} is one mana that only a colorless source can pay. It parses to
+    // nothing, so an Eldrazi reads as free. Modelling it needs a colorless pip
+    // in `ManaCost` and a matching branch in `payCost`.
+    expect(parseCost('{2}{C}')).toEqual({ generic: 2, colored: {}, cmc: 2 })
+  })
+
+  it('[C] drops a snow pip entirely', () => {
+    // Issue #37.
+    // {S} is one mana from a snow source. Same shape of gap as {C}.
+    expect(parseCost('{1}{S}')).toEqual({ generic: 1, colored: {}, cmc: 1 })
+  })
+
+  it('[R] ignores text outside the symbol braces', () => {
+    expect(parseCost('2G')).toEqual({ generic: 0, colored: {}, cmc: 0 })
   })
 })

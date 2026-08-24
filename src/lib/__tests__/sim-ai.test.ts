@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { chooseAttackers, chooseBlockers, chooseCasts } from '../simulation/ai'
+import {
+  chooseAttackers,
+  chooseBlockers,
+  chooseCasts,
+  chooseLand,
+  shouldMulligan,
+} from '../simulation/ai'
 import {
   cost,
   forest,
@@ -329,5 +335,116 @@ describe('chooseAttackers', () => {
     const bear = permanent(simCard({ id: 'bear', power: 2, toughness: 2 }))
 
     expect(chooseAttackers([bear], [], 20)).toEqual([0])
+  })
+})
+
+describe('shouldMulligan', () => {
+  /** A hand of `size` cards, `lands` of them Forests and the rest one-drops. */
+  const hand = (size: number, lands: number) => [
+    ...Array.from({ length: lands }, (_, i) => forest(`forest-${i}`)),
+    ...Array.from({ length: size - lands }, (_, i) =>
+      simCard({ id: `bear-${i}`, cost: cost(0, { G: 1 }) }),
+    ),
+  ]
+
+  describe('an opening seven', () => {
+    it.each([2, 3, 4, 5])('[R] keeps a seven with %i lands', (lands) => {
+      expect(shouldMulligan(hand(7, lands), 0)).toBe(false)
+    })
+
+    it.each([0, 1, 6, 7])('[R] ships a seven with %i lands', (lands) => {
+      // Too few to cast anything, or too few spells to cast.
+      expect(shouldMulligan(hand(7, lands), 0)).toBe(true)
+    })
+  })
+
+  describe('a six after one mulligan', () => {
+    it('[R] ships a six with no lands', () => {
+      expect(shouldMulligan(hand(6, 0), 1)).toBe(true)
+    })
+
+    it.each([1, 2, 3, 4, 5])('[R] keeps a six with %i lands', (lands) => {
+      // One land is enough at six: the next mulligan costs a card either way,
+      // and there is only one left to take.
+      expect(shouldMulligan(hand(6, lands), 1)).toBe(false)
+    })
+
+    it('[R] ships a six that is all lands', () => {
+      expect(shouldMulligan(hand(6, 6), 1)).toBe(true)
+    })
+  })
+
+  it('[R] keeps any hand once two mulligans have been taken', () => {
+    // `createPlayer` loops on this predicate, so a hand that always wants a
+    // mulligan is an infinite loop. The count is the only thing stopping it -
+    // a five-card hand of nothing but spells would otherwise ship forever.
+    expect(shouldMulligan(hand(5, 0), 2)).toBe(false)
+    expect(shouldMulligan(hand(5, 5), 2)).toBe(false)
+    expect(shouldMulligan(hand(4, 0), 3)).toBe(false)
+  })
+
+  it('[R] keeps a hand that is neither seven nor six cards', () => {
+    // Only the two sizes the mulligan loop can produce have thresholds.
+    expect(shouldMulligan(hand(5, 0), 0)).toBe(false)
+    expect(shouldMulligan(hand(0, 0), 0)).toBe(false)
+  })
+
+  it('[R] counts lands by card type, not by whether they are basic', () => {
+    const duals = Array.from({ length: 2 }, (_, i) => land(`dual-${i}`, ['G', 'U'], false))
+    const spells = Array.from({ length: 5 }, (_, i) =>
+      simCard({ id: `bear-${i}`, cost: cost(0, { G: 1 }) }),
+    )
+
+    expect(shouldMulligan([...duals, ...spells], 0)).toBe(false)
+  })
+})
+
+describe('chooseLand', () => {
+  const bear = (color: 'G' | 'U') =>
+    simCard({ id: `bear-${color}`, cost: cost(0, { [color]: 1 }) })
+
+  it('[R] reports -1 when the hand holds no land', () => {
+    expect(chooseLand([bear('G')], [])).toBe(-1)
+  })
+
+  it('[R] plays the only land in hand', () => {
+    expect(chooseLand([bear('G'), forest('a')], [])).toBe(1)
+  })
+
+  it('[R] plays a land for a color the board cannot make yet', () => {
+    const hand = [forest('a'), land('island', ['U']), bear('U')]
+
+    expect(chooseLand(hand, [permanent(forest('in-play'))])).toBe(1)
+  })
+
+  it('[R] ignores a color the board already makes', () => {
+    // Green is covered, so the Forest is not the land this hand needs.
+    const hand = [forest('a'), land('island', ['U']), bear('G'), bear('U')]
+
+    expect(chooseLand(hand, [permanent(forest('in-play'))])).toBe(1)
+  })
+
+  it('[R] falls back to the first land when no color is missing', () => {
+    const hand = [land('island', ['U']), forest('a'), bear('G')]
+
+    expect(chooseLand(hand, [permanent(forest('in-play'))])).toBe(0)
+  })
+
+  it('[R] reads a dual land as covering either color it needs', () => {
+    const hand = [forest('a'), land('dual', ['U', 'B'], false), bear('U')]
+
+    expect(chooseLand(hand, [])).toBe(1)
+  })
+
+  it('[R] ignores non-land permanents when reading the board colors', () => {
+    // Only lands produce mana in the model, so a mana creature on the
+    // battlefield must not make blue look covered. The Forest comes first in
+    // hand, so dropping the card-type filter picks it instead of the Island.
+    const manaElf = permanent(
+      simCard({ id: 'elf', producesColors: ['U'] }),
+    )
+    const hand = [forest('a'), land('island', ['U']), bear('U')]
+
+    expect(chooseLand(hand, [manaElf, permanent(forest('in-play'))])).toBe(1)
   })
 })

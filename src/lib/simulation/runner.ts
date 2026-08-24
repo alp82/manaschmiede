@@ -18,7 +18,14 @@ function xorshift128(seed: number) {
   }
 }
 
-function wilsonCI(wins: number, n: number): [number, number] {
+/**
+ * The 95% Wilson score interval for `wins` out of `n`.
+ *
+ * Exported for the suite: the boundaries are what the panel reads as "how much
+ * of this number is noise", and they are not observable through
+ * `runSimulation` at the sample sizes a test can afford.
+ */
+export function wilsonCI(wins: number, n: number): [number, number] {
   if (n === 0) return [0, 0]
   const p = wins / n
   const z = 1.96

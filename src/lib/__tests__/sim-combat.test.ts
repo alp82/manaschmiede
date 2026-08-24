@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { forecastCombat, resolveCombat } from '../simulation/combat'
+import {
+  canBlock,
+  forecastCombat,
+  killedBeforeDealingDamage,
+  lethalDamage,
+  resolveCombat,
+} from '../simulation/combat'
+import type { Keyword } from '../simulation/types'
 import { nonCreature, permanent, simCard, stateWith } from './sim-fixtures'
 
 describe('resolveCombat', () => {
@@ -201,5 +208,162 @@ describe('forecastCombat', () => {
     expect(forecast.defenderLifeChange).toBe(-5)
     expect(forecast.blockersLost.map((p) => p.card.id)).toEqual(['chump'])
     expect(forecast.attackersLost).toEqual([])
+  })
+})
+
+describe('canBlock', () => {
+  const ground = () => permanent(simCard({ id: 'ground', power: 2, toughness: 2 }))
+  const withKeyword = (id: string, ...keywords: Keyword[]) =>
+    permanent(simCard({ id, power: 2, toughness: 2, keywords: new Set(keywords) }))
+
+  it('[R] stops a ground creature from blocking a flier', () => {
+    expect(canBlock(ground(), withKeyword('drake', 'flying'))).toBe(false)
+  })
+
+  it('[R] lets a flier block a flier', () => {
+    expect(canBlock(withKeyword('hawk', 'flying'), withKeyword('drake', 'flying'))).toBe(true)
+  })
+
+  it('[R] lets reach block a flier', () => {
+    expect(canBlock(withKeyword('spider', 'reach'), withKeyword('drake', 'flying'))).toBe(true)
+  })
+
+  it('[R] lets a flier block a ground creature', () => {
+    expect(canBlock(withKeyword('hawk', 'flying'), ground())).toBe(true)
+  })
+
+  it('[R] lets a tapped creature block', () => {
+    // Tapped blockers are filtered out by `chooseBlockers`, not here. Anything
+    // reading `canBlock` as the whole legality check will let one through.
+    expect(canBlock(permanent(ground().card, { tapped: true }), ground())).toBe(true)
+  })
+
+  /**
+   * Every keyword the model has, and whether `canBlock` reads it on the
+   * *attacker* as evasion. Flying is the only one.
+   *
+   * The type is the point: this is a full `Record<Keyword, boolean>`, so a
+   * keyword added to `Keyword` fails to compile until it is classified here.
+   * A future evasion keyword gets a home rather than passing unnoticed.
+   */
+  const IS_EVASION: Record<Keyword, boolean> = {
+    flying: true,
+    // Enforced by `chooseBlockers`, which needs two blockers before it assigns
+    // any - `canBlock` is asked about one blocker at a time and can't see that.
+    menace: false,
+    // Answers flying on the blocker; on an attacker it means nothing.
+    reach: false,
+    first_strike: false,
+    double_strike: false,
+    deathtouch: false,
+    trample: false,
+    lifelink: false,
+    vigilance: false,
+    indestructible: false,
+    // Keeps a creature from attacking, never from blocking.
+    defender: false,
+    haste: false,
+    flash: false,
+    hexproof: false,
+  }
+
+  const keywordsWhere = (evasive: boolean) =>
+    (Object.entries(IS_EVASION) as Array<[Keyword, boolean]>)
+      .filter(([, isEvasion]) => isEvasion === evasive)
+      .map(([keyword]) => keyword)
+
+  it.each(keywordsWhere(true))(
+    '[R] keeps a ground creature from blocking a %s attacker',
+    (keyword) => {
+      expect(canBlock(ground(), withKeyword('attacker', keyword))).toBe(false)
+    },
+  )
+
+  it.each(keywordsWhere(false))(
+    '[R] lets a ground creature block a %s attacker',
+    (keyword) => {
+      expect(canBlock(ground(), withKeyword('attacker', keyword))).toBe(true)
+    },
+  )
+
+  it('[R] lets a defender block', () => {
+    expect(canBlock(withKeyword('wall', 'defender'), ground())).toBe(true)
+  })
+})
+
+describe('lethalDamage', () => {
+  const bear = (toughness: number) => simCard({ id: 'bear', power: 2, toughness })
+
+  it('[R] is the blocker toughness for a plain attacker', () => {
+    expect(lethalDamage(permanent(bear(2)), permanent(bear(4)))).toBe(4)
+  })
+
+  it('[R] subtracts damage the blocker already has', () => {
+    expect(lethalDamage(permanent(bear(2)), permanent(bear(4), { damage: 3 }))).toBe(1)
+  })
+
+  it('[R] never goes below zero', () => {
+    expect(lethalDamage(permanent(bear(2)), permanent(bear(2), { damage: 9 }))).toBe(0)
+  })
+
+  it('[R] is one for a deathtouch attacker', () => {
+    // This is what lets a deathtouch trampler send the rest at the player.
+    const serpent = simCard({
+      id: 'serpent',
+      power: 9,
+      toughness: 9,
+      keywords: new Set<Keyword>(['deathtouch']),
+    })
+
+    expect(lethalDamage(permanent(serpent), permanent(bear(8)))).toBe(1)
+  })
+})
+
+describe('killedBeforeDealingDamage', () => {
+  const attacker = (toughness: number, ...keywords: Keyword[]) =>
+    permanent(simCard({ id: 'attacker', power: 3, toughness, keywords: new Set(keywords) }))
+  const blocker = (power: number, ...keywords: Keyword[]) =>
+    permanent(simCard({ id: 'blocker', power, toughness: 2, keywords: new Set(keywords) }))
+
+  it('[R] reports a first-strike blocker that kills the attacker outright', () => {
+    expect(killedBeforeDealingDamage(attacker(2), [blocker(2, 'first_strike')])).toBe(true)
+  })
+
+  it('[R] reports a double-strike blocker the same way', () => {
+    expect(killedBeforeDealingDamage(attacker(2), [blocker(2, 'double_strike')])).toBe(true)
+  })
+
+  it('[R] ignores a blocker without first strike', () => {
+    // A vanilla blocker deals its damage in the same step the attacker does,
+    // so the attacker still connects.
+    expect(killedBeforeDealingDamage(attacker(2), [blocker(9)])).toBe(false)
+  })
+
+  it('[R] spares an attacker that fights in the first-strike step itself', () => {
+    expect(killedBeforeDealingDamage(attacker(2, 'first_strike'), [blocker(9, 'first_strike')]))
+      .toBe(false)
+    expect(killedBeforeDealingDamage(attacker(2, 'double_strike'), [blocker(9, 'first_strike')]))
+      .toBe(false)
+  })
+
+  it('[R] adds up several first strikers', () => {
+    expect(killedBeforeDealingDamage(attacker(4), [blocker(2, 'first_strike')])).toBe(false)
+    expect(
+      killedBeforeDealingDamage(attacker(4), [
+        blocker(2, 'first_strike'),
+        blocker(2, 'first_strike'),
+      ]),
+    ).toBe(true)
+  })
+
+  it('[R] counts a first-striking deathtouch blocker as lethal at any power', () => {
+    expect(killedBeforeDealingDamage(attacker(20), [blocker(0, 'first_strike', 'deathtouch')]))
+      .toBe(true)
+  })
+
+  it('[R] counts damage the attacker already has', () => {
+    const wounded = permanent(simCard({ id: 'wounded', power: 3, toughness: 4 }), { damage: 3 })
+
+    expect(killedBeforeDealingDamage(wounded, [blocker(1, 'first_strike')])).toBe(true)
   })
 })
