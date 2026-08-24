@@ -305,7 +305,7 @@ function SplitStatBox({
         {sides.map((side, i) => (
           // Index as key: two decks can share an abbreviated name.
           <div key={i} className="flex items-baseline justify-between gap-2">
-            <span className="font-mono text-mono-marginal uppercase tracking-mono-marginal text-cream-400">
+            <span className="font-mono text-mono-label uppercase tracking-mono-label text-cream-300">
               {side}
             </span>
             <span className="font-mono text-mono-num tabular-nums text-cream-100">

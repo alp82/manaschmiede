@@ -245,6 +245,41 @@ describe('mana metrics', () => {
     expect(result.curveHit[0]).toBe(true)
   })
 
+  it('[R] reports no reading at all for a game that ended before the sample turn', () => {
+    // Screw is read on turn 4 and flood on turn 8. A game decided on turn 2
+    // sampled neither, and calling that "not screwed, not flooded" is how game
+    // length gets back into a metric that is supposed to be about draws:
+    // `runSimulation` leaves a null out of that metric's denominator.
+    const sevenCards = [
+      forest(),
+      forest(),
+      forest(),
+      forest(),
+      bear(),
+      bear(),
+      bear(),
+    ]
+
+    const result = runGame(sevenCards, deckOf([], forest()), RIGGED_RNG)
+
+    expect(result.turns).toBe(2)
+    expect(result.manaScrew[0]).toBeNull()
+    expect(result.manaFlood[0]).toBeNull()
+    expect(result.curveHit[0]).toBeNull()
+  })
+
+  it('[R] reports no reading for the player who never took the deciding turn', () => {
+    // Player 0 loses on their own turn-2 draw, so player 1 never takes turn 2.
+    // Both sides are unsampled, but for different reasons - one ran out of
+    // game, the other out of turns.
+    const sevenCards = [forest(), forest(), forest(), forest(), bear(), bear(), bear()]
+
+    const result = runGame(sevenCards, deckOf([], forest()), RIGGED_RNG)
+
+    expect(result.manaScrew[1]).toBeNull()
+    expect(result.curveHit[1]).toBeNull()
+  })
+
   it('[R] reports mana screw for a player still under three lands on turn 4', () => {
     const oneLand = deckOf([forest(), bear(), bear(), bear(), bear(), bear(), bear()], bear())
 

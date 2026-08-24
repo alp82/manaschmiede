@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { runSimulation, wilsonCI } from '../simulation/runner'
+import { metricRate, runSimulation, wilsonCI } from '../simulation/runner'
 import { MAX_TURNS } from '../simulation/game-state'
-import type { SimulationResult } from '../simulation/types'
+import type { GameResult, SimulationResult } from '../simulation/types'
 import { deckOf, forest, land, simCard } from './sim-fixtures'
 
 /**
@@ -201,7 +201,7 @@ describe('the accounting', () => {
     expect(result.medianTurns).toBeLessThanOrEqual(MAX_TURNS)
   })
 
-  it('[R] reports every rate as a fraction of the games played', () => {
+  it('[R] reports every rate as a fraction of the games that sampled it', () => {
     for (const rates of [result.manaScrewRate, result.manaFloodRate, result.curveHitRate]) {
       for (const rate of rates) {
         expect(rate).toBeGreaterThanOrEqual(0)
@@ -325,5 +325,48 @@ describe('which deck sits in which seat', () => {
 
     expect(odd.wins).toEqual([0, 51])
     expect(odd.seatWins).toEqual([25, 26])
+  })
+})
+
+describe('metricRate', () => {
+  /** A finished game carrying one reading per seat for every mana metric. */
+  const game = (
+    manaScrew: [boolean | null, boolean | null],
+    manaFlood: [boolean | null, boolean | null] = [null, null],
+  ): GameResult => ({
+    winner: 0,
+    turns: 10,
+    winCondition: 'life',
+    manaScrew,
+    manaFlood,
+    curveHit: [null, null],
+  })
+
+  it('[R] divides by the games that sampled the metric, not by every game', () => {
+    // One screwed game and one that ended before turn 4. Over every game that
+    // reads 50%, which is the fast game reported as clean mana rather than as
+    // no reading at all.
+    const rates = metricRate([game([true, true]), game([null, null])], 'manaScrew')
+
+    expect(rates).toEqual([1, 1])
+  })
+
+  it('[R] keeps a denominator per seat', () => {
+    // One seat can be sampled while the other is not: the loser never takes
+    // the turn the winner won on.
+    const rates = metricRate([game([true, null]), game([false, false])], 'manaScrew')
+
+    expect(rates).toEqual([0.5, 0])
+  })
+
+  it('[R] reads zero rather than NaN for a metric no game sampled', () => {
+    expect(metricRate([game([null, null])], 'manaFlood')).toEqual([0, 0])
+    expect(metricRate([], 'manaFlood')).toEqual([0, 0])
+  })
+
+  it('[R] reads each metric off its own field', () => {
+    const rates = metricRate([game([false, false], [true, true])], 'manaFlood')
+
+    expect(rates).toEqual([1, 1])
   })
 })

@@ -1,4 +1,4 @@
-import type { GameState, Permanent, PlayerState } from './types'
+import type { BlockAssignments, GameState, Permanent, PlayerState } from './types'
 import { isDestroyedBySba } from './state-based-actions'
 
 export function canBlock(blocker: Permanent, attacker: Permanent): boolean {
@@ -8,6 +8,25 @@ export function canBlock(blocker: Permanent, attacker: Permanent): boolean {
     return false
   }
   return true
+}
+
+/**
+ * More damage than any toughness, so a deathtouch blocker's damage reads as
+ * lethal to the same arithmetic that prices ordinary power.
+ */
+const DEATHTOUCH_DAMAGE = 999
+
+/**
+ * The damage `source` deals to a creature it is fighting, for the purpose of
+ * killing it.
+ *
+ * Deathtouch is modelled as an enormous number rather than as a flag
+ * `isDestroyedBySba` reads, so every caller asking "do these blockers kill it"
+ * gets the same answer. Life totals and lifelink take `card.power` directly -
+ * this is creature damage only.
+ */
+export function damageToCreature(source: Permanent): number {
+  return source.card.keywords.has('deathtouch') ? DEATHTOUCH_DAMAGE : source.card.power
 }
 
 /** Damage `attacker` must assign to `blocker` before the rest can trample over. */
@@ -61,7 +80,7 @@ export function killedBeforeDealingDamage(
   let damage = attacker.damage
   for (const blocker of blockers) {
     if (!fightsInFirstStrikeStep(blocker)) continue
-    damage += blocker.card.keywords.has('deathtouch') ? 999 : blocker.card.power
+    damage += damageToCreature(blocker)
   }
   return damage >= attacker.card.toughness
 }
@@ -74,7 +93,7 @@ export function killedBeforeDealingDamage(
 function damageStep(
   dealsDamageThisStep: (p: Permanent) => boolean,
   attackerIndices: number[],
-  blockerAssignments: Map<number, number[]>,
+  blockerAssignments: BlockAssignments,
   state: GameState,
 ): void {
   const { active, defending, attackerBoard, defenderBoard } = combatBoards(state)
@@ -109,14 +128,15 @@ function damageStep(
     // block fights in this step. A dead attacker is out of combat, so its
     // blockers have nothing left to hit - hence the `markedForDeath` skip above.
     //
-    // Deathtouch is asymmetric here: a blocker forces a kill with 999 damage,
-    // but an attacker only assigns `lethalDamage`'s 1, and `isDestroyedBySba`
-    // doesn't model deathtouch - so a deathtouch attacker kills nothing. That
-    // hole predates this step split and is tracked separately.
+    // Deathtouch is asymmetric here: a blocker forces a kill through
+    // `damageToCreature`, but an attacker only assigns `lethalDamage`'s 1, and
+    // `isDestroyedBySba` doesn't model deathtouch - so a deathtouch attacker
+    // kills nothing. That hole predates this step split and is tracked
+    // separately.
     for (const blkIdx of blockerIdxs) {
       const blk = defenderBoard[blkIdx]
       if (!blk || blk.markedForDeath || !dealsDamageThisStep(blk)) continue
-      atk.damage += blk.card.keywords.has('deathtouch') ? 999 : blk.card.power
+      atk.damage += damageToCreature(blk)
       if (blk.card.keywords.has('lifelink')) {
         state.players[defending].life += blk.card.power
       }
@@ -126,7 +146,7 @@ function damageStep(
 
 export function resolveCombat(
   attackerIndices: number[],
-  blockerAssignments: Map<number, number[]>,
+  blockerAssignments: BlockAssignments,
   state: GameState,
 ): void {
   const { attackerBoard, defenderBoard } = combatBoards(state)
@@ -193,7 +213,7 @@ function battlefieldOnly(battlefield: Permanent[]): PlayerState {
  */
 export function forecastCombat(
   attackerIndices: number[],
-  blockerAssignments: Map<number, number[]>,
+  blockerAssignments: BlockAssignments,
   attackerBoard: readonly Permanent[],
   defenderBoard: readonly Permanent[],
 ): CombatForecast {
