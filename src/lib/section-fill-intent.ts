@@ -19,7 +19,13 @@ export interface SectionFillIntent {
   budgetMin: number | null
   budgetMax: number | null
   rarityFilter: string[]
-  sectionAssignments: Record<string, string[]> | undefined
+  /**
+   * Cards already filed under each section, keyed by section id. Section fill
+   * needs it to size each section's deficit and to preserve prior assignments
+   * when it writes new ones — both adapters must supply a real map, never a
+   * placeholder, or every section reads as empty (issue #18).
+   */
+  sectionAssignments: Record<string, string[]>
   /**
    * Resolve the fill-phase color identity. `ready: false` means a source of
    * truth hasn't resolved yet (combo card data still loading, or the deck's
@@ -45,14 +51,16 @@ export function sectionFillIntentFromWizard(state: WizardState): SectionFillInte
 
 /**
  * Adapt a persisted DeckIntent into a SectionFillIntent. The app is 60-card
- * casual-only, so `format` is the constant `'casual'`; DeckIntent carries no
- * section assignments. Color identity comes from the committed intent colors,
- * falling back to the deck's card-derived union; fill is blocked only when both
- * are empty.
+ * casual-only, so `format` is the constant `'casual'`. Section assignments live
+ * on the stored deck rather than on DeckIntent, so they come in separately;
+ * callers that only need color readiness can omit them. Color identity comes
+ * from the committed intent colors, falling back to the deck's card-derived
+ * union; fill is blocked only when both are empty.
  */
 export function sectionFillIntentFromDeck(
   intent: DeckIntent,
   fallbackColors: ManaColor[],
+  sectionAssignments: Record<string, string[]> = {},
 ): SectionFillIntent {
   return {
     selectedArchetypes: intent.archetypes,
@@ -62,7 +70,7 @@ export function sectionFillIntentFromDeck(
     budgetMin: intent.budgetMin,
     budgetMax: intent.budgetMax,
     rarityFilter: intent.rarityFilter,
-    sectionAssignments: undefined,
+    sectionAssignments,
     getFillColors: () => {
       const committed = committedColors(intent)
       if (committed.length === 0 && fallbackColors.length === 0) {

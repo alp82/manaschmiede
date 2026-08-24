@@ -4,7 +4,7 @@ import { useI18n } from './i18n'
 import type { ScryfallCard } from './scryfall/types'
 import { getCardName } from './scryfall/types'
 import type { DeckCard } from './deck-utils'
-import { mergeCardsIntoDeck } from './deck-utils'
+import { mergeSectionFill } from './section-assignment'
 import { BASIC_LAND_IDS, BASIC_LAND_ID_SET } from './basic-lands'
 import type { DeckSection } from './section-plan'
 import type { SectionFillIntent } from './section-fill-intent'
@@ -43,7 +43,13 @@ interface UseSectionFillOptions {
   intent: SectionFillIntent
   onDeckUpdate: (cards: DeckCard[]) => void
   onCardDataUpdate: (card: ScryfallCard) => void
-  onSectionAssign: (sectionId: string, scryfallIds: string[]) => void
+  /**
+   * Replace a section's assigned ids. REPLACE, not merge - the wizard reducer
+   * overwrites the key wholesale. Callers must never send the added ids alone;
+   * route every write through `assignSection` below, which unions them with
+   * what the section already held (issue #18).
+   */
+  replaceSectionAssignment: (sectionId: string, scryfallIds: string[]) => void
   /**
    * Cards the user pinned. They bypass the intent gate, matching the chat
    * path - the user pinned them, so no intent filter may reject them back out
@@ -201,7 +207,7 @@ export function useSectionFill({
   intent,
   onDeckUpdate,
   onCardDataUpdate,
-  onSectionAssign,
+  replaceSectionAssignment,
   lockedCardIds,
 }: UseSectionFillOptions) {
   const [sectionStates, setSectionStates] = useState<Record<string, SectionFillState>>({})
@@ -216,6 +222,36 @@ export function useSectionFill({
   cardDataMapRef.current = cardDataMap
   const lockedIdsRef = useRef<Set<string>>(lockedCardIds ?? EMPTY_LOCKED_IDS)
   lockedIdsRef.current = lockedCardIds ?? EMPTY_LOCKED_IDS
+  const assignmentsRef = useRef<Record<string, string[]>>(intent.sectionAssignments)
+  assignmentsRef.current = intent.sectionAssignments
+
+  /**
+   * Merge additions into a deck and file the accepted ids under `sectionId`.
+   * The only path to `replaceSectionAssignment` — it unions the accepted ids
+   * with what the section already held, which the replace-semantics consumer
+   * needs and cannot compute itself (issue #18).
+   *
+   * `priorAssignments` overrides the rendered assignments map. `fillAllRemaining`
+   * passes its own snapshot because it writes several sections in one async run,
+   * before React has re-rendered with the earlier writes.
+   */
+  const mergeAndAssign = useCallback((
+    sectionId: string,
+    deck: DeckCard[],
+    additions: Array<{ scryfallId: string; quantity: number }>,
+    priorAssignments?: Record<string, string[]>,
+  ) => {
+    const { merged, assignedIds } = mergeSectionFill({
+      deckCards: deck,
+      additions,
+      assignments: priorAssignments ?? assignmentsRef.current,
+      sectionId,
+      isBasicLandId: (id) => BASIC_LAND_ID_SET.has(id),
+    })
+    onDeckUpdate(merged)
+    replaceSectionAssignment(sectionId, assignedIds)
+    return { merged, assignedIds }
+  }, [onDeckUpdate, replaceSectionAssignment])
 
   const getSectionState = useCallback(
     (sectionId: string): SectionFillState => sectionStates[sectionId] ?? { status: 'idle' },
@@ -340,18 +376,14 @@ export function useSectionFill({
     const state = sectionStates[sectionId]
     if (!state?.previewCards) return
 
-    const { merged, addedIds } = mergeCardsIntoDeck(
+    mergeAndAssign(
+      sectionId,
       deckCardsRef.current,
       state.previewCards.map((c) => ({ scryfallId: c.scryfallId, quantity: c.quantity })),
-      (id) => BASIC_LAND_ID_SET.has(id),
     )
 
-    onDeckUpdate(merged)
-    // Only assign cards that actually landed in the deck (dedup + cap filter).
-    onSectionAssign(sectionId, addedIds)
-
     updateSection(sectionId, { status: 'applied' })
-  }, [sectionStates, onDeckUpdate, onSectionAssign, updateSection])
+  }, [sectionStates, mergeAndAssign, updateSection])
 
   const discardSection = useCallback((sectionId: string) => {
     updateSection(sectionId, { status: 'idle', previewCards: undefined, explanation: undefined })
@@ -359,8 +391,10 @@ export function useSectionFill({
 
   /** Auto-fill basic lands based on deck color identity */
   const fillLands = useCallback(async (targetCount: number) => {
-    const fill = intent.getFillColors()
-    const activeColors = fill.colors ?? []
+    // Go through buildFilters, not intent.getFillColors() directly, so the
+    // lands path honours the same `ready: false` gate as every other fill.
+    const filters = buildFilters()
+    const activeColors = filters?.colors ?? []
     if (activeColors.length === 0) return
 
     const landsPerColor = Math.floor(targetCount / activeColors.length)
@@ -382,15 +416,9 @@ export function useSectionFill({
       if (landCard) onCardDataUpdate(landCard)
     }
 
-    const { merged, addedIds } = mergeCardsIntoDeck(
-      deckCardsRef.current,
-      additions,
-      (id) => BASIC_LAND_ID_SET.has(id),
-    )
-    onDeckUpdate(merged)
-    onSectionAssign('lands', addedIds)
+    mergeAndAssign('lands', deckCardsRef.current, additions)
     updateSection('lands', { status: 'applied' })
-  }, [intent, onDeckUpdate, onCardDataUpdate, onSectionAssign, updateSection, scryfallLang])
+  }, [buildFilters, mergeAndAssign, onCardDataUpdate, updateSection, scryfallLang])
 
   /**
    * Fill all unfilled sections sequentially, auto-applying each.
@@ -402,9 +430,7 @@ export function useSectionFill({
     // Snapshot which sections need filling - skip sections at capacity.
     // Shallow-clone the assignments map so we can mutate it locally across
     // section iterations without touching wizard state directly.
-    const assignments: Record<string, string[]> = {
-      ...(intent.sectionAssignments ?? {}),
-    }
+    const assignments: Record<string, string[]> = { ...intent.sectionAssignments }
     const deckCards = deckCardsRef.current
 
     const unfilled = sections.filter((s) => {
@@ -507,21 +533,19 @@ export function useSectionFill({
         previewCards = capped
 
         // Auto-apply: merge into accumulator so duplicate scryfallIds collapse
-        // into single entries instead of producing ghost DeckCard rows.
-        const { merged, addedIds } = mergeCardsIntoDeck(
+        // into single entries instead of producing ghost DeckCard rows. Pass the
+        // local snapshot as the prior assignments — React has not re-rendered
+        // with the previous iterations' writes yet.
+        const { merged, assignedIds } = mergeAndAssign(
+          section.id,
           accumulated,
           previewCards.map((c) => ({ scryfallId: c.scryfallId, quantity: c.quantity })),
-          (id) => BASIC_LAND_ID_SET.has(id),
+          assignments,
         )
         accumulated = merged
-        onDeckUpdate(accumulated)
-        // Only assign IDs that actually landed (dedup/cap may have dropped some).
-        const existingAssigned = assignments[section.id] ?? []
-        const dedupedAssigned = Array.from(new Set([...existingAssigned, ...addedIds]))
-        onSectionAssign(section.id, dedupedAssigned)
-        // Update the local assignments snapshot so subsequent iterations see
-        // these IDs and calculate deficit correctly.
-        assignments[section.id] = dedupedAssigned
+        // Update the local snapshot so subsequent iterations see these ids and
+        // calculate the deficit correctly.
+        assignments[section.id] = assignedIds
         updateSection(section.id, { status: 'applied', previewCards })
       } catch {
         updateSection(section.id, { status: 'error', error: 'Failed to fill section' })
@@ -529,7 +553,7 @@ export function useSectionFill({
     }
 
     setFillProgress(null)
-  }, [sections, sectionStates, intent, onCardDataUpdate, onDeckUpdate, onSectionAssign, updateSection, buildFilters, scryfallLang])
+  }, [sections, sectionStates, intent, onCardDataUpdate, mergeAndAssign, updateSection, buildFilters, scryfallLang])
 
   const cancelFillAll = useCallback(() => {
     abortRef.current = true
@@ -537,6 +561,13 @@ export function useSectionFill({
   }, [])
 
   return {
+    /**
+     * False while the fill-phase color identity is still resolving. Callers must
+     * check it before any destructive preparation — `handleFillLands` strips the
+     * deck's basic lands before calling `fillLands`, which would otherwise leave
+     * the deck short when the gate blocks the refill.
+     */
+    fillReady: buildFilters() !== null,
     getSectionState,
     fillSection,
     applySection,

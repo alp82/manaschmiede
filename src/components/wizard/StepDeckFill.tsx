@@ -78,6 +78,9 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
     dispatch({ type: 'SET_CHAT_MESSAGES', messages })
   }, [dispatch])
 
+  // Replace, not merge: the reducer overwrites the section's key wholesale so
+  // applySectionInheritance can shrink a section when ids are purged. The
+  // section-fill hook unions prior ids in before it calls this.
   const handleSectionAssign = useCallback((sectionId: string, scryfallIds: string[]) => {
     dispatch({ type: 'ASSIGN_SECTION', sectionId, scryfallIds })
   }, [dispatch])
@@ -154,6 +157,7 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
   const fillIntent = useMemo(() => sectionFillIntentFromWizard(state), [state])
 
   const {
+    fillReady,
     getSectionState,
     fillSection: triggerFillSection,
     applySection,
@@ -169,7 +173,7 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
     intent: fillIntent,
     onDeckUpdate: handleSectionDeckUpdate,
     onCardDataUpdate: handleCardDataUpdate,
-    onSectionAssign: handleSectionAssign,
+    replaceSectionAssignment: handleSectionAssign,
     lockedCardIds,
   })
 
@@ -197,6 +201,10 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
   }, [fillAllRemaining, fillLands, sections, sounds, history])
 
   const handleFillLands = useCallback(async () => {
+    // Bail before stripping anything: fillLands is gated on the fill colors
+    // having resolved, and a blocked refill after the strip would leave the
+    // deck with no lands at all.
+    if (!fillReady) return
     history.snapshot()
     // Remove existing basic lands so we can recalculate from scratch
     const withoutBasicLands = state.deckCards.filter((c) => !BASIC_LAND_ID_SET.has(c.scryfallId))
@@ -209,7 +217,7 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
       await fillLands(landTarget)
       sounds.aiShuffle()
     }
-  }, [state.deckCards, fillLands, sounds, history, dispatch])
+  }, [state.deckCards, fillReady, fillLands, sounds, history, dispatch])
 
   // ─── Chat (for free-text refinement) ─────────────────────────
 
