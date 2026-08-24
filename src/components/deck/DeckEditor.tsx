@@ -44,6 +44,8 @@ interface DeckEditorFill {
   onApplySection: (sectionId: string) => void
   onDiscardSection: (sectionId: string) => void
   onFillLands: () => void
+  /** False when no color identity has resolved — auto-fill has nothing to split. */
+  canFillLands: boolean
   onFillAllRemaining: () => void
   fillProgress: { current: number; total: number; currentSection: string } | null
   onCancelFillAll: () => void
@@ -340,7 +342,7 @@ export function DeckEditor({
         <button
           type="button"
           onClick={fill.onFillLands}
-          disabled={!!fill.fillProgress}
+          disabled={!!fill.fillProgress || !fill.canFillLands}
           className={buttonClass}
         >
           {isFilled ? t('fill.topUpLands') : t('fill.autoFillLands')}

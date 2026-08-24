@@ -1,4 +1,6 @@
 import type { CardChange } from './deck-chat-types'
+import type { DeckCard } from './deck-utils'
+import { mergeCardsIntoDeck } from './deck-utils'
 import type { DeckSection } from './section-plan'
 import { pickSectionForCard } from './section-plan'
 import type { ScryfallCard } from './scryfall/types'
@@ -121,4 +123,39 @@ export function buildSectionLabelMap(sections: DeckSection[]): Record<string, st
   const labels: Record<string, string> = {}
   for (const section of sections) labels[section.id] = section.label
   return labels
+}
+
+interface MergeSectionFillInput {
+  deckCards: DeckCard[]
+  additions: Array<{ scryfallId: string; quantity: number }>
+  /** Current assignments map. Only `sectionId`'s entry is read. */
+  assignments: Record<string, string[]>
+  sectionId: string
+  isBasicLandId: (id: string) => boolean
+}
+
+/**
+ * Merge a batch of fill additions into a deck and compute the target section's
+ * new assignment list in one step. Pure: neither input is mutated.
+ *
+ * `assignedIds` is the union of what the section already held and the ids the
+ * merge actually accepted — never the added ids alone. The consumer replaces
+ * the section's list wholesale (`ASSIGN_SECTION` in wizard-state.ts overwrites
+ * the key: no concat, no union, no dedupe), so sending only the new ids erases
+ * every card already filed under that section. Returning `merged` and
+ * `assignedIds` together makes that mistake impossible — a caller cannot get
+ * the merged deck without also getting the union it has to send (issue #18).
+ *
+ * Ids the merge rejected (a card already at four copies, a locked card, a
+ * zero-quantity row) are not assigned, so a dropped addition leaves no phantom
+ * entry behind.
+ */
+export function mergeSectionFill(input: MergeSectionFillInput): {
+  merged: DeckCard[]
+  assignedIds: string[]
+} {
+  const { deckCards, additions, assignments, sectionId, isBasicLandId } = input
+  const { merged, addedIds } = mergeCardsIntoDeck(deckCards, additions, isBasicLandId)
+  const prior = assignments[sectionId] ?? []
+  return { merged, assignedIds: Array.from(new Set([...prior, ...addedIds])) }
 }

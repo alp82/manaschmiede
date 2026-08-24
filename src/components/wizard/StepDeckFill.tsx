@@ -78,7 +78,11 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
     dispatch({ type: 'SET_CHAT_MESSAGES', messages })
   }, [dispatch])
 
-  const handleSectionAssign = useCallback((sectionId: string, scryfallIds: string[]) => {
+  // Replace, not merge — see mergeSectionFill in section-assignment.ts. The
+  // wholesale overwrite is what lets applySectionInheritance shrink a section
+  // when ids are purged; the section-fill hook unions prior ids in for the
+  // additive paths before it calls this.
+  const replaceSectionAssignment = useCallback((sectionId: string, scryfallIds: string[]) => {
     dispatch({ type: 'ASSIGN_SECTION', sectionId, scryfallIds })
   }, [dispatch])
 
@@ -154,6 +158,7 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
   const fillIntent = useMemo(() => sectionFillIntentFromWizard(state), [state])
 
   const {
+    canFillLands,
     getSectionState,
     fillSection: triggerFillSection,
     applySection,
@@ -169,7 +174,7 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
     intent: fillIntent,
     onDeckUpdate: handleSectionDeckUpdate,
     onCardDataUpdate: handleCardDataUpdate,
-    onSectionAssign: handleSectionAssign,
+    replaceSectionAssignment,
     lockedCardIds,
   })
 
@@ -197,6 +202,10 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
   }, [fillAllRemaining, fillLands, sections, sounds, history])
 
   const handleFillLands = useCallback(async () => {
+    // Bail before stripping anything — a no-op fillLands after the strip would
+    // leave the deck with no lands at all. The button is disabled in the same
+    // condition, so this is the backstop, not the user-facing signal.
+    if (!canFillLands) return
     history.snapshot()
     // Remove existing basic lands so we can recalculate from scratch
     const withoutBasicLands = state.deckCards.filter((c) => !BASIC_LAND_ID_SET.has(c.scryfallId))
@@ -209,7 +218,7 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
       await fillLands(landTarget)
       sounds.aiShuffle()
     }
-  }, [state.deckCards, fillLands, sounds, history, dispatch])
+  }, [state.deckCards, canFillLands, fillLands, sounds, history, dispatch])
 
   // ─── Chat (for free-text refinement) ─────────────────────────
 
@@ -575,6 +584,7 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
           onApplySection: handleApplySection,
           onDiscardSection: discardSection,
           onFillLands: handleFillLands,
+          canFillLands,
           onFillAllRemaining: handleFillAllRemaining,
           fillProgress,
           onCancelFillAll: cancelFillAll,

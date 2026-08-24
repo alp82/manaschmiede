@@ -11,11 +11,15 @@
  *     budgetMin: number | null
  *     budgetMax: number | null
  *     rarityFilter: string[]
- *     sectionAssignments: Record<string, string[]> | undefined
+ *     sectionAssignments: Record<string, string[]>
  *     getFillColors(): { ready: boolean; colors?: ManaColor[] }
  *   }
  *   sectionFillIntentFromWizard(state: WizardState): SectionFillIntent
- *   sectionFillIntentFromDeck(intent: DeckIntent, fallbackColors: ManaColor[]): SectionFillIntent
+ *   sectionFillIntentFromDeck(
+ *     intent: DeckIntent,
+ *     fallbackColors: ManaColor[],
+ *     sectionAssignments?: Record<string, string[]>,
+ *   ): SectionFillIntent
  *
  * NOT unit-testable (noted here, not written):
  *   - callFillSection network call (integration/e2e)
@@ -311,9 +315,15 @@ describe('sectionFillIntentFromDeck - field mapping', () => {
     expect(result.rarityFilter).toEqual(['rare', 'mythic'])
   })
 
-  it('sectionAssignments === undefined (deck adapter has no sectionAssignments source)', () => {
+  it('sectionAssignments defaults to {} when the caller omits them', () => {
     const result = sectionFillIntentFromDeck(intent, [])
-    expect(result.sectionAssignments).toBeUndefined()
+    expect(result.sectionAssignments).toEqual({})
+  })
+
+  it('sectionAssignments passes the deck-supplied map through unchanged', () => {
+    const assignments = { creatures: ['card-a', 'card-b'], lands: ['card-c'] }
+    const result = sectionFillIntentFromDeck(intent, [], assignments)
+    expect(result.sectionAssignments).toEqual(assignments)
   })
 
   it("format === 'casual' (RESOLVED GAP: app is hard 60-card-casual-only, constant default)", () => {

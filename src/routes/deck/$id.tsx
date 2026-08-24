@@ -248,8 +248,8 @@ function DeckPage() {
   // picker. `getFillColors().ready` gates the affordance (SMOKE-2): false when
   // neither committed colors nor a card-derived fallback have resolved.
   const reopenFillIntent = useMemo(
-    () => sectionFillIntentFromDeck(intent, fallbackColors),
-    [intent, fallbackColors],
+    () => sectionFillIntentFromDeck(intent, fallbackColors, deck?.sectionAssignments ?? {}),
+    [intent, fallbackColors, deck?.sectionAssignments],
   )
   const reopenComboReady = reopenFillIntent.getFillColors().ready
   const intentContext = useMemo(
