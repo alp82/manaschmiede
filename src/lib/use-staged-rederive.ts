@@ -9,6 +9,7 @@ import { structuralKey } from './deck-pending'
 import { useSkipFirst } from './use-skip-first'
 import type { LocalDeck } from './deck-storage'
 import type { ScryfallCard } from './scryfall/types'
+import type { LaneStatus } from '../components/deck/SectionLane'
 
 type Translate = (key: string, params?: Record<string, string | number>) => string
 
@@ -60,10 +61,16 @@ export function refillCountFor(deficit: number): number | null {
 }
 
 /**
- * Extract the stale lane diff: a lane is stale when its targetCount changed vs
- * the previous plan, or when its bucketed count dropped (newly under-filled).
- * The 'core' / 'lands' rebalance with the plan but are never user-refillable
- * lanes, so only named sections qualify.
+ * Extract the stale lane diff: a lane is stale when it is NEW (no counterpart in
+ * the previous plan), when its targetCount changed, or when its bucketed count
+ * dropped (newly under-filled).
+ *
+ * New lanes are the flagship case, not an edge one: an archetype swap replaces
+ * the whole section set, so every lane is new and skipping them left the feature
+ * producing zero affordance exactly when the user had made the biggest change.
+ *
+ * The 'core' / 'lands' lanes rebalance with the plan but are never
+ * user-refillable, so only named sections qualify.
  */
 export function computeStaleLanes(
   sections: StagedSection[],
@@ -73,7 +80,10 @@ export function computeStaleLanes(
   const prevById = new Map(previousPlan.sections.map((s) => [s.id, s]))
   for (const section of sections) {
     const prev = prevById.get(section.id)
-    if (!prev) continue
+    if (!prev) {
+      staleLaneIds.push(section.id)
+      continue
+    }
     const targetChanged = prev.targetCount !== section.targetCount
     const bucketDropped = section.bucketedCards.length < prev.bucketedCards.length
     if (targetChanged || bucketDropped) staleLaneIds.push(section.id)
@@ -214,37 +224,76 @@ export function plansEqual(a: DeckSection[], b: DeckSection[]): boolean {
   return true
 }
 
+/**
+ * A lane's review state, computed from the staged plan alone — no callbacks, no
+ * chat. `refillCount` is what a re-fill should ASK FOR: `null` means there is
+ * nothing to fill, so the caller must not send and must not offer the prompt.
+ */
+export interface LaneReviewStatus {
+  stale: boolean
+  refillDeficit: number
+  refillCount: number | null
+}
+
+/**
+ * Pure core of the hook's `laneStatus`. Returns `undefined` for a lane that is
+ * not under review — which is every lane when nothing is staged.
+ *
+ * This exists so the "is it stale?" and "how many does it need?" questions are
+ * answered from ONE place. They used to be answered by a `staleLaneIds` array
+ * and a `deficitFor` function the caller had to combine itself, in the right
+ * order, in the deck route.
+ */
+export function laneStatusFor(plan: StagedPlan | null, laneId: string): LaneReviewStatus | undefined {
+  if (!plan || !plan.staleLaneIds.includes(laneId)) return undefined
+  const section = plan.sections.find((s) => s.id === laneId)
+  const refillDeficit = section ? section.deficit : 0
+  return { stale: true, refillDeficit, refillCount: refillCountFor(refillDeficit) }
+}
+
 interface UseStagedRederiveArgs {
   displayCards: DeckDisplayCard[]
   t: Translate
   setDeck: (updater: (prev: LocalDeck | null) => LocalDeck | null) => void
   resolveCard: (id: string) => ScryfallCard | undefined
   /**
+   * The deck's currently committed section plan. REQUIRED, because the previous
+   * plan every stale-lane diff is measured against is DERIVED from it — see the
+   * hook doc comment. Pass `[]` for a legacy deck with no plan; that correctly
+   * yields no stale lanes, because there is no baseline to differ from.
+   */
+  committedPlan: DeckSection[]
+  /**
    * A previously-staged plan (from the per-deck pending slot) to rehydrate on
-   * mount — re-bucketed against the current cards so the review affordances
-   * (deficits, stale lanes) resume. Absent / null means nothing was staged.
+   * mount. Absent / null / empty means nothing was staged.
    */
   initialPlan?: DeckSection[] | null
   /**
    * Fired whenever the staged plan changes (staged, accepted, or discarded), so
-   * the route can persist it to / clear it from the pending slot. Receives the
-   * stripped DeckSection[] (or null when nothing is staged).
+   * the route can persist it to / clear it from the pending slot.
    */
   onStagedChange?: (plan: DeckSection[] | null) => void
   /**
-   * The deck's currently committed section plan. When a re-derive produces a
-   * plan structurally identical to this (same ids + same targetCounts, no stale
-   * lanes), the stage() call is a no-op so we don't show an Accept/Discard
-   * banner that does nothing visible.
+   * Fired when the user presses a stale lane's re-fill button, with the count
+   * the lane needs. The chat call itself stays in the route — this hook owns
+   * plans, not conversations.
    */
-  committedPlan?: DeckSection[]
+  onRefillLane?: (laneId: string, count: number) => void
+  /** Which lane has a re-fill in flight, if any. Drives the per-lane spinner. */
+  refillingLaneId?: string | null
+  /**
+   * False while the deck's Scryfall data is still resolving. Deficits are
+   * measured against `displayCards`, which drops unresolved ids, so every lane
+   * looks empty at mount and every deficit reads as a full targetCount. Lane
+   * status is withheld until this is true rather than offering a re-fill that
+   * would ask for a whole lane and push the deck past 60.
+   */
+  cardsReady?: boolean
 }
 
 export interface UseStagedRederiveResult {
   /** The staged (proposed) section plan, or null when nothing is staged. */
   stagedPlan: DeckSection[] | null
-  staleLaneIds: string[]
-  deficitFor: (laneId: string) => number
   /**
    * True when the current staged plan was rehydrated from the persisted slot on
    * mount (not freshly staged this session). Lets the UI show "Resumed from your
@@ -257,6 +306,13 @@ export interface UseStagedRederiveResult {
   acceptPlan: () => void
   /** Drop the staged layer without touching the deck. */
   discardPlan: () => void
+  /**
+   * Everything the deck view needs to render one lane's review state, or
+   * `undefined` for a lane that is not under review. One call, so a caller
+   * cannot combine "is it stale" and "how many does it need" in the wrong order
+   * — or forget one of them.
+   */
+  laneStatus: (laneId: string) => LaneStatus | undefined
 }
 
 /**
@@ -269,66 +325,90 @@ export interface UseStagedRederiveResult {
  * deck. The staged plan is backed by the per-deck pending slot (via
  * `initialPlan` for rehydration + `onStagedChange` for persistence), so a
  * mid-review reload resumes the proposed plan.
+ *
+ * Two things this hook deliberately does NOT do:
+ *
+ * **It does not remember the previous plan.** The stale-lane diff needs a
+ * baseline to measure against, and a remembered one fails twice: it doesn't
+ * survive a reload, and it freezes `bucketedCards` against the cards as they
+ * were at capture time. The baseline is DERIVED from `committedPlan` — which is
+ * the definition of "what the deck looks like now" — bucketed against the same
+ * `displayCards` as the proposal, so `bucketDropped` fires only on a genuine
+ * lane or role change.
+ *
+ * **It does not hold a StagedPlan in state.** State holds the bare
+ * `DeckSection[]`; the bucketed plan (and therefore every deficit and every
+ * stale lane) is derived in a `useMemo`. Held in state it would freeze at mount,
+ * when `displayCards` is empty and every deficit reads as a full targetCount.
+ * Derived, it self-corrects the moment card data resolves.
  */
 export function useStagedRederive({
   displayCards,
   t,
   setDeck,
   resolveCard,
+  committedPlan,
   initialPlan,
   onStagedChange,
-  committedPlan,
+  onRefillLane,
+  refillingLaneId,
+  cardsReady = true,
 }: UseStagedRederiveArgs): UseStagedRederiveResult {
-  // Rehydrate a persisted plan once on mount by re-bucketing it against the
-  // current cards; absent / empty means nothing was staged.
+  // Rehydrate a persisted plan once on mount; absent / empty means nothing was
+  // staged. Only the bare sections are held — the bucketing is derived below.
   const wasRehydrated = initialPlan != null && initialPlan.length > 0
-  const [staged, setStaged] = useState<StagedPlan | null>(() =>
-    wasRehydrated
-      ? bucketPlanAgainstCards(displayCards, initialPlan!)
-      : null,
+  const [stagedSections, setStagedSections] = useState<DeckSection[] | null>(
+    () => (wasRehydrated ? initialPlan! : null),
   )
   // Track whether the CURRENT staged plan originated from rehydration (true) or
   // a fresh stage() call this session (false). Flips to false on stage().
   const [resumed, setResumed] = useState(wasRehydrated)
+
+  // The baseline: the committed plan bucketed against the SAME cards as any
+  // proposal, so the two are comparable lane for lane.
+  const previousPlan = useMemo(
+    () => bucketPlanAgainstCards(displayCards, committedPlan),
+    [displayCards, committedPlan],
+  )
+
+  const staged = useMemo(
+    () => (stagedSections ? bucketPlanAgainstCards(displayCards, stagedSections, previousPlan) : null),
+    [stagedSections, displayCards, previousPlan],
+  )
 
   // Mirror staged-plan changes into the pending slot. Skips the very first
   // commit so rehydration doesn't immediately re-persist what it just loaded.
   const onStagedChangeRef = useRef(onStagedChange)
   onStagedChangeRef.current = onStagedChange
   useSkipFirst(() => {
-    onStagedChangeRef.current?.(
-      staged
-        ? staged.sections.map(({ bucketedCards: _b, deficit: _d, ...section }) => section)
-        : null,
-    )
-  }, [staged])
+    onStagedChangeRef.current?.(stagedSections)
+  }, [stagedSections])
 
   const committedPlanRef = useRef(committedPlan)
   committedPlanRef.current = committedPlan
+  const previousPlanRef = useRef(previousPlan)
+  previousPlanRef.current = previousPlan
 
   const stage = useCallback(
     (nextIntent: DeckIntent) => {
-      const proposed = deriveStagedPlan(displayCards, nextIntent, t)
+      const proposed = deriveStagedPlan(displayCards, nextIntent, t, previousPlanRef.current)
       // No-op when the re-derive produces a plan structurally identical to the
       // committed plan (same ids, same targetCounts, no stale lanes): suppress
       // the Accept/Discard banner because accepting would do nothing visible.
-      const current = committedPlanRef.current ?? []
       const proposedSections = proposed.sections.map(({ bucketedCards: _b, deficit: _d, ...s }) => s)
-      if (proposed.staleLaneIds.length === 0 && plansEqual(proposedSections, current)) return
-      setStaged(proposed)
+      if (proposed.staleLaneIds.length === 0 && plansEqual(proposedSections, committedPlanRef.current)) {
+        return
+      }
+      setStagedSections(proposedSections)
       setResumed(false)
     },
     [displayCards, t],
   )
 
-  const discardPlan = useCallback(() => setStaged(null), [])
+  const discardPlan = useCallback(() => setStagedSections(null), [])
 
   const acceptPlan = useCallback(() => {
-    if (!staged) return
-    // Strip the staged-only augmentation back down to a clean DeckSection plan.
-    const nextPlan: DeckSection[] = staged.sections.map(
-      ({ bucketedCards: _b, deficit: _d, ...section }) => section,
-    )
+    if (!stagedSections) return
     setDeck((prev) => {
       if (!prev) return prev
       // Re-bucket the existing assignments against the new plan by role: each
@@ -337,38 +417,46 @@ export function useStagedRederive({
       // in the unassigned bucket at render time). An empty plan keeps the prior
       // assignments untouched.
       const prevAssignments = prev.sectionAssignments ?? {}
-      const rebucketed = rebucketAssignments(prevAssignments, nextPlan, resolveCard)
+      const rebucketed = rebucketAssignments(prevAssignments, stagedSections, resolveCard)
       return {
         ...prev,
-        sectionPlan: nextPlan,
+        sectionPlan: stagedSections,
         sectionAssignments: rebucketed,
         updatedAt: Date.now(),
       }
     })
-    setStaged(null)
-  }, [staged, setDeck, resolveCard])
+    setStagedSections(null)
+  }, [stagedSections, setDeck, resolveCard])
 
-  const deficitFor = useCallback(
-    (laneId: string): number => {
-      if (!staged) return 0
-      const section = staged.sections.find((s) => s.id === laneId)
-      return section ? section.deficit : 0
+  const onRefillLaneRef = useRef(onRefillLane)
+  onRefillLaneRef.current = onRefillLane
+
+  const laneStatus = useCallback(
+    (laneId: string): LaneStatus | undefined => {
+      if (!cardsReady) return undefined
+      const status = laneStatusFor(staged, laneId)
+      if (!status) return undefined
+      // A lane with nothing to fill (its target shrank, so it is already at or
+      // over the staged count) still dims, but offers no re-fill — SectionLane
+      // hides the prompt when onRefill is absent.
+      const count = status.refillCount
+      return {
+        stale: true,
+        onRefill:
+          count === null ? undefined : () => onRefillLaneRef.current?.(laneId, count),
+        refillDeficit: status.refillDeficit,
+        refilling: refillingLaneId === laneId,
+      }
     },
-    [staged],
+    [staged, cardsReady, refillingLaneId],
   )
 
-  const stagedPlan = useMemo<DeckSection[] | null>(() => {
-    if (!staged) return null
-    return staged.sections.map(({ bucketedCards: _b, deficit: _d, ...section }) => section)
-  }, [staged])
-
   return {
-    stagedPlan,
-    staleLaneIds: staged?.staleLaneIds ?? [],
-    deficitFor,
+    stagedPlan: stagedSections,
     resumed,
     stage,
     acceptPlan,
     discardPlan,
+    laneStatus,
   }
 }

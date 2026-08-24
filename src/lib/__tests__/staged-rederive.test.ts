@@ -62,6 +62,7 @@ import {
   plansEqual,
   computeStaleLanes,
   refillCountFor,
+  laneStatusFor,
 } from '../use-staged-rederive'
 import type { StagedPlan, StagedSection } from '../use-staged-rederive'
 import type { DeckDisplayCard } from '../deck-utils'
@@ -626,10 +627,131 @@ describe('bucketPlanAgainstCards - rehydration path (G2: persisted plan, not fre
     }
   })
 
-  it('G2-d: staleLaneIds empty when no previousPlan provided', () => {
+  /**
+   * G2-d used to assert "staleLaneIds empty when no previousPlan provided",
+   * which encoded the bug rather than a contract: NOTHING in production passed
+   * a previousPlan, so the whole stale-lane feature was permanently empty.
+   *
+   * The real contract is about the LEGACY-DECK case: a deck with no committed
+   * section plan has no baseline to differ from, so nothing is under review —
+   * and `laneStatusFor` returns undefined for every lane.
+   */
+  it('G2-d: a legacy deck (empty committed plan) yields no lane status for any lane', () => {
     const deckCards = makeMonoRAggroCore()
-    const result = bucketPlanAgainstCards(deckCards, PERSISTED_PLAN)
-    expect(result.staleLaneIds).toHaveLength(0)
+    const previous = bucketPlanAgainstCards(deckCards, [])
+    const staged = bucketPlanAgainstCards(deckCards, PERSISTED_PLAN, previous)
+    // Every staged lane IS new against an empty baseline, so they are stale...
+    expect(staged.staleLaneIds.length).toBeGreaterThan(0)
+    // ...but with no committed plan at all there is nothing staged to review:
+    expect(laneStatusFor(null, 'aggressive-creatures')).toBeUndefined()
+  })
+
+  it('G2-e: the baseline is DERIVED — bucketing the committed plan against the same cards yields no stale lanes', () => {
+    const deckCards = makeMonoRAggroCore()
+    const previous = bucketPlanAgainstCards(deckCards, PERSISTED_PLAN)
+    const restaged = bucketPlanAgainstCards(deckCards, PERSISTED_PLAN, previous)
+    // Same plan, same cards → no lane changed, so nothing is flagged. This is
+    // what makes deriving the baseline from committedPlan safe: `bucketDropped`
+    // fires only on a genuine lane or role change, never on a re-bucket.
+    expect(restaged.staleLaneIds).toEqual([])
+  })
+})
+
+// ─── computeStaleLanes — a NEW lane is stale (the archetype-swap case) ───────
+
+describe('computeStaleLanes - new lanes', () => {
+  const lane = (id: string, targetCount: number, bucketed: string[]): StagedSection => ({
+    id,
+    label: id,
+    description: '',
+    targetCount,
+    role: 'creatures',
+    scryfallHints: [],
+    bucketedCards: bucketed,
+    deficit: Math.max(0, targetCount - bucketed.length),
+  })
+
+  it('SL-a: a lane with NO counterpart in the previous plan is stale', () => {
+    const previousPlan: StagedPlan = { sections: [lane('old-lane', 8, [])], unassigned: [], staleLaneIds: [] }
+    expect(computeStaleLanes([lane('brand-new-lane', 8, [])], previousPlan)).toEqual(['brand-new-lane'])
+  })
+
+  it('SL-b: an archetype swap replaces the whole section set — EVERY lane is flagged', () => {
+    const previousPlan: StagedPlan = {
+      sections: [lane('aggressive-creatures', 16, []), lane('burn-tricks', 6, [])],
+      unassigned: [],
+      staleLaneIds: [],
+    }
+    const swapped = [lane('control-creatures', 12, []), lane('counterspells', 8, [])]
+    expect(computeStaleLanes(swapped, previousPlan)).toEqual(['control-creatures', 'counterspells'])
+  })
+
+  it('SL-c: an UNCHANGED lane surviving the swap is still not flagged', () => {
+    const previousPlan: StagedPlan = { sections: [lane('removal', 4, ['a'])], unassigned: [], staleLaneIds: [] }
+    expect(computeStaleLanes([lane('removal', 4, ['a'])], previousPlan)).toEqual([])
+  })
+})
+
+// ─── laneStatusFor — the single question the deck view asks ──────────────────
+
+/**
+ * `staleLaneIds` + `deficitFor` used to be two separate returns the deck route
+ * had to combine itself, in the right order — and the route had to remember
+ * that `refillCountFor(0)` means "offer no button". One call answers all three
+ * now, so a caller cannot get half of it.
+ */
+describe('laneStatusFor', () => {
+  const stagedLane = (id: string, targetCount: number, bucketed: string[]): StagedSection => ({
+    id,
+    label: id,
+    description: '',
+    targetCount,
+    role: 'creatures',
+    scryfallHints: [],
+    bucketedCards: bucketed,
+    deficit: Math.max(0, targetCount - bucketed.length),
+  })
+
+  const planWith = (sections: StagedSection[], staleLaneIds: string[]): StagedPlan => ({
+    sections,
+    unassigned: [],
+    staleLaneIds,
+  })
+
+  it('LS-a: nothing staged → undefined for every lane', () => {
+    expect(laneStatusFor(null, 'burn-tricks')).toBeUndefined()
+  })
+
+  it('LS-b: a lane that is not stale → undefined', () => {
+    const plan = planWith([stagedLane('burn-tricks', 6, [])], [])
+    expect(laneStatusFor(plan, 'burn-tricks')).toBeUndefined()
+  })
+
+  it('LS-c: a stale lane with a deficit → stale, with the deficit as the refill count', () => {
+    const plan = planWith([stagedLane('burn-tricks', 6, ['a', 'b'])], ['burn-tricks'])
+    expect(laneStatusFor(plan, 'burn-tricks')).toEqual({
+      stale: true,
+      refillDeficit: 4,
+      refillCount: 4,
+    })
+  })
+
+  it('LS-d: a stale lane with NO deficit (shrunk target) → stale, refillCount null', () => {
+    const bucketed = Array.from({ length: 12 }, (_, i) => `spell-${i}`)
+    const plan = planWith([stagedLane('burn-tricks', 8, bucketed)], ['burn-tricks'])
+    expect(laneStatusFor(plan, 'burn-tricks')).toEqual({
+      stale: true,
+      refillDeficit: 0,
+      refillCount: null,
+    })
+  })
+
+  it('LS-e: a lane flagged stale but missing from the sections list → stale with nothing to fill', () => {
+    expect(laneStatusFor(planWith([], ['ghost-lane']), 'ghost-lane')).toEqual({
+      stale: true,
+      refillDeficit: 0,
+      refillCount: null,
+    })
   })
 })
 
@@ -660,7 +782,11 @@ describe('refillCountFor (decision 5 - a stale lane re-fills to its DEFICIT)', (
     expect(refillCountFor(0)).toBeNull()
   })
 
-  it('TC-RF4: a lane made stale by a SHRINKING target has deficit 0 → null, never targetCount', () => {
+  it('TC-RF4: a lane made stale by a SHRINKING target reports nothing to re-fill', () => {
+    // Previously this proved the invariant by calling computeStaleLanes and
+    // refillCountFor by hand, in the sequence the caller was SUPPOSED to use —
+    // which is exactly the sequencing a caller could get wrong. It now goes
+    // through laneStatusFor, the one call the deck view actually makes.
     const lane = (targetCount: number, bucketed: string[]): StagedSection => ({
       id: 'burn-tricks',
       label: 'Burn',
@@ -678,11 +804,14 @@ describe('refillCountFor (decision 5 - a stale lane re-fills to its DEFICIT)', (
       staleLaneIds: [],
     }
     const shrunk = lane(8, bucketed)
+    const staleLaneIds = computeStaleLanes([shrunk], previousPlan)
+    expect(staleLaneIds).toContain('burn-tricks')
 
-    // The lane IS stale (its target changed) but has nothing to fill.
-    expect(computeStaleLanes([shrunk], previousPlan)).toContain('burn-tricks')
-    expect(shrunk.deficit).toBe(0)
-    expect(refillCountFor(shrunk.deficit)).toBeNull()
-    expect(refillCountFor(shrunk.deficit)).not.toBe(shrunk.targetCount)
+    const status = laneStatusFor({ sections: [shrunk], unassigned: [], staleLaneIds }, 'burn-tricks')
+    // Stale, so the lane dims — but refillCount null, so no button is offered
+    // and nothing is sent. Falling back to targetCount here would ask for a
+    // whole extra lane and push the deck past 60.
+    expect(status).toEqual({ stale: true, refillDeficit: 0, refillCount: null })
+    expect(status!.refillCount).not.toBe(shrunk.targetCount)
   })
 })

@@ -34,8 +34,10 @@ export interface SectionLaneState {
 
 /**
  * Per-lane re-derive status (deck-view only). When a lane is stale its body
- * dims + an inline re-fill prompt renders. Single-sourced here so DeckEditor
- * and $id.tsx share the exact same shape.
+ * dims + an inline re-fill prompt renders. The dim is a review marker, not a
+ * lock: the cards stay interactive, or the only ways out of a stale lane would
+ * be Accept and Discard. Single-sourced here so DeckEditor and $id.tsx share
+ * the exact same shape.
  */
 export interface LaneStatus {
   stale: boolean
@@ -196,7 +198,7 @@ export const SectionLane = memo(function SectionLane({
       {!collapsed && (
         <div
           id={`section-body-${section.id}`}
-          className={cn(stale && 'pointer-events-none opacity-40')}
+          className={cn(stale && 'opacity-60')}
         >
           {/* Cards */}
           {items.length > 0 && (
