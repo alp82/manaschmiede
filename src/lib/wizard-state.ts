@@ -102,20 +102,66 @@ function defaultState(): WizardState {
   }
 }
 
+type StoredWizardState = Partial<WizardState> & { budgetLimit?: number | null }
+
+/** Coerce an arbitrary stored value into a renderable step. */
+function clampStep(value: unknown): 1 | 2 | 3 | 4 {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 1
+  const n = Math.trunc(value)
+  if (n <= 1) return 1
+  return (n >= 4 ? 4 : n) as 1 | 2 | 3 | 4
+}
+
+/**
+ * Pure core of `initialWizardState`: turn an already-parsed storage blob into a
+ * WizardState the reducer's own invariants would accept.
+ *
+ * A plain `{ ...defaultState(), ...parsed }` is not enough, because localStorage
+ * holds whatever an older build (or a hand-edited devtools session) wrote:
+ *
+ * - `colors` is a fixed five-key record. A stored PARTIAL record replaced it
+ *   wholesale, leaving `colors.G` undefined — a hole `getSelectedColors` and
+ *   StepColors both read straight through. It is merged over the default now,
+ *   as is `sectionAssignments`, whose `null` would crash every consumer.
+ * - The legacy `budgetLimit` key only migrated when `budgetMax` was ABSENT, so
+ *   a state carrying both spread the legacy key into WizardState, where the
+ *   persist effect wrote it back on every change — forever. It is now always
+ *   evicted; `budgetMax` wins when present.
+ * - `step` is typed `1 | 2 | 3 | 4` but nothing enforced it, and a stored 7
+ *   renders no step content at all. Both step fields are clamped.
+ * - `maxStepReached` below `step` is reconciled up, or the stepper would refuse
+ *   to navigate back to the step the user is standing on.
+ *
+ * Extracted so it can be tested without going through localStorage.
+ */
+export function hydrateWizardState(parsed: unknown): WizardState {
+  const base = defaultState()
+  if (!parsed || typeof parsed !== 'object') return base
+
+  const { budgetLimit, colors, sectionAssignments, step, maxStepReached, ...rest } =
+    parsed as StoredWizardState
+  const merged: WizardState = {
+    ...base,
+    ...rest,
+    colors: { ...base.colors, ...(colors ?? {}) },
+    sectionAssignments: { ...base.sectionAssignments, ...(sectionAssignments ?? {}) },
+    step: clampStep(step),
+    maxStepReached: clampStep(maxStepReached),
+  }
+  // The legacy key fills budgetMax only when the modern one never made it in.
+  // `'budgetMax' in parsed` (not `!== undefined`) so an explicit null counts as
+  // a real value and doesn't get overwritten by the legacy one.
+  if (budgetLimit !== undefined && !('budgetMax' in (parsed as object))) {
+    merged.budgetMax = budgetLimit
+  }
+  if (merged.maxStepReached < merged.step) merged.maxStepReached = merged.step
+  return merged
+}
+
 export function initialWizardState(): WizardState {
   try {
     const stored = localStorage.getItem(STORAGE_KEY)
-    if (stored) {
-      const parsed = JSON.parse(stored) as Partial<WizardState> & {
-        budgetLimit?: number | null
-      }
-      // Migrate legacy single-value budgetLimit → budgetMax
-      if (parsed.budgetLimit !== undefined && parsed.budgetMax === undefined) {
-        parsed.budgetMax = parsed.budgetLimit
-        delete parsed.budgetLimit
-      }
-      return { ...defaultState(), ...parsed }
-    }
+    if (stored) return hydrateWizardState(JSON.parse(stored))
   } catch {
     // Corrupted storage, start fresh
   }
@@ -133,6 +179,17 @@ export function persistWizardState(state: WizardState): void {
 export function clearWizardState(): void {
   localStorage.removeItem(STORAGE_KEY)
   localStorage.removeItem(AUX_STORAGE_KEY)
+}
+
+/**
+ * Start the wizard over. `RESET` is a pure reducer case and structurally cannot
+ * reach localStorage, so a `RESET` on its own leaves the aux slot behind and
+ * resurrects the previous session's combo history and 30-deep undo stack. The
+ * two belong together; this is the only pairing that guarantees it.
+ */
+export function resetWizard(dispatch: (action: WizardAction) => void): void {
+  dispatch({ type: 'RESET' })
+  clearWizardAux()
 }
 
 // ─── Auxiliary wizard state (combo history, undo/redo, fingerprints) ───

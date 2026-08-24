@@ -15,7 +15,7 @@ import {
   initialWizardState,
   persistWizardState,
   clearWizardState,
-  clearWizardAux,
+  resetWizard,
   isWizardStateDirty,
   getFillColors,
 } from '../../lib/wizard-state'
@@ -98,8 +98,7 @@ function NewDeckWizard() {
     if (!pendingSeed) return
     // Full reset first so the fresh seed lands on a clean slate, then
     // drop the resolved card in with its cost colors.
-    dispatch({ type: 'RESET' })
-    clearWizardAux()
+    resetWizard(dispatch)
     dispatch({ type: 'SET_SEED_CARD', card: pendingSeed, costColors: extractCostColors(pendingSeed) })
     setPendingSeed(null)
     setUrlStep(1)
@@ -203,8 +202,7 @@ function NewDeckWizard() {
   }, [])
 
   const doStartOver = useCallback(() => {
-    dispatch({ type: 'RESET' })
-    clearWizardAux()
+    resetWizard(dispatch)
     setUrlStep(1)
     setSeedParam(null)
     setConfirmReset(false)
