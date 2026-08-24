@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { runSimulation } from '../simulation/runner'
+import { runSimulation, wilsonCI } from '../simulation/runner'
+import { MAX_TURNS } from '../simulation/game-state'
 import type { SimulationResult } from '../simulation/types'
 import { deckOf, forest, land, simCard } from './sim-fixtures'
 
@@ -26,14 +27,14 @@ const RED_DECK = deckOf(
 const noop = () => {}
 
 describe('runSimulation', () => {
-  it('returns the same result for the same seed', () => {
+  it('[R] returns the same result for the same seed', () => {
     const first = runSimulation(GREEN_DECK, RED_DECK, 50, 4242, noop)
     const second = runSimulation(GREEN_DECK, RED_DECK, 50, 4242, noop)
 
     expect(withoutElapsed(second)).toEqual(withoutElapsed(first))
   })
 
-  it('returns a different result for a different seed', () => {
+  it('[R] returns a different result for a different seed', () => {
     const first = runSimulation(GREEN_DECK, RED_DECK, 50, 4242, noop)
     const second = runSimulation(GREEN_DECK, RED_DECK, 50, 9999, noop)
 
@@ -106,5 +107,223 @@ describe('seats', () => {
 
     expect(life + mill + draw).toBe(mirror.totalGames)
     expect(draw).toBe(mirror.draws)
+  })
+})
+
+describe('the decks it was handed', () => {
+  /**
+   * `runSimulation` plays thousands of games off one pair of arrays. Anything
+   * it writes back - a shuffle in place, a tapped flag on a shared card - would
+   * carry into every later game, and into whatever the caller does with the
+   * deck afterwards.
+   */
+  it('[R] leaves both deck arrays untouched', () => {
+    const deckA = deckOf([forest('a'), forest('b')], simCard({ id: 'bear', power: 2, toughness: 2 }))
+    const deckB = deckOf([land('mountain', ['R'])], simCard({ id: 'goblin' }))
+    const before = [structuredClone(deckA), structuredClone(deckB)]
+
+    runSimulation(deckA, deckB, 50, 7, noop)
+
+    expect(deckA).toEqual(before[0])
+    expect(deckB).toEqual(before[1])
+  })
+
+  it('[R] plays a deck against itself without the two seats sharing state', () => {
+    // The same array in both seats is the mirror-match case, and it is the one
+    // that breaks loudest if a game writes to the deck.
+    const deck = deckOf([forest('a')], simCard({ id: 'bear', power: 2, toughness: 2 }))
+    const before = structuredClone(deck)
+
+    const result = runSimulation(deck, deck, 50, 7, noop)
+
+    expect(deck).toEqual(before)
+    expect(result.wins[0] + result.wins[1] + result.draws).toBe(50)
+  })
+})
+
+describe('onProgress', () => {
+  const progressFor = (games: number) => {
+    const completed: number[] = []
+    runSimulation(GREEN_DECK, RED_DECK, games, 1, (n) => completed.push(n))
+    return completed
+  }
+
+  it('[R] reports every hundredth game and then the total', () => {
+    expect(progressFor(250)).toEqual([100, 200, 250])
+  })
+
+  it('[R] reports the total for a run shorter than one batch', () => {
+    expect(progressFor(30)).toEqual([30])
+  })
+
+  it('[R] reports the total even for an empty run', () => {
+    expect(progressFor(0)).toEqual([0])
+  })
+
+  it('[R] always reports the total last, even when that repeats a batch', () => {
+    // The final call is unconditional on purpose: a caller that drives a
+    // progress bar off it always sees 100%, whatever the batch size divides
+    // into. A run of exactly 200 therefore reports 200 twice, and anything
+    // counting the calls rather than reading the last one is wrong.
+    expect(progressFor(200)).toEqual([100, 200, 200])
+  })
+})
+
+describe('the accounting', () => {
+  const result = runSimulation(GREEN_DECK, RED_DECK, 300, 11, noop)
+
+  it('[R] assigns every game to a winner or to a draw', () => {
+    expect(result.wins[0] + result.wins[1] + result.draws).toBe(result.totalGames)
+  })
+
+  it('[R] counts the same games in seat order as in deck order', () => {
+    expect(result.seatWins[0] + result.seatWins[1]).toBe(result.wins[0] + result.wins[1])
+  })
+
+  it('[R] reports one turn bucket per round, plus a zero bucket', () => {
+    expect(result.turnDistribution).toHaveLength(MAX_TURNS + 1)
+    expect(result.turnDistribution[0]).toBe(0)
+  })
+
+  it('[R] puts every game in a turn bucket', () => {
+    // A game that reached the cap still has `turns === MAX_TURNS`, so nothing
+    // falls off the end of the histogram.
+    const counted = result.turnDistribution.reduce((a, b) => a + b, 0)
+
+    expect(counted).toBe(result.totalGames)
+  })
+
+  it('[R] reports averages consistent with the histogram', () => {
+    const weighted = result.turnDistribution.reduce((sum, count, turn) => sum + count * turn, 0)
+
+    expect(result.avgTurns).toBeCloseTo(weighted / result.totalGames, 10)
+    expect(result.medianTurns).toBeGreaterThan(0)
+    expect(result.medianTurns).toBeLessThanOrEqual(MAX_TURNS)
+  })
+
+  it('[R] reports every rate as a fraction of the games played', () => {
+    for (const rates of [result.manaScrewRate, result.manaFloodRate, result.curveHitRate]) {
+      for (const rate of rates) {
+        expect(rate).toBeGreaterThanOrEqual(0)
+        expect(rate).toBeLessThanOrEqual(1)
+      }
+    }
+  })
+
+  it('[R] accounts for every game when the count is odd', () => {
+    const odd = runSimulation(GREEN_DECK, RED_DECK, 51, 11, noop)
+
+    expect(odd.totalGames).toBe(51)
+    expect(odd.wins[0] + odd.wins[1] + odd.draws).toBe(51)
+  })
+
+  it('[R] returns a zeroed result for a run of no games', () => {
+    const empty = runSimulation(GREEN_DECK, RED_DECK, 0, 11, noop)
+
+    expect(empty.totalGames).toBe(0)
+    expect(empty.wins).toEqual([0, 0])
+    expect(empty.draws).toBe(0)
+    expect(empty.avgTurns).toBe(0)
+    expect(empty.medianTurns).toBe(0)
+    expect(empty.manaScrewRate).toEqual([0, 0])
+    expect(empty.winRateCI95).toEqual([0, 0])
+    expect(empty.turnDistribution.reduce((a, b) => a + b, 0)).toBe(0)
+  })
+})
+
+describe('wilsonCI', () => {
+  it('[R] reports a point at zero for no games', () => {
+    // The panel divides by the interval width, so an empty run has to come back
+    // as a degenerate interval rather than as NaN.
+    expect(wilsonCI(0, 0)).toEqual([0, 0])
+  })
+
+  it('[R] tops out at exactly 1 when every game was won', () => {
+    const [lower, upper] = wilsonCI(40, 40)
+
+    expect(upper).toBe(1)
+    expect(lower).toBeGreaterThan(0.9)
+    expect(lower).toBeLessThan(1)
+  })
+
+  it('[R] bottoms out at exactly 0 when no game was won', () => {
+    const [lower, upper] = wilsonCI(0, 40)
+
+    expect(lower).toBe(0)
+    expect(upper).toBeGreaterThan(0)
+    expect(upper).toBeLessThan(0.1)
+  })
+
+  it('[R] brackets the observed rate', () => {
+    const [lower, upper] = wilsonCI(30, 100)
+
+    expect(lower).toBeLessThanOrEqual(0.3)
+    expect(upper).toBeGreaterThanOrEqual(0.3)
+  })
+
+  it('[R] narrows as the sample grows', () => {
+    const widths = [10, 100, 1000, 10000].map((n) => {
+      const [lower, upper] = wilsonCI(n / 2, n)
+      return upper - lower
+    })
+
+    for (let i = 1; i < widths.length; i++) {
+      expect(widths[i]).toBeLessThan(widths[i - 1])
+    }
+  })
+
+  it('[R] stays inside 0 and 1 at every rate', () => {
+    for (let wins = 0; wins <= 20; wins++) {
+      const [lower, upper] = wilsonCI(wins, 20)
+
+      expect(lower).toBeGreaterThanOrEqual(0)
+      expect(upper).toBeLessThanOrEqual(1)
+      expect(lower).toBeLessThanOrEqual(upper)
+    }
+  })
+})
+
+describe('which deck sits in which seat', () => {
+  /**
+   * A deck of exactly seven cards, so the library is empty from the start and
+   * the game is decided by the draw step alone: the player on the draw attempts
+   * a draw on round 1 and loses, and the player on the play survives to round 2
+   * and loses then. Either way this deck loses - but *which seat* wins says
+   * which side of the table it was sitting on, which is the thing under test.
+   */
+  const NO_LIBRARY = [
+    forest('a'),
+    forest('b'),
+    forest('c'),
+    forest('d'),
+    simCard({ id: 'bear-1', power: 2, toughness: 2 }),
+    simCard({ id: 'bear-2', power: 2, toughness: 2 }),
+    simCard({ id: 'bear-3', power: 2, toughness: 2 }),
+  ]
+  const FULL_LIBRARY = deckOf([], forest())
+
+  it('[R] puts deck A on the play for the first game', () => {
+    const one = runSimulation(NO_LIBRARY, FULL_LIBRARY, 1, 3, noop)
+
+    // Deck A decked itself, so deck B won - from seat 1, the draw.
+    expect(one.wins).toEqual([0, 1])
+    expect(one.seatWins).toEqual([0, 1])
+  })
+
+  it('[R] puts deck A on the draw for the second game', () => {
+    const two = runSimulation(NO_LIBRARY, FULL_LIBRARY, 2, 3, noop)
+
+    // Deck B won both, once from each seat.
+    expect(two.wins).toEqual([0, 2])
+    expect(two.seatWins).toEqual([1, 1])
+  })
+
+  it('[R] gives deck A the extra game on the play when the count is odd', () => {
+    // 51 games: deck A takes the play 26 times and the draw 25. Deck B wins
+    // every game, so its seat tally is the mirror image of deck A's.
+    const odd = runSimulation(NO_LIBRARY, FULL_LIBRARY, 51, 3, noop)
+
+    expect(odd.wins).toEqual([0, 51])
+    expect(odd.seatWins).toEqual([25, 26])
   })
 })

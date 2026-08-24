@@ -72,3 +72,102 @@ describe('parseEffects', () => {
     ])
   })
 })
+
+describe('parseEffects patterns', () => {
+  it('[R] reads a life gain', () => {
+    expect(actions('You gain 3 life.')).toEqual([{ type: 'gain_life', amount: 3 }])
+  })
+
+  it('[R] reads damage to a target', () => {
+    expect(actions('Lightning Bolt deals 3 damage to any target.')).toEqual([
+      { type: 'damage', target: 'opponent', amount: 3 },
+    ])
+  })
+
+  it('[R] reads damage to each opponent', () => {
+    expect(actions('This spell deals 2 damage to each opponent.')).toEqual([
+      { type: 'damage', target: 'opponent', amount: 2 },
+    ])
+  })
+
+  it('[R] reads creature removal', () => {
+    expect(actions('Destroy target creature.')).toEqual([
+      { type: 'destroy', target: 'creature' },
+    ])
+  })
+
+  it('[R] reads permanent removal', () => {
+    expect(actions('Destroy target nonland permanent.')).toEqual([
+      { type: 'destroy', target: 'any' },
+    ])
+  })
+
+  it('[R] reads a land fetch as ramp', () => {
+    expect(actions('Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.')).toEqual([
+      { type: 'ramp', count: 1 },
+    ])
+  })
+
+  it('[R] reads a bounce', () => {
+    expect(actions("Return target creature to its owner's hand.")).toEqual([
+      { type: 'bounce', target: 'creature' },
+    ])
+  })
+
+  it('[R] reads a life drain', () => {
+    expect(actions('Each opponent loses 2 life.')).toEqual([
+      { type: 'lose_life', target: 'opponent', amount: 2 },
+    ])
+  })
+
+  it('[R] reads a temporary pump on one creature', () => {
+    expect(actions('Target creature gets +3/+3 until end of turn.')).toEqual([
+      { type: 'pump', power: 3, toughness: 3, target: 'self' },
+    ])
+  })
+
+  it('[R] gives a team pump the static trigger', () => {
+    expect(parseEffects('Creatures you control get +1/+1.', 'creature')).toEqual([
+      { trigger: 'static', action: { type: 'pump', power: 1, toughness: 1, target: 'team' } },
+    ])
+  })
+
+  it('[R] reads every pattern a card matches, not just the first', () => {
+    const text = 'Draw two cards. You gain 3 life.'
+
+    expect(actions(text)).toEqual([
+      { type: 'draw', count: 2 },
+      { type: 'gain_life', amount: 3 },
+    ])
+  })
+
+  it('[R] reads no effect off a card with no oracle text', () => {
+    expect(actions('')).toEqual([])
+  })
+
+  it('[R] reads no effect off text nothing matches', () => {
+    expect(actions('Flying, vigilance')).toEqual([])
+  })
+})
+
+describe('parseEffects triggers', () => {
+  const triggerOf = (cardType: CardType) => parseEffects('Draw a card.', cardType)[0].trigger
+
+  it('[R] fires a creature effect when it enters the battlefield', () => {
+    expect(triggerOf('creature')).toBe('etb')
+  })
+
+  it.each<CardType>(['instant', 'sorcery'])('[R] fires a %s effect on cast', (cardType) => {
+    expect(triggerOf(cardType)).toBe('cast')
+  })
+
+  it.each<CardType>(['artifact', 'enchantment', 'planeswalker'])(
+    '[R] fires a %s effect on cast',
+    (cardType) => {
+      // `playCastCard` fires the cast trigger and then puts the permanent onto
+      // the battlefield, so a permanent with an ETB written as a cast trigger
+      // still resolves in the right order.
+      expect(triggerOf(cardType)).toBe('cast')
+    },
+  )
+})
