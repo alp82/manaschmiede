@@ -5,13 +5,10 @@ import type { ScryfallCard } from './scryfall/types'
 
 interface ApplySectionInheritanceOptions {
   /**
-   * When true (deck editor branch), the swap-pair shortcut fires only for an
-   * unambiguous single removal (`removedIds.length === 1`); multi-card swaps
-   * fall through to pickSectionForCard. When false (wizard branch), every
-   * removal pairs with an add by index and a `targetSection` top-up applies.
+   * Section that unpaired adds top up. Explicit caller intent — a lane re-fill
+   * or a "Top up (+N)" — so it outranks role inference. A paired add still
+   * inherits the removed card's section.
    */
-  strictSingleSwap: boolean
-  /** Section that unpaired adds top up (wizard branch only). */
   targetSection?: string
   resolveCard: (id: string) => ScryfallCard | undefined
   sections: DeckSection[]
@@ -21,10 +18,13 @@ interface ApplySectionInheritanceOptions {
  * Inherit section assignments for an applied AI change set. Pure: returns a new
  * assignments map without mutating the input.
  *
- * Both branches: a swap's added card takes the removed card's section, removed
- * ids are purged from every section, and remaining adds are routed by role via
- * pickSectionForCard. The strict branch fires the swap only for single removals;
- * the wizard branch pairs multi-card swaps and tops up via targetSection.
+ * A swap's added card takes the removed card's section, removed ids are purged
+ * from every section, and remaining adds go to `targetSection` when the caller
+ * named one, otherwise are routed by role via pickSectionForCard.
+ *
+ * The swap fires only for an unambiguous single removal. A CardChange[] is a
+ * diff, not a pairing: when the AI removes two spells and adds two creatures,
+ * pairing by index would file both creatures under spells (issue #17).
  */
 export function applySectionInheritance(
   assignments: Record<string, string[]>,
@@ -41,26 +41,18 @@ export function applySectionInheritance(
   const addedIds = addedChanges.map((c) => c.scryfallId)
   const placed = new Set<string>()
 
-  const swapFires = opts.strictSingleSwap
-    ? removedIds.length === 1 && addedIds.length > 0
-    : removedIds.length > 0 && addedIds.length > 0
-
-  if (swapFires) {
-    const sectionForRemoved = new Map<string, string>()
-    for (const rid of removedIds) {
-      for (const [sectionId, ids] of Object.entries(next)) {
-        if (ids.includes(rid)) sectionForRemoved.set(rid, sectionId)
-      }
+  if (removedIds.length === 1 && addedIds.length > 0) {
+    const removedId = removedIds[0]
+    const addedId = addedIds[0]
+    // A card assigned to two sections is a data error; the last one wins, so
+    // the replacement lands in exactly one section.
+    let inheritedId: string | undefined
+    for (const [sectionId, ids] of Object.entries(next)) {
+      if (ids.includes(removedId)) inheritedId = sectionId
     }
-    const pairCount = Math.min(removedIds.length, addedIds.length)
-    for (let i = 0; i < pairCount; i++) {
-      const sectionId = sectionForRemoved.get(removedIds[i])
-      if (sectionId) {
-        next[sectionId] = (next[sectionId] ?? [])
-          .filter((id) => id !== removedIds[i])
-          .concat(addedIds[i])
-        placed.add(addedIds[i])
-      }
+    if (inheritedId) {
+      next[inheritedId] = next[inheritedId].filter((id) => id !== removedId).concat(addedId)
+      placed.add(addedId)
     }
   }
 
@@ -71,12 +63,12 @@ export function applySectionInheritance(
     }
   }
 
-  // Remaining additions: target section first (wizard branch), then auto-pick.
+  // Remaining additions: the caller's target section first, then auto-pick.
   for (const change of addedChanges) {
     const aid = change.scryfallId
     if (placed.has(aid)) continue
 
-    if (!opts.strictSingleSwap && opts.targetSection) {
+    if (opts.targetSection) {
       next[opts.targetSection] = [...(next[opts.targetSection] ?? []), aid]
       placed.add(aid)
       continue
