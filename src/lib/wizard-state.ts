@@ -63,6 +63,7 @@ export type WizardAction =
   | { type: 'SET_RARITY_FILTER'; rarities: string[] }
   | { type: 'SET_CORE_COMBOS'; combos: CoreCombo[] }
   | { type: 'SELECT_COMBO'; index: number }
+  | { type: 'SKIP_COMBO' }
   | { type: 'SET_DECK'; cards: DeckCard[]; name?: string; description?: string }
   | { type: 'SET_DECK_METADATA'; name?: string; description?: string }
   | { type: 'TOGGLE_LOCK'; scryfallId: string }
@@ -155,6 +156,10 @@ export function hydrateWizardState(parsed: unknown): WizardState {
     merged.budgetMax = budgetLimit
   }
   if (merged.maxStepReached < merged.step) merged.maxStepReached = merged.step
+  // A `-1` here is the retired skip sentinel. Every consumer already collapsed
+  // it onto the `null` branch, so normalising it keeps exactly one shape for
+  // "no combo chosen" in play.
+  if (merged.selectedComboIndex === -1) merged.selectedComboIndex = null
   return merged
 }
 
@@ -269,7 +274,7 @@ export interface FillColorsResult {
  *   - Selected colors are always included (user-committed floor).
  *   - Maybe colors are included only if the chosen combo's cards actually
  *     use them — unused maybes drop out.
- *   - Without a chosen combo (null, -1/skip, or index out of range),
+ *   - Without a chosen combo (null, or an index out of range),
  *     maybes drop entirely and only selected colors remain.
  *   - If the chosen combo contains any card whose Scryfall data hasn't
  *     resolved yet, returns `{ ready: false }` so the caller can block
@@ -278,8 +283,7 @@ export interface FillColorsResult {
 export function getFillColors(state: WizardState): FillColorsResult {
   const selected = getSelectedColors(state.colors)
   const index = state.selectedComboIndex
-  const combo =
-    index != null && index >= 0 ? state.coreCombos[index] : undefined
+  const combo = index != null ? state.coreCombos[index] : undefined
 
   if (!combo) {
     return { ready: true, colors: selected }
@@ -369,6 +373,12 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
       return { ...state, coreCombos: action.combos, selectedComboIndex: null }
 
     case 'SELECT_COMBO': {
+      // Range guard first. Without it an index with no combo behind it fell
+      // through to `combo?.name ?? ''`, wiping a deckName the user had typed —
+      // and, with a populated deck, the deck itself. There is nothing sensible
+      // to select at an index that holds no combo, so the action is a no-op.
+      if (action.index < 0 || action.index >= state.coreCombos.length) return state
+
       // When switching to a different combo while a deck is already
       // populated (e.g. navigating back from step 4 to re-pick), clear
       // downstream deck state so step 4 re-seeds from the new combo's
@@ -399,6 +409,15 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
       }
       return withMeta
     }
+
+    case 'SKIP_COMBO':
+      // Skipping is the ABSENCE of a strategy choice, not a new one — so unlike
+      // SELECT_COMBO it must never touch deckName / deckDescription / deckCards
+      // / sectionPlan / sectionAssignments / lockedCardIds. It replaced a
+      // `SELECT_COMBO` with a `-1` sentinel, which carried no information every
+      // consumer didn't already read off `null`, and which fell through
+      // SELECT_COMBO's downstream clear.
+      return state.selectedComboIndex === null ? state : { ...state, selectedComboIndex: null }
 
     case 'SET_DECK':
       return {

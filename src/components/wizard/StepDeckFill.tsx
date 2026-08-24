@@ -45,8 +45,8 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
   const sounds = useDeckSounds()
   const history = useDeckHistory(state.deckCards, (cards) => dispatch({ type: 'SET_DECK', cards }), { persist: true })
 
-  const selectedCombo = state.selectedComboIndex != null && state.selectedComboIndex >= 0
-    ? state.coreCombos[state.selectedComboIndex]
+  const selectedCombo = state.selectedComboIndex != null
+    ? state.coreCombos[state.selectedComboIndex] ?? null
     : null
 
   const lockedCardIds = useMemo(() => {

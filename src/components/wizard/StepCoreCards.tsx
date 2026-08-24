@@ -460,7 +460,7 @@ export function StepCoreCards({ state, dispatch, onNext, onBack, onReset }: Step
             variant="ghost"
             size="sm"
             onClick={() => {
-              dispatch({ type: 'SELECT_COMBO', index: -1 })
+              dispatch({ type: 'SKIP_COMBO' })
               onNext()
             }}
           >
