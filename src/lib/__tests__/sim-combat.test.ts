@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveCombat } from '../simulation/combat'
+import { forecastCombat, resolveCombat } from '../simulation/combat'
 import { nonCreature, permanent, simCard, stateWith } from './sim-fixtures'
 
 describe('resolveCombat', () => {
@@ -153,5 +153,53 @@ describe('resolveCombat', () => {
       expect(attacker.damage).toBe(2)
       expect(blocker.damage).toBe(0)
     })
+  })
+})
+
+describe('forecastCombat', () => {
+  it('[R] reports damage without touching the real battlefields', () => {
+    const bear = permanent(simCard({ id: 'bear', power: 2, toughness: 2 }))
+
+    const forecast = forecastCombat([0], new Map(), [bear], [])
+
+    expect(forecast.defenderLifeChange).toBe(-2)
+    expect(forecast.attackersLost).toEqual([])
+    expect(forecast.blockersLost).toEqual([])
+    expect(bear.tapped).toBe(false)
+  })
+
+  it('[R] reports both creatures lost on an even trade', () => {
+    const attacker = permanent(simCard({ id: 'attacker', power: 2, toughness: 2 }))
+    const blocker = permanent(simCard({ id: 'blocker', power: 2, toughness: 2 }))
+
+    const forecast = forecastCombat([0], new Map([[0, [0]]]), [attacker], [blocker])
+
+    expect(forecast.defenderLifeChange).toBe(0)
+    expect(forecast.attackersLost.map((p) => p.card.id)).toEqual(['attacker'])
+    expect(forecast.blockersLost.map((p) => p.card.id)).toEqual(['blocker'])
+  })
+
+  it('[R] counts the life a lifelink attacker gains', () => {
+    const vampire = permanent(
+      simCard({ id: 'vampire', power: 3, toughness: 3, keywords: new Set(['lifelink']) }),
+    )
+
+    const forecast = forecastCombat([0], new Map(), [vampire], [])
+
+    expect(forecast.attackerLifeChange).toBe(3)
+    expect(forecast.defenderLifeChange).toBe(-3)
+  })
+
+  it('[R] sends trample damage past the blocker it kills', () => {
+    const giant = permanent(
+      simCard({ id: 'giant', power: 6, toughness: 6, keywords: new Set(['trample']) }),
+    )
+    const chump = permanent(simCard({ id: 'chump', power: 1, toughness: 1 }))
+
+    const forecast = forecastCombat([0], new Map([[0, [0]]]), [giant], [chump])
+
+    expect(forecast.defenderLifeChange).toBe(-5)
+    expect(forecast.blockersLost.map((p) => p.card.id)).toEqual(['chump'])
+    expect(forecast.attackersLost).toEqual([])
   })
 })

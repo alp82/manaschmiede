@@ -18,7 +18,38 @@ import {
   chooseBlockers,
 } from './ai'
 
-const MAX_TURNS = 50
+/**
+ * The cap on rounds - one round being a turn for each player, which is what
+ * `GameResult.turns` counts.
+ *
+ * A board stall is meant to be broken by decking, not by this cap: behind a
+ * seven-card opener a 60-card deck has 53 cards left, so the player on the draw
+ * attempts their 54th draw on round 54, and each mulligan pushes that out by
+ * one. The cap sits above the worst case, so a reported draw means the two
+ * decks genuinely cannot kill each other rather than that the simulation gave
+ * up.
+ */
+export const MAX_TURNS = 60
+
+/** Turns a player is expected to cast something on for `curveHit`. */
+const CURVE_TURNS = [2, 3, 4]
+
+/** Fewer lands than this in play at the end of turn 4 is mana screw. */
+const SCREW_LANDS = 3
+const SCREW_TURN = 4
+
+/**
+ * Mana flood is sampled once, at the end of turn 8: this many lands in play
+ * and fewer than `FLOOD_HAND_SPELLS` non-lands left to cast.
+ *
+ * Sampling at the end of the game instead reported flood for almost every
+ * game, because a game that runs long ends with everyone holding lands they
+ * can't use - the metric was measuring game length, not draws.
+ */
+const FLOOD_LANDS = 7
+const FLOOD_HAND_SPELLS = 2
+const FLOOD_TURN = 8
+
 let tokenSeq = 0
 
 function shuffle<T>(arr: T[], rng: () => number): T[] {
@@ -48,6 +79,7 @@ function createPlayer(deck: SimCard[], rng: () => number): PlayerState {
     battlefield: [],
     graveyard: [],
     landDropsRemaining: 1,
+    spellsCastThisTurn: 0,
   }
 }
 
@@ -251,10 +283,26 @@ function runMainPhase(state: GameState): void {
 
   for (const card of castCards) {
     playCastCard(card, player, state, active)
+    player.spellsCastThisTurn++
   }
 }
 
-export function runTurn(state: GameState, rng: () => number): 'continue' | 'p0_wins' | 'p1_wins' | 'p0_mill' | 'p1_mill' {
+/**
+ * How a turn ended. A win carries the condition, because losing to an empty
+ * library and losing to damage are different results and the panel reports the
+ * difference.
+ */
+export type TurnOutcome =
+  | { kind: 'continue' }
+  | { kind: 'win'; winner: 0 | 1; condition: 'life' | 'mill' }
+
+const CONTINUE: TurnOutcome = { kind: 'continue' }
+
+function lifeWin(winner: 0 | 1): TurnOutcome {
+  return { kind: 'win', winner, condition: 'life' }
+}
+
+export function runTurn(state: GameState, rng: () => number): TurnOutcome {
   const active = state.activePlayer
   const defending = (1 - active) as 0 | 1
   const player = state.players[active]
@@ -271,16 +319,19 @@ export function runTurn(state: GameState, rng: () => number): 'continue' | 'p0_w
     p.damage = 0
   }
   player.landDropsRemaining = 1
+  player.spellsCastThisTurn = 0
 
   // Upkeep triggers
   for (const p of player.battlefield) {
     triggerEffects(p, 'upkeep', state, active)
   }
 
-  // Draw (skip first player's first turn)
+  // Draw (skip first player's first turn). A player who cannot draw loses on
+  // the attempt - an empty library is not itself a loss, which is why nothing
+  // checks library size between turns.
   if (!(state.turn === 1 && active === 0)) {
     if (!drawCard(player)) {
-      return active === 0 ? 'p1_wins' : 'p0_wins'
+      return { kind: 'win', winner: defending, condition: 'mill' }
     }
   }
 
@@ -297,8 +348,8 @@ export function runTurn(state: GameState, rng: () => number): 'continue' | 'p0_w
   runMainPhase(state)
 
   stateBasedActions(state)
-  if (opponent.life <= 0) return active === 0 ? 'p0_wins' : 'p1_wins'
-  if (player.life <= 0) return active === 0 ? 'p1_wins' : 'p0_wins'
+  if (opponent.life <= 0) return lifeWin(active)
+  if (player.life <= 0) return lifeWin(defending)
 
   // Combat
   const attackerIndices = chooseAttackers(player.battlefield, opponent.battlefield, opponent.life)
@@ -313,16 +364,16 @@ export function runTurn(state: GameState, rng: () => number): 'continue' | 'p0_w
     stateBasedActions(state)
   }
 
-  if (opponent.life <= 0) return active === 0 ? 'p0_wins' : 'p1_wins'
-  if (player.life <= 0) return active === 0 ? 'p1_wins' : 'p0_wins'
+  if (opponent.life <= 0) return lifeWin(active)
+  if (player.life <= 0) return lifeWin(defending)
 
   // Main phase 2. Lands spent in main 1 are still tapped, so only what the
   // player held back is available here.
   runMainPhase(state)
 
   stateBasedActions(state)
-  if (opponent.life <= 0) return active === 0 ? 'p0_wins' : 'p1_wins'
-  if (player.life <= 0) return active === 0 ? 'p1_wins' : 'p0_wins'
+  if (opponent.life <= 0) return lifeWin(active)
+  if (player.life <= 0) return lifeWin(defending)
 
   // End: discard to 7
   // Heuristic: discard excess lands first (if > 5 lands in play), then highest CMC
@@ -345,7 +396,40 @@ export function runTurn(state: GameState, rng: () => number): 'continue' | 'p0_w
     player.graveyard.push(player.hand.splice(worstIdx, 1)[0])
   }
 
-  return 'continue'
+  return CONTINUE
+}
+
+/** What one player's game looked like, for the metrics the panel reports. */
+interface PlayerObservations {
+  /** One flag per entry in `CURVE_TURNS`: did the player cast anything? */
+  castOnCurve: boolean[]
+  screwed: boolean
+  flooded: boolean
+}
+
+function blankObservations(): PlayerObservations {
+  return { castOnCurve: CURVE_TURNS.map(() => false), screwed: false, flooded: false }
+}
+
+/**
+ * Samples the mana metrics at the end of `player`'s turn `turn`.
+ *
+ * Every one of these is a fixed-turn snapshot on purpose. Read at the end of
+ * the game instead, screw and flood report on how long the game ran rather
+ * than on how the player's draws went.
+ */
+function observe(obs: PlayerObservations, player: PlayerState, turn: number): void {
+  const curveIdx = CURVE_TURNS.indexOf(turn)
+  if (curveIdx >= 0 && player.spellsCastThisTurn > 0) obs.castOnCurve[curveIdx] = true
+
+  const lands = player.battlefield.filter((p) => p.card.cardType === 'land').length
+
+  if (turn === SCREW_TURN) obs.screwed = lands < SCREW_LANDS
+
+  if (turn === FLOOD_TURN) {
+    const spellsInHand = player.hand.filter((c) => c.cardType !== 'land').length
+    obs.flooded = lands >= FLOOD_LANDS && spellsInHand < FLOOD_HAND_SPELLS
+  }
 }
 
 export function runGame(deckA: SimCard[], deckB: SimCard[], rng: () => number): GameResult {
@@ -356,66 +440,43 @@ export function runGame(deckA: SimCard[], deckB: SimCard[], rng: () => number): 
     phase: 'untap',
   }
 
-  const p0SpellsPlayed = [false, false, false] // turns 2, 3, 4
-  const p1SpellsPlayed = [false, false, false]
+  const observations: [PlayerObservations, PlayerObservations] = [
+    blankObservations(),
+    blankObservations(),
+  ]
 
   for (let turn = 1; turn <= MAX_TURNS; turn++) {
     state.turn = turn
 
     for (let active = 0; active < 2; active++) {
       state.activePlayer = active as 0 | 1
-      const result = runTurn(state, rng)
+      const outcome = runTurn(state, rng)
+      observe(observations[active], state.players[active as 0 | 1], turn)
 
-      // Track curve hits
-      if (turn >= 2 && turn <= 4) {
-        const player = state.players[active as 0 | 1]
-        const nonLandOnBoard = player.battlefield.filter((p) => p.card.cardType !== 'land').length
-        if (active === 0 && nonLandOnBoard > 0) p0SpellsPlayed[turn - 2] = true
-        if (active === 1 && nonLandOnBoard > 0) p1SpellsPlayed[turn - 2] = true
+      if (outcome.kind === 'win') {
+        return makeResult(outcome.winner, turn, outcome.condition, observations)
       }
-
-      if (result === 'p0_wins') {
-        return makeResult(0, turn, 'life', state, p0SpellsPlayed, p1SpellsPlayed)
-      }
-      if (result === 'p1_wins') {
-        return makeResult(1, turn, 'life', state, p0SpellsPlayed, p1SpellsPlayed)
-      }
-    }
-
-    // Check mill
-    if (state.players[0].library.length === 0) {
-      return makeResult(1, turn, 'mill', state, p0SpellsPlayed, p1SpellsPlayed)
-    }
-    if (state.players[1].library.length === 0) {
-      return makeResult(0, turn, 'mill', state, p0SpellsPlayed, p1SpellsPlayed)
     }
   }
 
-  return makeResult(-1, MAX_TURNS, 'draw', state, p0SpellsPlayed, p1SpellsPlayed)
+  return makeResult(-1, MAX_TURNS, 'draw', observations)
 }
 
 function makeResult(
   winner: 0 | 1 | -1,
   turns: number,
   winCondition: 'life' | 'mill' | 'draw',
-  state: GameState,
-  p0Spells: boolean[],
-  p1Spells: boolean[],
+  observations: [PlayerObservations, PlayerObservations],
 ): GameResult {
-  const p0Lands = state.players[0].battlefield.filter((p) => p.card.cardType === 'land').length
-  const p1Lands = state.players[1].battlefield.filter((p) => p.card.cardType === 'land').length
-  const p0NonLandHand = state.players[0].hand.filter((c) => c.cardType !== 'land').length
-  const p1NonLandHand = state.players[1].hand.filter((c) => c.cardType !== 'land').length
-
   return {
     winner,
     turns,
     winCondition,
-    p0ManaScrew: turns >= 4 && p0Lands < 3,
-    p1ManaScrew: turns >= 4 && p1Lands < 3,
-    p0ManaFlood: turns >= 8 && p0Lands > 6 && p0NonLandHand < 2,
-    p1ManaFlood: turns >= 8 && p1Lands > 6 && p1NonLandHand < 2,
-    p0CurveHit: p0Spells[0] && p0Spells[1] && p0Spells[2],
-    p1CurveHit: p1Spells[0] && p1Spells[1] && p1Spells[2],
+    manaScrew: [observations[0].screwed, observations[1].screwed],
+    manaFlood: [observations[0].flooded, observations[1].flooded],
+    curveHit: [
+      observations[0].castOnCurve.every(Boolean),
+      observations[1].castOnCurve.every(Boolean),
+    ],
   }
 }

@@ -134,6 +134,13 @@ export interface PlayerState {
   battlefield: Permanent[]
   graveyard: SimCard[]
   landDropsRemaining: number
+  /**
+   * Spells cast so far in the current turn, reset at untap alongside
+   * `landDropsRemaining`. "Did this player use their turn" is not readable off
+   * the battlefield: a creature cast on turn 2 is still standing on turn 4, so
+   * a board check reports a curve hit for a player who cast nothing since.
+   */
+  spellsCastThisTurn: number
 }
 
 export type Phase = 'untap' | 'upkeep' | 'draw' | 'main1' | 'combat' | 'main2' | 'end'
@@ -145,27 +152,57 @@ export interface GameState {
   phase: Phase
 }
 
+/**
+ * One game's outcome, in seat order: index 0 is the player on the play.
+ *
+ * `runSimulation` alternates which deck takes which seat, so a result is
+ * re-seated before it is counted. Reading these fields as "deck A" and "deck B"
+ * is only correct for the half of the games where that happens to be true.
+ */
 export interface GameResult {
   winner: 0 | 1 | -1
   turns: number
   winCondition: 'life' | 'mill' | 'draw'
-  p0ManaScrew: boolean
-  p1ManaScrew: boolean
-  p0ManaFlood: boolean
-  p1ManaFlood: boolean
-  p0CurveHit: boolean
-  p1CurveHit: boolean
+  manaScrew: PerPlayer<boolean>
+  manaFlood: PerPlayer<boolean>
+  curveHit: PerPlayer<boolean>
 }
+
+/**
+ * One value per player, in seat order: `[player 0, player 1]`.
+ *
+ * The mana metrics used to be single numbers aggregated from player 0 alone
+ * while the panel labelled them as if they described the matchup. In a mirror
+ * that reads as harmless; against a different opponent deck it reports one
+ * deck's draws under the matchup's name.
+ */
+export type PerPlayer<T> = [T, T]
+
+export type PerPlayerRate = PerPlayer<number>
 
 export interface SimulationResult {
   totalGames: number
+  /** Games won, by deck: `[deck A, deck B]`, across both seats. */
   wins: [number, number]
+  /**
+   * Games won by seat: `[on the play, on the draw]`. Reported separately
+   * because it answers a different question from `wins` - how much this
+   * matchup turns on who moves first, rather than on which deck is better.
+   */
+  seatWins: [number, number]
   draws: number
+  /** Games ending each way. `draw` is `draws`, repeated here for completeness. */
+  winConditions: Record<GameResult['winCondition'], number>
   avgTurns: number
   medianTurns: number
-  manaScrewRate: number
-  manaFloodRate: number
-  curveHitRate: number
+  manaScrewRate: PerPlayerRate
+  manaFloodRate: PerPlayerRate
+  curveHitRate: PerPlayerRate
+  /**
+   * Wilson interval for deck A's win rate, over every game played. The
+   * denominator is `totalGames`, the same one the panel's win and draw
+   * percentages use, so the headline number always sits inside its interval.
+   */
   winRateCI95: [number, number]
   elapsed: number
   turnDistribution: number[]
