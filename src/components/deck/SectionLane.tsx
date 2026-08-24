@@ -8,6 +8,7 @@ import { LoadingDots } from '../ui/LoadingDots'
 import { ErrorBox } from '../ui/ErrorBox'
 import { Button } from '../ui/Button'
 import { cn } from '../../lib/utils'
+import type { LaneStatus } from '../../lib/use-staged-rederive'
 import { useT } from '../../lib/i18n'
 
 export interface SectionLaneDescriptor {
@@ -34,21 +35,14 @@ export interface SectionLaneState {
 
 /**
  * Per-lane re-derive status (deck-view only). When a lane is stale its body
- * dims + an inline re-fill prompt renders. Single-sourced here so DeckEditor
- * and $id.tsx share the exact same shape.
+ * dims + an inline re-fill prompt renders. The dim is a review marker, not a
+ * lock: the cards stay interactive, or the only ways out of a stale lane would
+ * be Accept and Discard.
+ *
+ * Defined by `use-staged-rederive`, which computes it, and re-exported here so
+ * the component tree keeps importing it from where it is rendered.
  */
-export interface LaneStatus {
-  stale: boolean
-  /**
-   * Omitted when the lane has nothing to re-fill (its target shrank, so it is
-   * already at or over the staged count). The lane still dims; the prompt is
-   * simply not rendered.
-   */
-  onRefill?: () => void
-  refillDeficit: number
-  /** True when a re-fill chat call is in flight for this lane. */
-  refilling?: boolean
-}
+export type { LaneStatus } from '../../lib/use-staged-rederive'
 
 interface SectionLaneProps {
   section: SectionLaneDescriptor
@@ -196,7 +190,7 @@ export const SectionLane = memo(function SectionLane({
       {!collapsed && (
         <div
           id={`section-body-${section.id}`}
-          className={cn(stale && 'pointer-events-none opacity-40')}
+          className={cn(stale && 'opacity-60')}
         >
           {/* Cards */}
           {items.length > 0 && (

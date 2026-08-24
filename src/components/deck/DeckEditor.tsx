@@ -77,6 +77,13 @@ interface DeckEditorProps {
    * Absent in the wizard.
    */
   resolveLaneStatus?: (laneId: string) => LaneStatus | undefined
+  /**
+   * Render lanes with no cards in them. Defaults to fill mode only, where the
+   * per-section fill buttons need somewhere to live. The deck view opts in too,
+   * because a lane the re-derive flagged as needing cards is very often the one
+   * with none — and an unrendered lane can't show a re-fill button.
+   */
+  includeEmptySections?: boolean
   /** Edit-only: Simulation + DeckCardList rail (Stats tab + desktop right rail). */
   cardListSlot?: ReactNode
   /** Wizard-only ambient gradient colors. */
@@ -134,6 +141,7 @@ export function DeckEditor({
   analysis,
   fill,
   resolveLaneStatus,
+  includeEmptySections,
   cardListSlot,
   ambientColors,
   cardsLoading,
@@ -231,14 +239,15 @@ export function DeckEditor({
 
   // Build the ordered lane list using the shared helper.
   // fill mode: include empty sections so fill buttons render for unfilled lanes.
-  // edit/view mode: skip lanes with no cards.
+  // edit/view mode: skip lanes with no cards, unless the caller opts in.
+  const showEmptySections = includeEmptySections ?? !!fill
   const lanes = useMemo(
     () =>
       buildLaneDescriptors(sections, sectionCards, t, {
-        includeEmptySections: !!fill,
+        includeEmptySections: showEmptySections,
         fallbackByType: false,
       }),
-    [sections, sectionCards, t, fill],
+    [sections, sectionCards, t, showEmptySections],
   )
 
   // Quick action chips for AI chat — surfaced when analysis flags a fixable issue.

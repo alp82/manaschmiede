@@ -1,11 +1,10 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useState, useCallback, useMemo, useEffect } from 'react'
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Layout } from '../../components/Layout'
 import { DeckCardList } from '../../components/DeckCardList'
 import { SimulationPanel } from '../../components/SimulationPanel'
 import { DeckEditor } from '../../components/deck/DeckEditor'
-import type { LaneStatus } from '../../components/deck/SectionLane'
 import { DeckIntentPanel } from '../../components/deck/DeckIntentPanel'
 import { ReopenComboPicker } from '../../components/deck/ReopenComboPicker'
 import { Button } from '../../components/ui/Button'
@@ -19,7 +18,7 @@ import { loadDeck, persistDeck, pickFeaturedCardIds, type LocalDeck } from '../.
 import { emptyIntent, deriveIntentFilters, buildChatIntentContext, type DeckIntent } from '../../lib/deck-intent'
 import { pickSectionForCard } from '../../lib/section-plan'
 import { applySectionInheritance, buildSectionLabelMap } from '../../lib/section-assignment'
-import { useStagedRederive, refillCountFor } from '../../lib/use-staged-rederive'
+import { useStagedRederive } from '../../lib/use-staged-rederive'
 import { useDeckPending } from '../../lib/use-deck-pending'
 import { sectionFillIntentFromDeck } from '../../lib/section-fill-intent'
 import { BASIC_LAND_ID_SET } from '../../lib/basic-lands'
@@ -288,22 +287,41 @@ function DeckPage() {
   // sectionAssignments only. The deck (and its autosave/color/PDF effects) stays
   // bound to the committed deck the whole time. The staged plan rehydrates from
   // (and persists to) the pending slot so a mid-review reload resumes it.
+  // Stable identity for the committed plan: it is the baseline every stale-lane
+  // diff is measured against, and a fresh `[]` per render would re-bucket the
+  // whole deck on every one.
+  const committedPlan = useMemo(() => deck?.sectionPlan ?? [], [deck?.sectionPlan])
+
+  // Which lane has a re-fill in flight. The chat ledger is global, so the lane
+  // that asked has to be remembered here — LaneStatus.refilling is per-lane.
+  const [refillingLaneId, setRefillingLaneId] = useState<string | null>(null)
+  // `refillLane` is declared after the hook (it needs the localized plan the
+  // hook feeds), so the hook reaches it through a stable bridge rather than a
+  // circular declaration.
+  const refillLaneRef = useRef<(laneId: string, count: number) => void>(() => {})
+  const bridgeRefillLane = useCallback(
+    (laneId: string, count: number) => refillLaneRef.current(laneId, count),
+    [],
+  )
+
   const {
     stagedPlan,
-    staleLaneIds,
-    deficitFor,
     resumed: stagedPlanResumed,
     stage: stageRederive,
     acceptPlan,
     discardPlan,
+    laneStatus,
   } = useStagedRederive({
     displayCards: deckDisplay,
     t,
     setDeck,
     resolveCard,
+    committedPlan,
     initialPlan: deckPending.stagedPlan,
     onStagedChange: setStagedPlan,
-    committedPlan: deck?.sectionPlan ?? [],
+    onRefillLane: bridgeRefillLane,
+    refillingLaneId,
+    cardsReady: !cardsLoading,
   })
 
   // Localized section plan — a staged re-derive (when present) takes precedence
@@ -404,43 +422,33 @@ function DeckPage() {
   // Per-lane re-fill (deck-view re-derive). The intent-driven fill request
   // routes through the EXISTING single chat ledger (decision 7, last-wins) — a
   // targeted "add N more cards to <lane>" message whose preview lands in
-  // useDeckChat.pending. Gated on !chatIsLoading so it can't fire against a
-  // partially-loaded cardDataMap (chatIsLoading folds in cardsLoading — C2 guard).
+  // useDeckChat.pending. `count` is the lane's deficit, already resolved by
+  // useStagedRederive; a lane with nothing to fill never gets a button.
+  // Gated on !chatIsLoading so it can't fire against a partially-loaded
+  // cardDataMap (chatIsLoading folds in cardsLoading — C2 guard).
   const refillLane = useCallback(
-    (laneId: string) => {
+    (laneId: string, count: number) => {
       if (chatIsLoading) return
       const section = localizedPlan.find((s) => s.id === laneId)
       if (!section) return
-      // Decision 5: ask for the DEFICIT, never a targetCount fallback. A lane
-      // stale from a shrinking target sits at deficit 0 with nothing to fill.
-      const needed = refillCountFor(deficitFor(laneId))
-      if (needed === null) return
+      setRefillingLaneId(laneId)
       sendMessage(
-        `Add ${needed} more cards to the "${section.label}" section. Keep the existing cards and add cards that fit the section's role: ${section.description || section.label}.`,
+        `Add ${count} more cards to the "${section.label}" section. Keep the existing cards and add cards that fit the section's role: ${section.description || section.label}.`,
         { targetSection: laneId },
       )
     },
-    [chatIsLoading, localizedPlan, deficitFor, sendMessage],
+    [chatIsLoading, localizedPlan, sendMessage],
   )
 
-  // Resolve per-lane stale status for DeckEditor's SectionLane render: stale
-  // lanes (from the staged re-derive) dim + show the inline re-fill prompt.
-  const staleLaneSet = useMemo(() => new Set(staleLaneIds), [staleLaneIds])
-  const resolveLaneStatus = useCallback(
-    (laneId: string): LaneStatus | undefined => {
-      if (!staleLaneSet.has(laneId)) return undefined
-      // A lane with no deficit (its target shrank) still dims, but offers no
-      // re-fill — SectionLane hides the prompt when onRefill is absent.
-      const needed = refillCountFor(deficitFor(laneId))
-      return {
-        stale: true,
-        onRefill: needed === null ? undefined : () => refillLane(laneId),
-        refillDeficit: needed ?? 0,
-        refilling: chatIsLoading,
-      }
-    },
-    [staleLaneSet, refillLane, deficitFor, chatIsLoading],
-  )
+  // The hook is created before `refillLane` (it feeds the localized plan that
+  // names the lane), so it reaches the current one through a ref rather than
+  // forcing a circular declaration.
+  refillLaneRef.current = refillLane
+
+  // Clear the per-lane spinner once the chat call it started has landed.
+  useEffect(() => {
+    if (!chatIsLoading) setRefillingLaneId(null)
+  }, [chatIsLoading])
 
   // "Forge with this card" - opens a fresh wizard seeded by this card. Used by
   // the DeckEditor lightbox.
@@ -620,7 +628,11 @@ function DeckPage() {
           cardsLoading={cardsLoading}
           cardListSlot={cardListSlot}
           renderExtraLightboxActions={renderEditLightboxActions}
-          resolveLaneStatus={resolveLaneStatus}
+          resolveLaneStatus={laneStatus}
+          // A lane the re-derive flagged is very often the one with no cards,
+          // and an unrendered lane can't show a re-fill button. Only while
+          // something is staged — otherwise every empty lane renders forever.
+          includeEmptySections={stagedPlan != null}
           chat={{
             messages,
             pending,
