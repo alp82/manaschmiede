@@ -271,7 +271,8 @@ function DeckPage() {
   // Backs the mid-review transient state (staged re-derive plan + offered
   // combos + re-fill chat) so a reload resumes it. The slot records the
   // committed-intent fingerprint it was derived against; a structural intent
-  // change evicts the stale staged layer on mount. Nothing here touches the
+  // change evicts the stale staged layer, on mount and again on any later
+  // fingerprint move within the session. Nothing here touches the
   // curated 60 (manaschmiede-decks) — the slot is separate, cleared on Apply.
   const { pending: deckPending, setStagedPlan, setOfferedCombos, setRefillChat, clearCardLevelPending } =
     useDeckPending(id, intent)

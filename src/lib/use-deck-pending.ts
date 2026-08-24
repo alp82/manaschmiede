@@ -46,7 +46,7 @@ export function useDeckPending(
 ): UseDeckPendingResult {
   const fingerprint = intentFingerprint(committedIntent)
 
-  const [stored, setPending] = useState<DeckPending>(() =>
+  const [pendingState, setPending] = useState<DeckPending>(() =>
     hydratePending(loadDeckPending(deckId), committedIntent),
   )
 
@@ -58,8 +58,8 @@ export function useDeckPending(
   // observes the laundered slot — including the conditionally-mounted
   // `ReopenComboPicker`, which reads `offeredCombos` into a `useState`
   // initialiser the frame it mounts.
-  const pending = evictStalePending(stored, fingerprint)
-  if (pending !== stored) setPending(pending)
+  const pending = evictStalePending(pendingState, fingerprint)
+  if (pending !== pendingState) setPending(pending)
 
   // Skip the persist effect on the very first commit — the initial state came
   // straight from storage (or is the empty slot), so re-writing it is noise.

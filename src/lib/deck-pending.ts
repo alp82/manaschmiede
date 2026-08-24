@@ -42,7 +42,11 @@ export function intentFingerprint(intent: DeckIntent): string {
   return structuralKey(intent)
 }
 
-/** Whether the slot was derived against a different structural intent. */
+/**
+ * Whether the slot was derived against a different structural intent — the
+ * predicate form of `evictStalePending`, which does the same comparison and
+ * acts on it. Change one and change the other.
+ */
 export function isPendingStale(pending: DeckPending, currentIntent: DeckIntent): boolean {
   return intentFingerprint(currentIntent) !== pending.intentFingerprint
 }
@@ -103,7 +107,8 @@ export function clearCardLevelPending(prev: DeckPending, fingerprint: string): D
 
 /**
  * Pure core of the decision-6 eviction, expressed over a FINGERPRINT rather
- * than an intent so it can run on every render instead of only on mount.
+ * than an intent so it can run on every render instead of only on mount. The
+ * predicate it acts on is the one `isPendingStale` reports.
  *
  * A slot whose `intentFingerprint` still matches is returned unchanged — the
  * SAME reference, so a caller can use `!==` to decide whether it has to write.
@@ -126,7 +131,8 @@ export function evictStalePending(pending: DeckPending, fingerprint: string): De
  *
  * Given a loaded slot (or `null`) and the current committed intent:
  * - `null`   → return an empty slot `{ intentFingerprint: <current> }`
- * - stale    → drop `stagedPlan` + `offeredCombos`, return `{ intentFingerprint: <current> }`
+ * - stale    → drop the whole staged layer (`stagedPlan`, `offeredCombos`, and
+ *              `refillChat`), return `{ intentFingerprint: <current> }`
  * - fresh    → return the loaded data as-is (its fingerprint already equals the
  *              current one, so there is nothing to update).
  *
