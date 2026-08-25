@@ -31,12 +31,8 @@ export const de: Translations = {
   'decks.eyebrow': 'Archiv',
   'decks.title': 'Deine Decks',
   'decks.empty': 'Noch keine Decks. Schmiede dein erstes.',
-  'decks.variant.stacked': 'Gestapelte Platten',
-  'decks.variant.triptych': 'Triptychon',
-  'decks.variant.featured': 'Hauptwerk + Beiwerk',
-  'decks.variant.banner': 'Kunst-Banner',
   'decks.noPreview': 'Keine Vorschau',
-  'decks.variantHint': 'Jedes Deck zeigt vier Vorschau-Stile — klicke auf eine Kachel, um das Deck zu öffnen.',
+  'decks.hint': 'Klicke auf eine Platte, um das Deck zu öffnen.',
 
   // Filters
   'filter.allTypes': 'Alle Typen',

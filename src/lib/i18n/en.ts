@@ -38,12 +38,8 @@ export const en = {
   'decks.eyebrow': 'Archive',
   'decks.title': 'Your decks',
   'decks.empty': 'No decks yet. Forge your first.',
-  'decks.variant.stacked': 'Stacked plates',
-  'decks.variant.triptych': 'Triptych',
-  'decks.variant.featured': 'Featured + sidekicks',
-  'decks.variant.banner': 'Art banner',
   'decks.noPreview': 'No preview',
-  'decks.variantHint': 'Each deck shows four preview styles — click any tile to open that deck.',
+  'decks.hint': 'Click a plate to open that deck.',
 
   // Filters
   'filter.allTypes': 'All Types',
