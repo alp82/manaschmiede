@@ -2,7 +2,7 @@ import type { ScryfallCard } from '../scryfall/types'
 import type { DeckCard } from '../deck-utils'
 import type { CardType, Keyword, SimCard } from './types'
 import { isBasicLand } from '../deck-utils'
-import { BASIC_LAND_ID_SET } from '../basic-lands'
+import { isBasicLandId } from '../../../convex/lib/basicLands'
 import { parseCost, parseLandColors } from './mana'
 import { parseEffects } from './effects'
 
@@ -96,7 +96,7 @@ export function parseScryfallCard(card: ScryfallCard): SimCard {
     keywords,
     producesColors,
     effects: parseEffects(oracleText, cardType),
-    isBasicLand: isBasicLand(card) || BASIC_LAND_ID_SET.has(card.id),
+    isBasicLand: isBasicLand(card) || isBasicLandId(card.id),
     isSnow: typeLine.toLowerCase().includes('snow'),
   }
 }

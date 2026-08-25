@@ -1,7 +1,7 @@
 import type { ScryfallCard } from './scryfall/types'
 import { getHardFilterRejectionReason } from '../../convex/lib/cardFilters'
 import { isBasicLand } from './deck-utils'
-import { BASIC_LAND_ID_SET } from './basic-lands'
+import { isBasicLandId } from '../../convex/lib/basicLands'
 
 export { getHardFilterRejectionReason, isPlayableCard } from '../../convex/lib/cardFilters'
 
@@ -28,7 +28,7 @@ export interface DeckFilters {
 function isBasicLandPrinting(card: ScryfallCard): boolean {
   // ID first: isBasicLand reads card.type_line unguarded, so a stub record
   // without one would throw before the fallback ever ran.
-  return BASIC_LAND_ID_SET.has(card.id) || isBasicLand(card)
+  return isBasicLandId(card.id) || isBasicLand(card)
 }
 
 /**

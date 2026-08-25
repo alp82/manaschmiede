@@ -11,6 +11,7 @@
 import type * as decks from "../decks.js";
 import type * as generateDeck from "../generateDeck.js";
 import type * as lib_anthropic from "../lib/anthropic.js";
+import type * as lib_basicLands from "../lib/basicLands.js";
 import type * as lib_cardFilters from "../lib/cardFilters.js";
 import type * as lib_cardPoolQueries from "../lib/cardPoolQueries.js";
 import type * as lib_deckRules from "../lib/deckRules.js";
@@ -34,6 +35,7 @@ declare const fullApi: ApiFromModules<{
   decks: typeof decks;
   generateDeck: typeof generateDeck;
   "lib/anthropic": typeof lib_anthropic;
+  "lib/basicLands": typeof lib_basicLands;
   "lib/cardFilters": typeof lib_cardFilters;
   "lib/cardPoolQueries": typeof lib_cardPoolQueries;
   "lib/deckRules": typeof lib_deckRules;

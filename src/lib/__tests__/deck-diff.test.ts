@@ -1,11 +1,18 @@
 /**
- * RED tests — computeDeckDiff and applyDelta do not exist yet.
- * They must be exported from src/lib/deck-diff.ts.
+ * Contracts asserted for the four functions in src/lib/deck-diff.ts.
  *
- * These tests will fail with "Cannot find module" until the implementer
- * creates that module. That is the intended red state.
+ * Since issue #28 the two size enforcers are thin adapters over
+ * `enforceDeck` in convex/lib/deckRules.ts, which owns the trim orders and the
+ * pad split and is tested in opaque keys by convex/__tests__/deck-rules.test.ts.
+ * What is asserted HERE is what the adapters add: the Scryfall-id predicates,
+ * the lock sources, and carrying `zone` / `locked` back onto the rows.
  *
  * Asserted contracts:
+ *
+ * enforceDeckCards(cards, { trimPolicy, colors, lockedIds?, isLand? }): DeckCard[]
+ *   - Returns EXACTLY 60 cards, trimmed or padded per the policy.
+ *   - Locks come from BOTH each card's own `locked` flag and `lockedIds`.
+ *   - `zone` and `locked` survive onto the returned rows.
  *
  * computeDeckDiff(currentCards, resolvedMap, cardDataMap): CardChange[]
  *   - Mirrors the inline diff block in useDeckChat.ts ~461-512 exactly.
@@ -67,7 +74,13 @@
  *   the pure function), and it is the caller's responsibility to prevent that.
  */
 import { describe, it, expect } from 'vitest'
-import { computeDeckDiff, applyDelta, resolveRemoveIds, enforceDeltaSize } from '../deck-diff'
+import {
+  computeDeckDiff,
+  applyDelta,
+  resolveRemoveIds,
+  enforceDeckCards,
+  enforceDeltaSize,
+} from '../deck-diff'
 import type { DeckCard } from '../deck-utils'
 import type { ScryfallCard } from '../scryfall/types'
 import type { CardChange } from '../deck-chat-types'
@@ -581,6 +594,86 @@ describe('resolveRemoveIds', () => {
 // The add-one basic-land decrement is NEW code (fillLands only adds; the
 // existing over-60 trim skips lands). This helper must handle both directions.
 
+describe("enforceDeckCards — trimPolicy 'rebuild'", () => {
+  const FOREST_ID = '3279314f-d639-4489-b2ab-3621bb3ca64b' // Forest (M21)
+  const MOUNTAIN_ID = 'b92c8925-ecfc-4ece-b83a-f12e98a938ab' // Mountain (M21)
+
+  const totalOf = (cards: DeckCard[]) => cards.reduce((s, c) => s + c.quantity, 0)
+  const qtyOf = (cards: DeckCard[], id: string) =>
+    cards.find((c) => c.scryfallId === id)?.quantity ?? 0
+
+  it('TC-EDC-01: pads an undersized deck with basics on the deck colors', () => {
+    const cards = [makeDeckCard('spell', 4)]
+    const result = enforceDeckCards(cards, { trimPolicy: 'rebuild', colors: ['R'] })
+    expect(totalOf(result)).toBe(60)
+    expect(qtyOf(result, MOUNTAIN_ID)).toBe(56)
+  })
+
+  it('TC-EDC-02: trims spells before lands — the rebuild land count was deliberate', () => {
+    // 15 x 4 spells (60) + 4 Mountains = 64. The four excess copies come off
+    // the spells, and the mana base the model built survives untouched.
+    const cards = [
+      ...Array.from({ length: 15 }, (_, i) => makeDeckCard(`spell-${i}`, 4)),
+      makeDeckCard(MOUNTAIN_ID, 4),
+    ]
+    const result = enforceDeckCards(cards, {
+      trimPolicy: 'rebuild',
+      colors: ['R'],
+      isLand: (id) => id === MOUNTAIN_ID,
+    })
+    expect(totalOf(result)).toBe(60)
+    expect(qtyOf(result, MOUNTAIN_ID)).toBe(4)
+  })
+
+  it('TC-EDC-03: deletes whole entries once every card sits at one copy', () => {
+    const cards = Array.from({ length: 70 }, (_, i) => makeDeckCard(`spell-${i}`, 1))
+    const result = enforceDeckCards(cards, { trimPolicy: 'rebuild', colors: ['G'] })
+    expect(totalOf(result)).toBe(60)
+    expect(result).toHaveLength(60)
+  })
+
+  it('TC-EDC-04: never touches a card carrying the locked flag', () => {
+    const cards = [
+      ...Array.from({ length: 15 }, (_, i) => makeDeckCard(`spell-${i}`, 4)),
+      { ...makeDeckCard('pinned', 4), locked: true },
+    ]
+    const result = enforceDeckCards(cards, { trimPolicy: 'rebuild', colors: ['G'] })
+    expect(totalOf(result)).toBe(60)
+    expect(qtyOf(result, 'pinned')).toBe(4)
+  })
+
+  it('TC-EDC-05: honours lockedIds passed alongside the flag', () => {
+    const cards = [
+      ...Array.from({ length: 15 }, (_, i) => makeDeckCard(`spell-${i}`, 4)),
+      makeDeckCard('pinned', 4),
+    ]
+    const result = enforceDeckCards(cards, {
+      trimPolicy: 'rebuild',
+      colors: ['G'],
+      lockedIds: new Set(['pinned']),
+    })
+    expect(totalOf(result)).toBe(60)
+    expect(qtyOf(result, 'pinned')).toBe(4)
+  })
+
+  it('TC-EDC-06: caps a non-basic at four copies; the model list is untrusted', () => {
+    const cards = [makeDeckCard('spell', 9), makeDeckCard(FOREST_ID, 51)]
+    const result = enforceDeckCards(cards, { trimPolicy: 'rebuild', colors: ['G'] })
+    expect(qtyOf(result, 'spell')).toBe(4)
+    expect(totalOf(result)).toBe(60)
+  })
+
+  it('TC-EDC-07: carries zone and locked through onto the returned rows', () => {
+    const cards = [
+      { ...makeDeckCard('pinned', 4), locked: true },
+      makeDeckCard('spell', 4),
+    ]
+    const result = enforceDeckCards(cards, { trimPolicy: 'rebuild', colors: ['G'] })
+    expect(result.find((c) => c.scryfallId === 'pinned')?.locked).toBe(true)
+    expect(result.every((c) => c.zone === 'main')).toBe(true)
+  })
+})
+
 describe('enforceDeltaSize', () => {
   const FOREST_ID = '3279314f-d639-4489-b2ab-3621bb3ca64b' // Forest (M21)
 
@@ -693,7 +786,7 @@ describe('enforceDeltaSize', () => {
     const total = result.reduce((s, c) => s + c.quantity, 0)
     expect(total).toBe(60)
 
-    // Should have padded with Forest (BASIC_LAND_IDS['G'])
+    // Should have padded with Forest (BASIC_LAND_ID_BY_COLOR['G'])
     const forestEntry = result.find((c) => c.scryfallId === FOREST_ID)
     expect(forestEntry).toBeDefined()
     expect(forestEntry!.quantity).toBe(3)

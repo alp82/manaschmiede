@@ -1,6 +1,7 @@
 import { MANA_COLORS, type ManaColor } from './mana-colors'
 import type { ScryfallCard } from './scryfall/types'
 import type { DeckSection } from './section-plan'
+import { MAX_COPIES } from '../../convex/lib/deckRules'
 
 /**
  * The only zone this app has. Manaschmiede is 60-card casual only, so there is
@@ -16,17 +17,6 @@ export interface DeckCard {
   zone: DeckZone
   locked?: boolean
 }
-
-/**
- * The deck-construction rules are constants rather than a per-format table:
- * the app builds 60-card casual decks and nothing else. They live in
- * `convex/lib/deckRules.ts` so the LLM response parsers enforce the same
- * numbers this tree does, and are re-exported here because `deck-utils` is
- * where the src/ tree already looks for deck vocabulary.
- */
-import { MAX_COPIES, TARGET_DECK_SIZE } from '../../convex/lib/deckRules'
-
-export { MAX_COPIES, TARGET_DECK_SIZE }
 
 export function isBasicLand(card: ScryfallCard): boolean {
   return card.type_line.includes('Basic Land')

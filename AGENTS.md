@@ -466,9 +466,10 @@ A rule both trees need — the actions in `convex/` and the components and tests
 in `src/` — goes in `convex/lib/` as pure TypeScript with **no runtime
 imports**: no `ActionCtx`, nothing from `_generated`, no `fetch`, no Convex
 runtime. Importing another module from the same dependency-free set is the only
-import allowed. Eight modules follow the rule today and each says so in its
-header: `cardFilters`, `cardPoolQueries`, `deckRules`, `deltaPrompt`,
-`intentContext`, `jsonLadder`, `parseCardList`, `strategyQueries`.
+import allowed. Nine modules follow the rule today and each says so in its
+header: `basicLands`, `cardFilters`, `cardPoolQueries`, `deckRules`,
+`deltaPrompt`, `intentContext`, `jsonLadder`, `parseCardList`,
+`strategyQueries`.
 
 **Why it matters:** a single runtime import drags the Convex runtime into every
 node test that reaches the module from `src/`. The constraint is what keeps the
@@ -489,6 +490,35 @@ drift. `parseCardList.ts` is the second instance.
 **How to apply:** when you catch yourself writing the same rule once as a query
 string and again as a predicate — or once in code and again in a prompt — put
 the rule set and every adapter in one module instead of spreading them.
+
+### The `deckRules.ts` pattern — one rule set, opaque keys
+
+Same goal as `cardFilters.ts`, different reason the rule was duplicated. There
+the rule had to be said in three languages; here it had to work on two
+different key types. "A deck is 60 cards" was written six times with
+contradictory policies, so which deck you got depended on which path produced
+it (issue #28).
+
+`enforceDeck` now owns the merge, the 4-copy rule, both trim policies and the
+pad split, and it takes **opaque keys** — the server works in card names, the
+client in Scryfall ids, so the caller passes the predicates (`isBasic`,
+`isLand`) and the colour map (`basicForColor`), and the rules never look inside
+a key. That is what keeps `deckRules.ts` free of Scryfall knowledge and cheap
+to test. Because the adapting is per key type rather than per output language,
+the adapters sit at their call sites: `enforceDeckSize`
+(`convex/generateDeck.ts`, names), `enforceDeckCards` (`src/lib/deck-diff.ts`,
+ids), and `splitEvenly` on its own for the two land fills. Each is a few lines
+and does nothing but translate.
+
+The trim policies live in one `TRIM_POLICIES` record keyed by `TrimPolicy`, not
+as scattered `if (policy === 'rebuild')` branches, so a third policy can't be
+added to the trim order and forgotten at the clamp.
+
+**How to apply:** a new enforcement path calls `enforceDeck` with the policy
+that matches its situation — see `docs/adr/0002-two-trim-policies.md`. Never
+write a second trim loop, a second pad split, or a bare `60` / `4`; the
+constants are `TARGET_DECK_SIZE` and `MAX_COPIES`, and every basic-land fact
+(names, colours, canonical printings) lives in `convex/lib/basicLands.ts`.
 
 ### The card-browser filter registry
 

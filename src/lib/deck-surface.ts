@@ -1,4 +1,4 @@
-import { BASIC_LAND_ID_SET } from './basic-lands'
+import { isBasicLandId } from '../../convex/lib/basicLands'
 import type { DeckCard, DeckDisplayCard } from './deck-utils'
 import { mergeCardsIntoDeck, projectLocked } from './deck-utils'
 import type { LocalDeck } from './deck-storage'
@@ -146,8 +146,6 @@ function proposalMetadata(proposal: PendingChanges): {
     description: proposal.description || undefined,
   }
 }
-
-const isBasicLandId = (id: string) => BASIC_LAND_ID_SET.has(id)
 
 // ─── Wizard adapter ──────────────────────────────────────────────────────
 

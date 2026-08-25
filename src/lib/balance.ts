@@ -1,6 +1,7 @@
 import type { ScryfallCard } from './scryfall/types'
 import type { DeckCard } from './deck-utils'
-import { MAX_COPIES, TARGET_DECK_SIZE, getTotalCards, isBasicLand } from './deck-utils'
+import { getTotalCards, isBasicLand } from './deck-utils'
+import { MAX_COPIES, TARGET_DECK_SIZE } from '../../convex/lib/deckRules'
 import type { TFn } from './i18n/types'
 import { COLOR_KEYS, MANA_COLORS, isManaColor } from './mana-colors'
 

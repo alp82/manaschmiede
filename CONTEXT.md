@@ -17,7 +17,8 @@ _Avoid_: change, regenerate
 A targeted edit that names one to three specific cards.
 
 **Locked card**:
-A card the user pinned. Never trimmed, never removed.
+A card the user pinned. Never removed, and never trimmed below the pinned
+quantity.
 
 **Trim**:
 Cutting cards to bring a deck down to 60.

@@ -21,6 +21,7 @@ import { useStagedRederive } from '../../lib/use-staged-rederive'
 import { useDeckPending } from '../../lib/use-deck-pending'
 import { sectionFillIntentFromDeck } from '../../lib/section-fill-intent'
 import { useDeckCardData } from '../../lib/use-deck-card-data'
+import { TARGET_DECK_SIZE } from '../../../convex/lib/deckRules'
 import { useDeckHistory } from '../../lib/use-deck-history'
 import { useSections, useSectionCards, useDeckDisplay } from '../../lib/use-deck-sections'
 import type { ScryfallCard } from '../../lib/scryfall/types'
@@ -437,12 +438,12 @@ function DeckPage() {
               redoLabel={t('action.redo')}
             />
             <span className="font-mono text-mono-num tabular-nums">
-              <span className={mainCount > 60 ? 'text-ink-red-bright' : 'text-cream-300'}>
+              <span className={mainCount > TARGET_DECK_SIZE ? 'text-ink-red-bright' : 'text-cream-300'}>
                 {t('deck.cards', { count: mainCount })}
               </span>
-              {mainCount > 60 && (
+              {mainCount > TARGET_DECK_SIZE && (
                 <span className="ml-1 font-mono text-mono-marginal text-ink-red">
-                  {t('deck.trimOver', { count: mainCount - 60 })}
+                  {t('deck.trimOver', { count: mainCount - TARGET_DECK_SIZE })}
                 </span>
               )}
             </span>

@@ -6,7 +6,8 @@ import type { ScryfallCard } from './scryfall/types'
 import { getCardName } from './scryfall/types'
 import type { DeckCard } from './deck-utils'
 import { mergeSectionFill } from './section-assignment'
-import { BASIC_LAND_IDS, BASIC_LAND_ID_SET } from './basic-lands'
+import { BASIC_LAND_ID_BY_COLOR, isBasicLandId } from '../../convex/lib/basicLands'
+import { padKeysForColors, splitEvenly } from '../../convex/lib/deckRules'
 import type { DeckSection } from './section-plan'
 import type { SectionFillIntent } from './section-fill-intent'
 import { getTraitById } from './trait-mappings'
@@ -244,7 +245,7 @@ export function useSectionFill({
       additions,
       assignments: priorAssignments ?? assignmentsRef.current,
       sectionId,
-      isBasicLandId: (id) => BASIC_LAND_ID_SET.has(id),
+      isBasicLandId,
     })
     onDeckUpdate(merged)
     replaceSectionAssignment(sectionId, assignedIds)
@@ -394,21 +395,14 @@ export function useSectionFill({
     const activeColors = filters?.colors ?? []
     if (activeColors.length === 0) return
 
-    const landsPerColor = Math.floor(targetCount / activeColors.length)
-    const remainder = targetCount % activeColors.length
-
-    const additions: Array<{ scryfallId: string; quantity: number }> = []
-
-    for (let i = 0; i < activeColors.length; i++) {
-      const color = activeColors[i]
-      const landId = BASIC_LAND_IDS[color]
-      if (!landId) continue
-
-      const qty = landsPerColor + (i < remainder ? 1 : 0)
-      if (qty <= 0) continue
-
-      additions.push({ scryfallId: landId, quantity: qty })
-    }
+    // Same split the two size enforcers use: even shares, remainder to the
+    // leading colors. It lives in convex/lib/deckRules.ts so a lane fill and a
+    // chat rebuild pad a deck identically (issue #28).
+    const landIds = padKeysForColors(activeColors, (color) => BASIC_LAND_ID_BY_COLOR[color])
+    const additions = splitEvenly(targetCount, landIds).map(({ slot, quantity }) => ({
+      scryfallId: slot,
+      quantity,
+    }))
 
     // One batched lookup for up to five basics instead of one await each.
     // A failure here costs card art, not the fill, so it's swallowed.

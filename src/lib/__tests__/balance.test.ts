@@ -10,7 +10,8 @@
  */
 import { describe, it, expect } from 'vitest'
 import { analyzeDeck } from '../balance'
-import { MAX_COPIES, TARGET_DECK_SIZE, type DeckCard } from '../deck-utils'
+import type { DeckCard } from '../deck-utils'
+import { MAX_COPIES, TARGET_DECK_SIZE } from '../../../convex/lib/deckRules'
 import type { ScryfallCard } from '../scryfall/types'
 import type { TFn } from '../i18n/types'
 import { makeBasicLand, makeCard } from './card-fixtures'

@@ -9,7 +9,8 @@ import { UndoRedoButtons } from '../ui/UndoRedoButtons'
 import { analyzeDeck } from '../../lib/balance'
 import { useDeckChat, type ChatMessage as DeckChatMessage } from '../../lib/useDeckChat'
 import { useSectionFill } from '../../lib/useSectionFill'
-import { BASIC_LAND_ID_SET } from '../../lib/basic-lands'
+import { isBasicLandId } from '../../../convex/lib/basicLands'
+import { TARGET_DECK_SIZE } from '../../../convex/lib/deckRules'
 import { buildSearchFilterSuffix } from '../../lib/trait-mappings'
 import { useT, useI18n } from '../../lib/i18n'
 import type { ScryfallCard } from '../../lib/scryfall/types'
@@ -197,11 +198,11 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
     if (!canFillLands) return
     history.snapshot()
     // Remove existing basic lands so we can recalculate from scratch
-    const withoutBasicLands = state.deckCards.filter((c) => !BASIC_LAND_ID_SET.has(c.scryfallId))
+    const withoutBasicLands = state.deckCards.filter((c) => !isBasicLandId(c.scryfallId))
     const nonLandTotal = withoutBasicLands
       .filter((c) => c.zone === 'main')
       .reduce((s, c) => s + c.quantity, 0)
-    const landTarget = Math.max(60 - nonLandTotal, 0)
+    const landTarget = Math.max(TARGET_DECK_SIZE - nonLandTotal, 0)
     if (landTarget > 0) {
       dispatch({ type: 'SET_DECK', cards: withoutBasicLands })
       await fillLands(landTarget)
@@ -347,14 +348,14 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
 
   const prevMainCount = useRef(mainCount)
   useEffect(() => {
-    if (mainCount === 60 && prevMainCount.current !== 60) {
+    if (mainCount === TARGET_DECK_SIZE && prevMainCount.current !== TARGET_DECK_SIZE) {
       sounds.deckComplete()
     }
     prevMainCount.current = mainCount
   }, [mainCount, sounds])
 
   const handleFinishClick = () => {
-    if (mainCount !== 60) {
+    if (mainCount !== TARGET_DECK_SIZE) {
       setFinishBlockedOpen(true)
       return
     }
@@ -376,12 +377,12 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
 
   // Check if "Adjust lands" would actually change anything
   const landsNeedAdjustment = useMemo(() => {
-    const currentLands = state.deckCards.filter((c) => BASIC_LAND_ID_SET.has(c.scryfallId) && c.zone === 'main')
+    const currentLands = state.deckCards.filter((c) => isBasicLandId(c.scryfallId) && c.zone === 'main')
     if (currentLands.length === 0) return true // no lands yet - show "Auto-fill"
     const nonLandTotal = state.deckCards
-      .filter((c) => c.zone === 'main' && !BASIC_LAND_ID_SET.has(c.scryfallId))
+      .filter((c) => c.zone === 'main' && !isBasicLandId(c.scryfallId))
       .reduce((s, c) => s + c.quantity, 0)
-    const targetTotal = Math.max(60 - nonLandTotal, 0)
+    const targetTotal = Math.max(TARGET_DECK_SIZE - nonLandTotal, 0)
     const currentTotal = currentLands.reduce((s, c) => s + c.quantity, 0)
     return currentTotal !== targetTotal
   }, [state.deckCards])
@@ -524,7 +525,7 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
             {t('wizard.back')}
           </Button>
           <div className="flex items-center gap-4">
-            <span className={`font-mono text-mono-marginal tabular-nums ${mainCount === 60 ? 'text-cream-100' : 'text-cream-400'}`}>
+            <span className={`font-mono text-mono-marginal tabular-nums ${mainCount === TARGET_DECK_SIZE ? 'text-cream-100' : 'text-cream-400'}`}>
               {t('wizard.cardCountOfTarget', { count: mainCount })}
             </span>
             <Button variant="primary" size="lg" onClick={handleFinishClick}>

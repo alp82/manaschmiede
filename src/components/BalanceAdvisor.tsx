@@ -4,6 +4,7 @@ import { isManaColor } from '../lib/mana-colors'
 import { cn } from '../lib/utils'
 import { useT } from '../lib/i18n'
 import type { TranslationKey } from '../lib/i18n/types'
+import { TARGET_DECK_SIZE } from '../../convex/lib/deckRules'
 
 interface BalanceAdvisorProps {
   analysis: BalanceAnalysis | null
@@ -83,7 +84,7 @@ export function BalanceAdvisor({
           ))}
         </div>
         <span className={cn('font-mono text-mono-num tabular-nums', healthClass)}>
-          {analysis.maindeckSize} / 60
+          {analysis.maindeckSize} / {TARGET_DECK_SIZE}
         </span>
       </div>
 

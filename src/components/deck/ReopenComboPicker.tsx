@@ -7,7 +7,7 @@ import { ErrorBox } from '../ui/ErrorBox'
 import { generateCombos, type RejectedCard, type RejectedCombo } from '../../lib/combo-generation'
 import { comboToAdditions, buildReopenComboOpts } from '../../lib/combo-additions'
 import { mergeCardsIntoDeck } from '../../lib/deck-utils'
-import { BASIC_LAND_ID_SET } from '../../lib/basic-lands'
+import { isBasicLandId } from '../../../convex/lib/basicLands'
 import type { SectionFillIntent } from '../../lib/section-fill-intent'
 import type { CoreCombo } from '../../lib/wizard-state'
 import type { DeckCard } from '../../lib/deck-utils'
@@ -121,7 +121,7 @@ export function ReopenComboPicker({
       const { merged } = mergeCardsIntoDeck(
         deckCards,
         changes.map((c) => ({ scryfallId: c.scryfallId, quantity: c.newQuantity })),
-        (cid) => BASIC_LAND_ID_SET.has(cid),
+        isBasicLandId,
       )
       onStage({
         deckName: '',

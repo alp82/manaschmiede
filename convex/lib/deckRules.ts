@@ -1,12 +1,25 @@
 /**
- * The deck-construction rules every parser and enforcer shares: the deck
- * size, the 4-copy limit, and the basic lands that are exempt from it.
+ * The one place that says what a deck is: exactly 60 cards, at most four
+ * copies of anything that isn't a basic land, and the two ways an oversized
+ * deck gets cut back down.
  *
- * These lived as private consts inside `generateDeck.ts`, which meant the
- * shared response parser could not apply the clamp. Zero runtime imports, so
- * both trees (convex/ actions and src/ node tests) can reach them the same way
- * cardFilters.ts is reached.
+ * Before issue #28 these rules were written six times - once in the server's
+ * `enforceDeckSize`, again in the client's `enforceDeltaSize`, again in each
+ * of the two `fillLands` helpers, and as bare `60`s in the wizard and the deck
+ * route - so which deck you got depended on which path produced it.
+ *
+ * Zero runtime imports (`convex/lib/basicLands.ts` is the only import, and it
+ * is dependency-free too), so both trees reach this module the same way they
+ * reach `cardFilters.ts` and the node suite stays offline.
+ *
+ * **`enforceDeck` never looks inside a key.** The server works in card names,
+ * the client in Scryfall ids, so it takes opaque strings and the caller
+ * supplies the predicates (`isBasic`, `isLand`) and the colour -> key map
+ * (`basicForColor`). That is what keeps this file free of Scryfall knowledge.
+ * `clampCopies` is the one name-keyed helper here, for the response parsers
+ * that only ever see names.
  */
+import { isBasicLandName } from './basicLands'
 
 /**
  * The size of a deck. A target, not a floor - Manaschmiede builds 60-card
@@ -19,27 +32,290 @@ export const TARGET_DECK_SIZE = 60
 export const MAX_COPIES = 4
 
 /**
- * The five basic land names, in English Oracle spelling. Snow-covered and
- * Wastes variants are not listed - the type-line check in `enforceDeckSize`
- * catches those; this set is the name-only fast path.
- */
-export const BASIC_LAND_NAMES: ReadonlySet<string> = new Set([
-  'Plains',
-  'Island',
-  'Swamp',
-  'Mountain',
-  'Forest',
-])
-
-/** True for the five English basic land names. */
-export function isBasicLandName(name: string): boolean {
-  return BASIC_LAND_NAMES.has(name)
-}
-
-/**
  * Apply the 4-copy rule to one entry. Basic lands are exempt - a deck runs as
  * many Mountains as it likes.
  */
+function capCopies(quantity: number, isBasic: boolean): number {
+  return isBasic ? quantity : Math.min(quantity, MAX_COPIES)
+}
+
+/** The 4-copy rule keyed by card name, for the parsers that only see names. */
 export function clampCopies(name: string, quantity: number): number {
-  return isBasicLandName(name) ? quantity : Math.min(quantity, MAX_COPIES)
+  return capCopies(quantity, isBasicLandName(name))
+}
+
+/** One deck entry as the rules see it: an opaque key and a copy count. */
+export interface DeckRuleEntry {
+  key: string
+  quantity: number
+}
+
+/** Sum the copies in a deck. */
+export function totalCopies(entries: readonly DeckRuleEntry[]): number {
+  return entries.reduce((sum, entry) => sum + entry.quantity, 0)
+}
+
+/**
+ * Spread `total` across `slots` as evenly as whole numbers allow, giving the
+ * remainder to the leading slots. Slots that would get nothing are dropped.
+ *
+ * This is the one pad formula in the app: land auto-fill, section fill, and
+ * both size enforcers all split a deficit this way, and the numbers are
+ * asserted in three tests apiece on either side.
+ */
+export function splitEvenly<T>(
+  total: number,
+  slots: readonly T[],
+): Array<{ slot: T; quantity: number }> {
+  if (total <= 0 || slots.length === 0) return []
+
+  const per = Math.floor(total / slots.length)
+  const remainder = total % slots.length
+
+  const split: Array<{ slot: T; quantity: number }> = []
+  for (let i = 0; i < slots.length; i++) {
+    const quantity = per + (i < remainder ? 1 : 0)
+    if (quantity > 0) split.push({ slot: slots[i], quantity })
+  }
+  return split
+}
+
+/** Colour letter used to pad a deck that declares no colour of its own. */
+const FALLBACK_COLOR = 'G'
+
+/**
+ * Resolve W/U/B/R/G letters to the pad keys an undersized deck grows by, in
+ * the order given and with repeats collapsed. Letters that name no basic land
+ * (colorless, or anything unexpected) are dropped, and a list that resolves to
+ * nothing falls back to green so the deck still reaches 60.
+ */
+export function padKeysForColors(
+  colors: readonly string[],
+  basicForColor: (color: string) => string | undefined,
+): string[] {
+  const keys: string[] = []
+  for (const color of colors) {
+    const key = basicForColor(color.toUpperCase())
+    if (key !== undefined && !keys.includes(key)) keys.push(key)
+  }
+  if (keys.length > 0) return keys
+
+  const fallback = basicForColor(FALLBACK_COLOR)
+  return fallback === undefined ? [] : [fallback]
+}
+
+/**
+ * How this deck came to be, which is what decides the trim order. Named for
+ * the situation rather than the mechanic, because the reason is the whole
+ * point - see docs/adr/0002-two-trim-policies.md.
+ */
+export type TrimPolicy = 'rebuild' | 'delta'
+
+export interface EnforceDeckOptions {
+  /** How this deck came to be. Decides trim order and whether copies are clamped. */
+  trimPolicy: TrimPolicy
+  /** True when the key is a basic land, which is exempt from the 4-copy rule. */
+  isBasic: (key: string) => boolean
+  /** True when the key is any land. Defaults to `isBasic`. */
+  isLand?: (key: string) => boolean
+  /** Keys the enforcer may not remove, in whatever key the caller works in. */
+  locked?: ReadonlySet<string>
+  /**
+   * The quantity a locked key keeps. Defaults to the quantity it already has,
+   * which means "never touched"; the server passes the pinned count instead so
+   * a locked 4-of can come back to a locked 2-of as a last resort.
+   */
+  lockedFloor?: (key: string) => number
+  /** Deck colours as W/U/B/R/G letters. Picks the basics an undersized deck grows by. */
+  colors?: readonly string[]
+  /** Colour letter -> the key of the basic land that produces it. */
+  basicForColor: (color: string) => string | undefined
+}
+
+/** One row of the trim plan. `initialQuantity` is the count before any trimming. */
+interface TrimRow {
+  index: number
+  key: string
+  initialQuantity: number
+  locked: boolean
+  priority: number
+}
+
+/**
+ * One sweep of the trim plan: which rows it may take copies from, how far down
+ * it will take each, and the order it works in (most expendable first).
+ */
+interface TrimStep {
+  includes: (row: TrimRow) => boolean
+  floor: (row: TrimRow) => number
+  order: (a: TrimRow, b: TrimRow) => number
+}
+
+/** What a policy needs to know about the deck it is cutting. */
+interface PolicyContext {
+  isBasic: (key: string) => boolean
+  isLand: (key: string) => boolean
+  /** The row's count right now, which moves as earlier sweeps take copies. */
+  quantityAt: (row: TrimRow) => number
+  /** How far down a locked row may come. */
+  lockedFloor: (row: TrimRow) => number
+}
+
+/**
+ * Everything one policy decides, gathered in one record so a third policy
+ * can't be added to the trim order and forgotten at the clamp.
+ */
+interface TrimPolicySpec {
+  /** True when the copies came from the model and get the 4-copy rule on the way in. */
+  clampsCopies: boolean
+  /** Lower ranks give way first. Both policies keep locked rows for last. */
+  rank: (key: string, locked: boolean, ctx: PolicyContext) => number
+  /** The sweeps, in order. */
+  steps: (ctx: PolicyContext) => TrimStep[]
+}
+
+const TRIM_POLICIES: Record<TrimPolicy, TrimPolicySpec> = {
+  /**
+   * The model returned a whole deck, so the untrusted copy counts are capped on
+   * the way in. Then shrink every stack to its floor - spells before lands,
+   * biggest stacks first, so a 4-of drops to a 3-of before a 1-of disappears -
+   * and delete whole entries in the mirror order, smallest and latest-listed
+   * first, so the playset the model asked for outlives a random singleton.
+   */
+  rebuild: {
+    clampsCopies: true,
+    rank: (key, locked, ctx) => (locked ? 2 : ctx.isLand(key) ? 1 : 0),
+    steps: (ctx) => [
+      {
+        includes: () => true,
+        floor: (row) => (row.locked ? ctx.lockedFloor(row) : 1),
+        order: (a, b) => a.priority - b.priority || b.initialQuantity - a.initialQuantity,
+      },
+      {
+        includes: (row) => !row.locked,
+        floor: () => 0,
+        order: (a, b) =>
+          a.priority - b.priority || ctx.quantityAt(a) - ctx.quantityAt(b) || b.index - a.index,
+      },
+    ],
+  },
+
+  /**
+   * The user asked for one targeted edit, so their own copy counts stand as
+   * they are - the add sites already cap them. Shed basic land copies from the
+   * end of the deck, then any unlocked card from the end: a Forest goes before
+   * a spell they never mentioned.
+   */
+  delta: {
+    clampsCopies: false,
+    rank: (key, locked, ctx) => (locked ? 2 : ctx.isBasic(key) ? 0 : 1),
+    steps: (ctx) => {
+      const fromTheEnd = (a: TrimRow, b: TrimRow) => b.index - a.index
+      return [
+        {
+          includes: (row) => !row.locked && ctx.isBasic(row.key),
+          floor: () => 0,
+          order: fromTheEnd,
+        },
+        { includes: (row) => !row.locked, floor: () => 0, order: fromTheEnd },
+      ]
+    },
+  },
+}
+
+const EMPTY_KEYS: ReadonlySet<string> = new Set()
+
+/**
+ * Force a deck to exactly TARGET_DECK_SIZE cards.
+ *
+ * Duplicate keys merge, an oversized deck is trimmed by the policy's rules,
+ * and an undersized one grows basic lands split across `colors`. Returns a new
+ * list - the entries passed in are never mutated - with zero-quantity entries
+ * dropped, original order kept, and any newly added basics appended.
+ *
+ * The one deck this returns oversized is one that is 61+ cards of locked
+ * entries: a locked card is never deleted outright.
+ */
+export function enforceDeck(
+  entries: readonly DeckRuleEntry[],
+  options: EnforceDeckOptions,
+): DeckRuleEntry[] {
+  const { trimPolicy, isBasic, basicForColor } = options
+  const isLand = options.isLand ?? isBasic
+  const locked = options.locked ?? EMPTY_KEYS
+  const policy = TRIM_POLICIES[trimPolicy]
+
+  // Merge duplicate keys. The model lists the same card twice often enough
+  // that a deck can be off by a playset without it.
+  const cards: DeckRuleEntry[] = []
+  const indexByKey = new Map<string, number>()
+  for (const entry of entries) {
+    const index = indexByKey.get(entry.key)
+    if (index === undefined) {
+      indexByKey.set(entry.key, cards.length)
+      cards.push({ key: entry.key, quantity: entry.quantity })
+    } else {
+      cards[index].quantity += entry.quantity
+    }
+  }
+
+  if (policy.clampsCopies) {
+    for (const card of cards) {
+      card.quantity = Math.max(capCopies(card.quantity, isBasic(card.key)), 1)
+    }
+  }
+
+  let total = totalCopies(cards)
+
+  if (total > TARGET_DECK_SIZE) {
+    const ctx: PolicyContext = {
+      isBasic,
+      isLand,
+      quantityAt: (row) => cards[row.index].quantity,
+      lockedFloor: (row) => options.lockedFloor?.(row.key) ?? row.initialQuantity,
+    }
+
+    const rows: TrimRow[] = cards.map((card, index) => {
+      const isLocked = locked.has(card.key)
+      return {
+        index,
+        key: card.key,
+        initialQuantity: card.quantity,
+        locked: isLocked,
+        priority: policy.rank(card.key, isLocked, ctx),
+      }
+    })
+
+    let excess = total - TARGET_DECK_SIZE
+    for (const step of policy.steps(ctx)) {
+      if (excess <= 0) break
+      const candidates = rows.filter(step.includes).sort(step.order)
+      for (const row of candidates) {
+        if (excess <= 0) break
+        const card = cards[row.index]
+        const removable = Math.min(card.quantity - step.floor(row), excess)
+        if (removable > 0) {
+          card.quantity -= removable
+          excess -= removable
+        }
+      }
+    }
+
+    total = totalCopies(cards)
+  }
+
+  if (total < TARGET_DECK_SIZE) {
+    const padKeys = padKeysForColors(options.colors ?? [], basicForColor)
+    for (const { slot, quantity } of splitEvenly(TARGET_DECK_SIZE - total, padKeys)) {
+      const index = indexByKey.get(slot)
+      if (index === undefined) {
+        indexByKey.set(slot, cards.length)
+        cards.push({ key: slot, quantity })
+      } else {
+        cards[index].quantity += quantity
+      }
+    }
+  }
+
+  return cards.filter((card) => card.quantity > 0)
 }
