@@ -4,7 +4,12 @@ import { isManaColor } from '../lib/mana-colors'
 import { cn } from '../lib/utils'
 import { useT } from '../lib/i18n'
 import type { TranslationKey } from '../lib/i18n/types'
-import { TARGET_DECK_SIZE } from '../../convex/lib/deckRules'
+import {
+  LAND_COUNT_RANGE,
+  MAX_AVERAGE_MANA_VALUE,
+  SPELL_COUNT_RANGE,
+  TARGET_DECK_SIZE,
+} from '../../convex/lib/deckRules'
 
 interface BalanceAdvisorProps {
   analysis: BalanceAnalysis | null
@@ -90,9 +95,21 @@ export function BalanceAdvisor({
 
       {/* Key stats grid */}
       <div className="grid grid-cols-3 divide-x divide-hairline/60">
-        <StatBox label={t('balance.lands')} value={analysis.landCount} target="22-26" />
-        <StatBox label={t('balance.spells')} value={analysis.nonLandCount} target="34-38" />
-        <StatBox label={t('balance.avgCmc')} value={analysis.averageCmc.toFixed(1)} />
+        <StatBox
+          label={t('balance.lands')}
+          value={analysis.landCount}
+          target={`${LAND_COUNT_RANGE.min}-${LAND_COUNT_RANGE.max}`}
+        />
+        <StatBox
+          label={t('balance.spells')}
+          value={analysis.nonLandCount}
+          target={`${SPELL_COUNT_RANGE.min}-${SPELL_COUNT_RANGE.max}`}
+        />
+        <StatBox
+          label={t('balance.avgCmc')}
+          value={analysis.averageCmc.toFixed(1)}
+          target={`≤${MAX_AVERAGE_MANA_VALUE}`}
+        />
       </div>
 
       {/* Mana Curve */}

@@ -4,7 +4,13 @@ import { v } from 'convex/values'
 import { MODELS, callAnthropic, callHaiku, isTruncated, TRUNCATED_RESPONSE_MESSAGE } from './lib/anthropic'
 import { startLlmLog, completeLlmLog, failLlmLog, parseAndLog } from './lib/logLlmUsage'
 import { cardEntry, parseCardList } from './lib/parseCardList'
-import { enforceDeck } from './lib/deckRules'
+import {
+  DECK_SHAPE_PROMPT_RULES,
+  DEFAULT_LAND_COUNT,
+  MAX_COPIES,
+  TARGET_DECK_SIZE,
+  enforceDeck,
+} from './lib/deckRules'
 import { BASIC_LAND_NAMES, BASIC_LAND_NAME_BY_COLOR } from './lib/basicLands'
 import {
   HARD_FILTER_PROMPT_RULES,
@@ -25,19 +31,17 @@ import {
 export const SYSTEM_PROMPT = `You are an expert Magic: The Gathering casual deck builder.
 
 RULES:
-- ALWAYS exactly 60 cards in the main deck. Count all cards including lands.
-- Maximum 4 copies of any card (except basic lands)
-- Include 22-26 lands (aggro 22, midrange 24, control 25-26)
+- ALWAYS exactly ${TARGET_DECK_SIZE} cards in the main deck. Count all cards including lands.
+- Maximum ${MAX_COPIES} copies of any card (except basic lands)
 - Focus on a clear theme with strong synergies
-- Good mana curve, include removal and card draw
+- Include removal and card draw
 - Use ONLY real, existing Magic cards with ENGLISH Oracle names
-- Land base must support all colors proportionally
-- For 3+ colors, include mana-fixing artifacts
+${DECK_SHAPE_PROMPT_RULES}
 ${HARD_FILTER_PROMPT_RULES}
 
 Cards are validated automatically after generation — invalid cards get rejected and re-requested. Focus on synergy and fun.
 
-COUNTING: Sum all quantities. Must be exactly 60. Typical: 24 lands + 36 non-lands.
+COUNTING: Sum all quantities. Must be exactly ${TARGET_DECK_SIZE}. Typical: ${DEFAULT_LAND_COUNT} lands + ${TARGET_DECK_SIZE - DEFAULT_LAND_COUNT} non-lands.
 
 OUTPUT FORMAT (JSON ONLY, no other text):
 {
@@ -644,7 +648,7 @@ export const chat = action({
     }
 
     if (args.currentCards && args.currentCards.length > 0) {
-      systemPrompt += `\n\nIMPORTANT: When the user requests changes, always return the COMPLETE updated card list, not just the changes. The deck must ALWAYS have exactly 60 cards. If you remove cards, add others to stay at 60.`
+      systemPrompt += `\n\nIMPORTANT: When the user requests changes, always return the COMPLETE updated card list, not just the changes. The deck must ALWAYS have exactly ${TARGET_DECK_SIZE} cards. If you remove cards, add others to stay at ${TARGET_DECK_SIZE}.`
     }
 
     // The pool's type lines are the only card data the enforcement step has —
@@ -660,11 +664,11 @@ export const chat = action({
 
 // ─── Section Fill ───────────────────────────────────────────
 
-export const SECTION_FILL_SYSTEM_PROMPT = `You are filling ONE SECTION of a Magic: The Gathering 60-card casual deck.
+export const SECTION_FILL_SYSTEM_PROMPT = `You are filling ONE SECTION of a Magic: The Gathering ${TARGET_DECK_SIZE}-card casual deck.
 
 RULES:
 - Card quantities MUST sum to the target count specified
-- Maximum 4 copies of any card (except basic lands)
+- Maximum ${MAX_COPIES} copies of any card (except basic lands)
 - Use ONLY real, existing Magic cards with ENGLISH Oracle names
 - Pick cards that fit the section description and synergize with existing deck cards
 - Do NOT duplicate cards already in the deck

@@ -514,11 +514,21 @@ The trim policies live in one `TRIM_POLICIES` record keyed by `TrimPolicy`, not
 as scattered `if (policy === 'rebuild')` branches, so a third policy can't be
 added to the trim order and forgotten at the clamp.
 
+The same module also owns the **shape** of a deck — the land band, the
+per-archetype land target and the curve ceiling — for the same reason and with
+`cardFilters.ts`'s adapter shape: `DECK_SHAPE_PROMPT_RULES` for the generator
+prompt, `checkLandCount` / `isAverageManaValueTooHigh` for the balance report,
+`landCountForArchetype` for the section plan. The land count is planned by
+`deriveSectionPlan`; the mana curve is advice to the model plus a warning, and
+`docs/adr/0005-land-count-planned-curve-advised.md` says why the two differ.
+
 **How to apply:** a new enforcement path calls `enforceDeck` with the policy
 that matches its situation — see `docs/adr/0002-two-trim-policies.md`. Never
 write a second trim loop, a second pad split, or a bare `60` / `4`; the
 constants are `TARGET_DECK_SIZE` and `MAX_COPIES`, and every basic-land fact
 (names, colours, canonical printings) lives in `convex/lib/basicLands.ts`.
+Never write a bare land count or curve threshold either — a new archetype gets
+a row in `ARCHETYPE_LAND_COUNT`, not a number at its call site.
 
 ### The card-browser filter registry
 

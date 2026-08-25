@@ -1,7 +1,13 @@
 import type { ScryfallCard } from './scryfall/types'
 import type { DeckCard } from './deck-utils'
 import { getTotalCards, isBasicLand } from './deck-utils'
-import { MAX_COPIES, TARGET_DECK_SIZE } from '../../convex/lib/deckRules'
+import {
+  LAND_COUNT_RANGE,
+  MAX_COPIES,
+  TARGET_DECK_SIZE,
+  checkLandCount,
+  isAverageManaValueTooHigh,
+} from '../../convex/lib/deckRules'
 import type { TFn } from './i18n/types'
 import { COLOR_KEYS, MANA_COLORS, isManaColor } from './mana-colors'
 
@@ -32,12 +38,6 @@ export interface BalanceAnalysis {
   warnings: BalanceWarning[]
   suggestions: string[]
 }
-
-/** Healthy maindeck land count for a 60-card casual deck. */
-const LAND_TARGET: [number, number] = [22, 26]
-
-/** Average non-land mana value the curve warning trips above. */
-const AVG_CMC_MAX = 3.5
 
 export function analyzeDeck(
   cards: DeckCard[],
@@ -125,15 +125,17 @@ export function analyzeDeck(
     })
   }
 
-  // Land count
-  const [minLand, maxLand] = LAND_TARGET
+  // Land count. The band is the same one the section plan allocates against
+  // and the generator prompt names — see convex/lib/deckRules.ts.
+  const { min: minLand, max: maxLand } = LAND_COUNT_RANGE
   if (maindeckSize >= TARGET_DECK_SIZE * 0.5) {
-    if (landCount < minLand) {
+    const verdict = checkLandCount(landCount)
+    if (verdict === 'too-few') {
       warnings.push({
         severity: 'warning',
         message: t('balance.warning.tooFewLands', { count: landCount, min: minLand, max: maxLand }),
       })
-    } else if (landCount > maxLand) {
+    } else if (verdict === 'too-many') {
       warnings.push({
         severity: 'warning',
         message: t('balance.warning.tooManyLands', { count: landCount, min: minLand, max: maxLand }),
@@ -141,8 +143,8 @@ export function analyzeDeck(
     }
   }
 
-  // Average CMC
-  if (nonLandCount >= 10 && averageCmc > AVG_CMC_MAX) {
+  // Average mana value
+  if (nonLandCount >= 10 && isAverageManaValueTooHigh(averageCmc)) {
     warnings.push({
       severity: 'warning',
       message: t('balance.warning.highCmc', { cmc: averageCmc.toFixed(1) }),

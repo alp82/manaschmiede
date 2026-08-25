@@ -3,7 +3,8 @@
 Trimming an oversized deck to 60 takes a `trimPolicy` of `'rebuild'` or
 `'delta'` rather than one fixed rule, because the two situations want opposite
 things. A rebuild trims non-lands first, since the land count was computed
-deliberately and `section-plan.ts` enforces a floor of 18. A delta trims basic
+deliberately by the section plan against the shared land band
+(`docs/adr/0005-land-count-planned-curve-advised.md`). A delta trims basic
 lands first, since the user asked for one swap and shedding a Forest beats
 shedding a spell they never mentioned.
 

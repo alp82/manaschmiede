@@ -1,10 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ARCHETYPE_LAND_COUNT,
+  DECK_SHAPE_PROMPT_RULES,
+  DEFAULT_LAND_COUNT,
+  LAND_COUNT_RANGE,
+  fixingLandCountForColors,
+  MAX_AVERAGE_MANA_VALUE,
   MAX_COPIES,
+  SPELL_COUNT_RANGE,
   TARGET_DECK_SIZE,
   type DeckRuleEntry,
+  checkLandCount,
   clampCopies,
   enforceDeck,
+  isAverageManaValueTooHigh,
+  landCountForArchetype,
   padKeysForColors,
   splitEvenly,
   totalCopies,
@@ -394,5 +404,98 @@ describe("enforceDeck — trimPolicy 'delta'", () => {
     expect(totalCopies(deck)).toBe(TARGET_DECK_SIZE)
     expect(quantityOf(deck, 'mountain')).toBe(2)
     expect(quantityOf(deck, 'forest')).toBe(1)
+  })
+})
+
+/**
+ * The deck-shape half of the module (issue #45). The point of gathering the
+ * land band, the archetype table and the curve ceiling here is that the three
+ * adapters cannot name different numbers, so these tests check the adapters
+ * against the table rather than restating the numbers.
+ */
+describe('deck shape', () => {
+  describe('the land table', () => {
+    it('keeps every archetype inside the band', () => {
+      for (const [archetype, count] of Object.entries(ARCHETYPE_LAND_COUNT)) {
+        expect(count, archetype).toBeGreaterThanOrEqual(LAND_COUNT_RANGE.min)
+        expect(count, archetype).toBeLessThanOrEqual(LAND_COUNT_RANGE.max)
+      }
+    })
+
+    it('keeps the default inside the band too', () => {
+      expect(DEFAULT_LAND_COUNT).toBeGreaterThanOrEqual(LAND_COUNT_RANGE.min)
+      expect(DEFAULT_LAND_COUNT).toBeLessThanOrEqual(LAND_COUNT_RANGE.max)
+    })
+
+    it('falls back to the default for an unknown or missing archetype', () => {
+      expect(landCountForArchetype('nothing-like-this')).toBe(DEFAULT_LAND_COUNT)
+      expect(landCountForArchetype(undefined)).toBe(DEFAULT_LAND_COUNT)
+    })
+
+    it('reads a listed archetype straight off the table', () => {
+      expect(landCountForArchetype('aggro')).toBe(ARCHETYPE_LAND_COUNT.aggro)
+      expect(landCountForArchetype('control')).toBe(ARCHETYPE_LAND_COUNT.control)
+    })
+  })
+
+  describe('the fixing-lands split', () => {
+    it('gives a mono-color deck nothing to fix', () => {
+      expect(fixingLandCountForColors(1)).toBe(0)
+      expect(fixingLandCountForColors(0)).toBe(0)
+    })
+
+    it('grows with the color count', () => {
+      const counts = [2, 3, 4, 5].map(fixingLandCountForColors)
+      for (let i = 1; i < counts.length; i++) {
+        expect(counts[i]).toBeGreaterThan(counts[i - 1])
+      }
+    })
+
+    it('always leaves room for basics inside the band', () => {
+      for (let colorCount = 0; colorCount <= 5; colorCount++) {
+        expect(fixingLandCountForColors(colorCount), `${colorCount}C`).toBeLessThan(
+          LAND_COUNT_RANGE.min,
+        )
+      }
+    })
+  })
+
+  describe('the derived spell band', () => {
+    it('is whatever the land band leaves of a full deck', () => {
+      expect(SPELL_COUNT_RANGE.min + LAND_COUNT_RANGE.max).toBe(TARGET_DECK_SIZE)
+      expect(SPELL_COUNT_RANGE.max + LAND_COUNT_RANGE.min).toBe(TARGET_DECK_SIZE)
+    })
+  })
+
+  describe('the balance-report adapter', () => {
+    it('judges a land count against the band', () => {
+      expect(checkLandCount(LAND_COUNT_RANGE.min - 1)).toBe('too-few')
+      expect(checkLandCount(LAND_COUNT_RANGE.min)).toBe('ok')
+      expect(checkLandCount(DEFAULT_LAND_COUNT)).toBe('ok')
+      expect(checkLandCount(LAND_COUNT_RANGE.max)).toBe('ok')
+      expect(checkLandCount(LAND_COUNT_RANGE.max + 1)).toBe('too-many')
+    })
+
+    it('trips the curve warning only above the ceiling', () => {
+      expect(isAverageManaValueTooHigh(MAX_AVERAGE_MANA_VALUE)).toBe(false)
+      expect(isAverageManaValueTooHigh(MAX_AVERAGE_MANA_VALUE + 0.1)).toBe(true)
+    })
+  })
+
+  describe('the prompt adapter', () => {
+    it('names the band and the curve ceiling', () => {
+      expect(DECK_SHAPE_PROMPT_RULES).toContain(
+        `${LAND_COUNT_RANGE.min}-${LAND_COUNT_RANGE.max} lands`,
+      )
+      expect(DECK_SHAPE_PROMPT_RULES).toContain(String(MAX_AVERAGE_MANA_VALUE))
+    })
+
+    it('names every archetype and its own count, so the prose cannot drift', () => {
+      for (const [archetype, count] of Object.entries(ARCHETYPE_LAND_COUNT)) {
+        const group = DECK_SHAPE_PROMPT_RULES.split(';').find((part) => part.includes(archetype))
+        expect(group, archetype).toBeDefined()
+        expect(group, archetype).toContain(`${count} for `)
+      }
+    })
   })
 })

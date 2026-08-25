@@ -1,7 +1,12 @@
 import { getTraitById } from './trait-mappings'
 import type { ScryfallCard } from './scryfall/types'
 import type { DynamicKey, TFn } from './i18n/types'
-import { TARGET_DECK_SIZE } from '../../convex/lib/deckRules'
+import {
+  TARGET_DECK_SIZE,
+  fixingLandCountForColors,
+  landCountForArchetype,
+  splitEvenly,
+} from '../../convex/lib/deckRules'
 
 export interface DeckSection {
   id: string
@@ -29,8 +34,6 @@ interface SectionTemplate {
   sections: SectionTemplateEntry[]
   /** Distribution of non-land, non-core slots across sections (proportional weights) */
   weights: number[]
-  /** Preferred land count */
-  landCount: number
 }
 
 const TEMPLATES: Record<string, SectionTemplate> = {
@@ -41,7 +44,6 @@ const TEMPLATES: Record<string, SectionTemplate> = {
       { id: 'removal', role: 'interaction', scryfallHints: ['(o:destroy OR o:exile OR o:damage) t:instant cmc<=3'] },
     ],
     weights: [16, 6, 4],
-    landCount: 22,
   },
   control: {
     sections: [
@@ -51,7 +53,6 @@ const TEMPLATES: Record<string, SectionTemplate> = {
       { id: 'win-conditions', role: 'creatures', scryfallHints: ['t:creature cmc>=4 pow>=4 r>=rare'] },
     ],
     weights: [6, 6, 5, 4],
-    landCount: 26,
   },
   midrange: {
     sections: [
@@ -60,7 +61,6 @@ const TEMPLATES: Record<string, SectionTemplate> = {
       { id: 'card-advantage', role: 'support', scryfallHints: ['o:"draw" (t:instant OR t:sorcery OR t:creature)'] },
     ],
     weights: [12, 6, 6],
-    landCount: 24,
   },
   combo: {
     sections: [
@@ -70,7 +70,6 @@ const TEMPLATES: Record<string, SectionTemplate> = {
       { id: 'interaction', role: 'interaction', scryfallHints: ['(o:counter OR o:destroy OR o:exile) t:instant cmc<=3'] },
     ],
     weights: [8, 6, 6, 4],
-    landCount: 24,
   },
   tribal: {
     sections: [
@@ -80,7 +79,6 @@ const TEMPLATES: Record<string, SectionTemplate> = {
       { id: 'removal', role: 'interaction', scryfallHints: ['(o:destroy OR o:exile) (t:instant OR t:sorcery)'] },
     ],
     weights: [8, 12, 4, 4],
-    landCount: 24,
   },
   ramp: {
     sections: [
@@ -91,7 +89,6 @@ const TEMPLATES: Record<string, SectionTemplate> = {
       { id: 'card-draw', role: 'support', scryfallHints: ['o:"draw" (t:instant OR t:sorcery OR t:enchantment)'] },
     ],
     weights: [6, 6, 6, 4, 4],
-    landCount: 24,
   },
   tokens: {
     sections: [
@@ -101,7 +98,6 @@ const TEMPLATES: Record<string, SectionTemplate> = {
       { id: 'removal', role: 'interaction', scryfallHints: ['(o:destroy OR o:exile) (t:instant OR t:sorcery)'] },
     ],
     weights: [12, 6, 4, 4],
-    landCount: 24,
   },
   voltron: {
     sections: [
@@ -111,7 +107,6 @@ const TEMPLATES: Record<string, SectionTemplate> = {
       { id: 'removal', role: 'interaction', scryfallHints: ['(o:destroy OR o:exile) t:instant'] },
     ],
     weights: [10, 8, 4, 4],
-    landCount: 24,
   },
   mill: {
     sections: [
@@ -121,7 +116,6 @@ const TEMPLATES: Record<string, SectionTemplate> = {
       { id: 'removal', role: 'interaction', scryfallHints: ['(o:destroy OR o:exile OR o:counter) (t:instant OR t:sorcery)'] },
     ],
     weights: [12, 6, 4, 4],
-    landCount: 24,
   },
   lifegain: {
     sections: [
@@ -131,7 +125,6 @@ const TEMPLATES: Record<string, SectionTemplate> = {
       { id: 'removal', role: 'interaction', scryfallHints: ['(o:destroy OR o:exile) (t:instant OR t:sorcery)'] },
     ],
     weights: [10, 8, 4, 4],
-    landCount: 24,
   },
   reanimator: {
     sections: [
@@ -142,7 +135,6 @@ const TEMPLATES: Record<string, SectionTemplate> = {
       { id: 'card-draw', role: 'support', scryfallHints: ['o:"draw" (t:instant OR t:sorcery)'] },
     ],
     weights: [6, 6, 6, 4, 4],
-    landCount: 24,
   },
   burn: {
     sections: [
@@ -151,7 +143,6 @@ const TEMPLATES: Record<string, SectionTemplate> = {
       { id: 'card-draw', role: 'support', scryfallHints: ['o:"draw" (t:instant OR t:sorcery OR t:enchantment)'] },
     ],
     weights: [14, 8, 4],
-    landCount: 22,
   },
   goodstuff: {
     sections: [
@@ -163,7 +154,6 @@ const TEMPLATES: Record<string, SectionTemplate> = {
       { id: 'card-draw', role: 'support', scryfallHints: ['o:"draw" (t:instant OR t:sorcery OR t:enchantment)'] },
     ],
     weights: [6, 5, 10, 6, 5, 4],
-    landCount: 18,
   },
   sacrifice: {
     sections: [
@@ -173,7 +163,6 @@ const TEMPLATES: Record<string, SectionTemplate> = {
       { id: 'removal', role: 'interaction', scryfallHints: ['(o:destroy OR o:exile OR o:damage) (t:instant OR t:sorcery)'] },
     ],
     weights: [12, 8, 4, 4],
-    landCount: 22,
   },
   drain: {
     sections: [
@@ -184,7 +173,6 @@ const TEMPLATES: Record<string, SectionTemplate> = {
       { id: 'card-draw', role: 'support', scryfallHints: ['o:"draw" (t:instant OR t:sorcery OR t:enchantment)'] },
     ],
     weights: [8, 10, 4, 4, 4],
-    landCount: 25,
   },
 }
 
@@ -197,8 +185,20 @@ const DEFAULT_TEMPLATE: SectionTemplate = {
     { id: 'removal', role: 'interaction', scryfallHints: ['(o:destroy OR o:exile) (t:instant OR t:sorcery)'] },
   ],
   weights: [16, 6, 4, 4],
-  landCount: 24,
 }
+
+/** Fixing-lands entry for archetypes whose template doesn't ship its own. */
+const GENERIC_FIXING_SECTIONS: SectionTemplateEntry[] = [
+  {
+    id: 'mana-fixing-lands',
+    role: 'lands',
+    scryfallHints: [
+      't:land o:"add" -o:"enters the battlefield tapped"',
+      't:land (t:forest OR t:island OR t:swamp OR t:mountain OR t:plains) -t:basic',
+      't:land o:"enters the battlefield tapped" o:"add"',
+    ],
+  },
+]
 
 /**
  * Resolve a section's label/description via i18n. Tribal sections carry a
@@ -331,25 +331,45 @@ export function deriveSectionPlan(
     })
   }
 
-  const template: SectionTemplate = { sections: baseSections, weights, landCount: primaryTemplate.landCount }
+  // Split the plan's two budgets. The archetype's land target counts every
+  // land in the deck, so a template that ships its own fixing-lands section
+  // (goodstuff) draws it from the land budget rather than the spell budget —
+  // before issue #45 that section came out of the spell slots and goodstuff
+  // carried a land target of 18 to compensate, which matched no other number
+  // in the app.
+  const fixingLandCount = fixingLandCountForColors(colors.length)
+  const spellEntries: SectionTemplateEntry[] = []
+  const spellWeights: number[] = []
+  const fixingEntries: SectionTemplateEntry[] = []
+
+  baseSections.forEach((entry, i) => {
+    if (entry.role === 'lands') {
+      // A mono-color deck has nothing to fix, so its fixing section is dropped
+      // and the slots go to the residual land section.
+      if (fixingLandCount > 0) fixingEntries.push(entry)
+    } else {
+      spellEntries.push(entry)
+      spellWeights.push(weights[i] ?? 4)
+    }
+  })
 
   // Calculate available slots
-  const landCount = template.landCount
-  const availableSlots = Math.max(TARGET_DECK_SIZE - coreCardCount - landCount, baseSections.length * 2)
-  const totalWeight = template.weights.slice(0, baseSections.length).reduce((s, w) => s + w, 0)
+  const landTarget = landCountForArchetype(primary)
+  const availableSlots = Math.max(TARGET_DECK_SIZE - coreCardCount - landTarget, spellEntries.length * 2)
+  const totalWeight = spellWeights.reduce((s, w) => s + w, 0)
 
   // Distribute slots proportionally, then clamp so total doesn't exceed availableSlots
   const sections: DeckSection[] = []
   let distributed = 0
 
-  for (let i = 0; i < baseSections.length; i++) {
-    const entry = baseSections[i]
-    const weight = template.weights[i] ?? 4
-    const isLast = i === baseSections.length - 1
+  for (let i = 0; i < spellEntries.length; i++) {
+    const entry = spellEntries[i]
+    const weight = spellWeights[i]
+    const isLast = i === spellEntries.length - 1
     const remaining = availableSlots - distributed
     const count = isLast
       ? remaining
-      : Math.min(Math.round((weight / totalWeight) * availableSlots), remaining - (baseSections.length - i - 1) * 2)
+      : Math.min(Math.round((weight / totalWeight) * availableSlots), remaining - (spellEntries.length - i - 1) * 2)
 
     const clamped = Math.max(count, 2)
     const { label, description } = localizeSection(entry, t, tribeLabel)
@@ -372,30 +392,33 @@ export function deriveSectionPlan(
     distributed += clamped
   }
 
-  // Generic mana-fixing lands — applies to any 2+ color deck that doesn't
-  // already have a template-provided fixing section (goodstuff has its own
-  // richer entry and sits at a different weight). Count scales with color
-  // count so a 5C deck gets meaningfully more fixing than a 2C one.
-  const alreadyHasFixing = sections.some((s) => s.id === 'mana-fixing-lands')
-  if (!alreadyHasFixing && colors.length >= 2) {
-    const fixingCount = Math.min(Math.max(colors.length * 2 - 2, 2), 8)
-    sections.push({
-      id: 'mana-fixing-lands',
-      label: t('section.mana-fixing-lands.label'),
-      description: t('section.mana-fixing-lands.desc'),
-      role: 'lands',
-      scryfallHints: [
-        't:land o:"add" -o:"enters the battlefield tapped"',
-        't:land (t:forest OR t:island OR t:swamp OR t:mountain OR t:plains) -t:basic',
-        't:land o:"enters the battlefield tapped" o:"add"',
-      ],
-      targetCount: fixingCount,
-    })
+  // Mana-fixing lands: the archetype's own entry when it ships one (goodstuff
+  // has a richer set of hints), otherwise the generic entry for any 2+ color
+  // deck. Either way the slots come out of the land budget.
+  const fixingSections = fixingEntries.length > 0 ? fixingEntries : GENERIC_FIXING_SECTIONS
+  let fixingAllocated = 0
+  if (fixingLandCount > 0) {
+    for (const { slot, quantity } of splitEvenly(fixingLandCount, fixingSections)) {
+      const { label, description } = localizeSection(slot, t, tribeLabel)
+      sections.push({
+        id: slot.id,
+        label,
+        description,
+        role: slot.role,
+        scryfallHints: slot.scryfallHints,
+        targetCount: quantity,
+      })
+      fixingAllocated += quantity
+    }
   }
 
-  // Add lands section - absorb any rounding mismatch
+  // Add lands section - absorb any rounding mismatch. What keeps the plan
+  // inside LAND_COUNT_RANGE is reserving the land budget before the spell
+  // sections are distributed, not a floor here: the plan is 60 cards first, so
+  // a core crowded enough to leave less than the band takes the lands down with
+  // it rather than planning a 62-card deck.
   const currentTotal = coreCardCount + sections.reduce((s, sec) => s + sec.targetCount, 0)
-  const actualLandCount = Math.max(TARGET_DECK_SIZE - currentTotal, 18)
+  const actualLandCount = Math.max(TARGET_DECK_SIZE - currentTotal, 0)
 
   sections.push({
     id: 'lands',

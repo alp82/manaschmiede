@@ -1,7 +1,7 @@
 /**
  * The one place that says what a deck is: exactly 60 cards, at most four
- * copies of anything that isn't a basic land, and the two ways an oversized
- * deck gets cut back down.
+ * copies of anything that isn't a basic land, the two ways an oversized deck
+ * gets cut back down, and the shape it aims for - land count and mana curve.
  *
  * Before issue #28 these rules were written six times - once in the server's
  * `enforceDeckSize`, again in the client's `enforceDeltaSize`, again in each
@@ -319,3 +319,144 @@ export function enforceDeck(
 
   return cards.filter((card) => card.quantity > 0)
 }
+
+// ─── Deck shape: the curve half of "decks are balanced" ─────────────────────
+//
+// Before issue #45 the curve was written three times and enforced nowhere: as
+// prose in `generateDeck.ts`'s SYSTEM_PROMPT, as reporting thresholds in
+// `src/lib/balance.ts`, and as an independent per-archetype land table plus a
+// bare floor of 18 in `src/lib/section-plan.ts`. Only the last one ever changed
+// an outcome, and none of the three referenced the others.
+//
+// The rule set is declared once here and adapted three ways in this file, the
+// way `cardFilters.ts` adapts the hard filter - prose for the model, predicates
+// for the balance report, a land target for the section plan. See
+// docs/adr/0005-land-count-planned-curve-advised.md for why the land count is
+// planned and the mana curve is only advised.
+
+/**
+ * The land count a 60-card casual deck lives inside. Every archetype target
+ * sits in this band, and the section plan can never allocate outside it.
+ */
+export const LAND_COUNT_RANGE = { min: 22, max: 26 } as const
+
+/**
+ * The non-land count that follows from the land band, since a deck is exactly
+ * TARGET_DECK_SIZE cards. Derived rather than written down, so the two halves
+ * of the same statement cannot disagree.
+ */
+export const SPELL_COUNT_RANGE = {
+  min: TARGET_DECK_SIZE - LAND_COUNT_RANGE.max,
+  max: TARGET_DECK_SIZE - LAND_COUNT_RANGE.min,
+} as const
+
+/**
+ * The average mana value of a deck's non-land cards, above which the deck plays
+ * too slowly for casual. Advice, not enforcement: bringing a curve down means
+ * swapping specific cards for cheaper ones that do the same job, which no
+ * mechanical rule can do without gutting the deck's payoffs.
+ */
+export const MAX_AVERAGE_MANA_VALUE = 3.5
+
+/** Land count when no archetype matches. */
+export const DEFAULT_LAND_COUNT = 24
+
+/**
+ * Lands each archetype aims for, counting every land in the deck - the fixing
+ * lands a multicolour plan gets as well as the basics. Faster archetypes want
+ * fewer lands and more early plays; grindier ones want to hit every land drop.
+ *
+ * Keyed by the archetype ids in `src/lib/section-plan.ts`. An id that is absent
+ * takes DEFAULT_LAND_COUNT, so adding an archetype is not a breaking change.
+ */
+export const ARCHETYPE_LAND_COUNT: Readonly<Record<string, number>> = {
+  aggro: 22,
+  burn: 22,
+  sacrifice: 22,
+  midrange: 24,
+  combo: 24,
+  tribal: 24,
+  ramp: 24,
+  tokens: 24,
+  voltron: 24,
+  mill: 24,
+  lifegain: 24,
+  reanimator: 24,
+  drain: 25,
+  goodstuff: 25,
+  control: 26,
+}
+
+/** Adapter for the section plan: how many lands this archetype's plan reserves. */
+export function landCountForArchetype(archetype: string | undefined): number {
+  if (archetype === undefined) return DEFAULT_LAND_COUNT
+  return ARCHETYPE_LAND_COUNT[archetype] ?? DEFAULT_LAND_COUNT
+}
+
+/**
+ * The most of a deck's land target that may go to fixing lands. Held well
+ * below LAND_COUNT_RANGE.min so a five-colour deck still has room for basics.
+ */
+const MAX_FIXING_LANDS = 8
+
+/**
+ * Adapter for the section plan: how many of the archetype's lands are fixing
+ * lands rather than basics.
+ *
+ * Zero for a mono-colour deck, which has nothing to fix, then two more per
+ * extra colour so a five-colour deck gets meaningfully more fixing than a
+ * two-colour one. These lands come out of the land target, not the spell slots
+ * - that is what lets `landCountForArchetype` mean every land in the deck.
+ */
+export function fixingLandCountForColors(colorCount: number): number {
+  if (colorCount < 2) return 0
+  return Math.min(colorCount * 2 - 2, MAX_FIXING_LANDS)
+}
+
+/** Where a deck's land count falls relative to the band. */
+export type LandCountVerdict = 'ok' | 'too-few' | 'too-many'
+
+/** Adapter for the balance report: judge a finished deck's land count. */
+export function checkLandCount(landCount: number): LandCountVerdict {
+  if (landCount < LAND_COUNT_RANGE.min) return 'too-few'
+  if (landCount > LAND_COUNT_RANGE.max) return 'too-many'
+  return 'ok'
+}
+
+/** Adapter for the balance report: judge a finished deck's curve. */
+export function isAverageManaValueTooHigh(averageManaValue: number): boolean {
+  return averageManaValue > MAX_AVERAGE_MANA_VALUE
+}
+
+/**
+ * Render the archetype table as `22 for aggro, burn, sacrifice; 24 for ...`,
+ * so the prompt and the plan can never name different numbers. Archetypes the
+ * table doesn't list join the default's group as "any other archetype".
+ */
+function describeArchetypeLandCounts(): string {
+  const byCount = new Map<number, string[]>()
+  for (const archetype of Object.keys(ARCHETYPE_LAND_COUNT).sort()) {
+    const count = ARCHETYPE_LAND_COUNT[archetype]
+    const named = byCount.get(count)
+    if (named === undefined) byCount.set(count, [archetype])
+    else named.push(archetype)
+  }
+
+  const defaultGroup = byCount.get(DEFAULT_LAND_COUNT)
+  if (defaultGroup === undefined) byCount.set(DEFAULT_LAND_COUNT, ['any other archetype'])
+  else defaultGroup.push('any other archetype')
+
+  return Array.from(byCount.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([count, named]) => `${count} for ${named.join(', ')}`)
+    .join('; ')
+}
+
+/**
+ * Adapter for the model: the same rule set as prose, for the deck-generation
+ * system prompt. Generated from the table so the prompt cannot drift from it.
+ */
+export const DECK_SHAPE_PROMPT_RULES = `- Include ${LAND_COUNT_RANGE.min}-${LAND_COUNT_RANGE.max} lands, counting fixing lands as well as basics (${describeArchetypeLandCounts()})
+- Keep the average mana value of the non-land cards at or below ${MAX_AVERAGE_MANA_VALUE}
+- Land base must support all colors proportionally
+- For 3+ colors, include mana-fixing artifacts`
