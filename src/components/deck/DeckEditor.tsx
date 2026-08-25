@@ -56,7 +56,7 @@ interface DeckEditorFill {
 interface DeckEditorProps {
   /**
    * The deck being edited plus every mutator, adapted from whichever container
-   * owns it — `deckSurfaceFromWizard` or `deckSurfaceFromLocalDeck`. The editor
+   * owns it — `deckSurfaceFromWizard` or `deckSurfaceFromSavedDeck`. The editor
    * holds no deck state of its own and never learns which container it is in.
    */
   surface: DeckSurface

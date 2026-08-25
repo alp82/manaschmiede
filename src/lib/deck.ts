@@ -3,11 +3,18 @@ import type { DeckCard } from './deck-utils'
 import type { DeckIntent } from './deck-intent'
 import type { DeckSection } from './section-plan'
 import type { ScryfallCard } from './scryfall/types'
-import { clearDeckPending } from './deck-pending'
 
-const STORAGE_KEY = 'manaschmiede-decks'
-
-export interface LocalDeck {
+/**
+ * A saved deck: exactly 60 main-deck cards, casual, no sideboard.
+ *
+ * This is the one deck shape in the app. It used to be called `LocalDeck` and
+ * live in `deck-storage.ts`, named for the fact that it came out of
+ * localStorage — but where a deck is stored is `storage/deck-store.ts`'s
+ * business, not the shape's. The store validates anything claiming to be a
+ * `Deck` on the way out of storage, so this is also the only place the shape
+ * is checked (issue #29).
+ */
+export interface Deck {
   id: string
   name: string
   description?: string
@@ -45,30 +52,4 @@ export function pickFeaturedCardIds(
     .sort((a, b) => b[1] - a[1])
     .slice(0, 3)
     .map(([id]) => id)
-}
-
-export function loadDecks(): LocalDeck[] {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')
-  } catch {
-    return []
-  }
-}
-
-export function loadDeck(id: string): LocalDeck | null {
-  return loadDecks().find((d) => d.id === id) || null
-}
-
-export function persistDeck(deck: LocalDeck): void {
-  const decks = loadDecks()
-  const idx = decks.findIndex((d) => d.id === deck.id)
-  if (idx >= 0) decks[idx] = deck
-  else decks.push(deck)
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(decks))
-}
-
-export function deleteDeck(id: string): void {
-  const decks = loadDecks().filter((d) => d.id !== id)
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(decks))
-  clearDeckPending(id)
 }

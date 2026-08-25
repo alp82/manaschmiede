@@ -13,10 +13,11 @@ import { UndoRedoButtons } from '../../components/ui/UndoRedoButtons'
 import { useToast } from '../../components/ui/Toast'
 import { analyzeDeck } from '../../lib/balance'
 import { useDeckChat } from '../../lib/useDeckChat'
-import { loadDeck, persistDeck, pickFeaturedCardIds, type LocalDeck } from '../../lib/deck-storage'
+import { pickFeaturedCardIds, type Deck } from '../../lib/deck'
+import { deckStore } from '../../lib/storage/deck-store'
 import { emptyIntent, deriveIntentFilters, buildChatIntentContext, type DeckIntent } from '../../lib/deck-intent'
 import { buildSectionLabelMap } from '../../lib/section-assignment'
-import { deckSurfaceFromLocalDeck } from '../../lib/deck-surface'
+import { deckSurfaceFromSavedDeck } from '../../lib/deck-surface'
 import { useStagedRederive } from '../../lib/use-staged-rederive'
 import { useDeckPending } from '../../lib/use-deck-pending'
 import { sectionFillIntentFromDeck } from '../../lib/section-fill-intent'
@@ -46,9 +47,13 @@ function DeckPage() {
   const { scryfallLang } = useI18n()
   const queryClient = useQueryClient()
   const { id } = Route.useParams()
-  const [deck, setDeck] = useState<LocalDeck | null>(() => loadDeck(id))
-  const [deckName, setDeckName] = useState(() => loadDeck(id)?.name ?? '')
-  const [deckDescription, setDeckDescription] = useState(() => loadDeck(id)?.description ?? '')
+  // One storage read for all three: `deckStore.load` parses the whole stored
+  // list, and the name and description initializers used to repeat it. Reading
+  // `deck` here is safe — a `useState` initializer runs during this render, so
+  // the line above has already produced it.
+  const [deck, setDeck] = useState<Deck | null>(() => deckStore.load(id))
+  const [deckName, setDeckName] = useState(() => deck?.name ?? '')
+  const [deckDescription, setDeckDescription] = useState(() => deck?.description ?? '')
   const [cardDataMap, setCardDataMap] = useState<Map<string, ScryfallCard>>(new Map())
   const [pdfGenerating, setPdfGenerating] = useState(false)
 
@@ -63,7 +68,7 @@ function DeckPage() {
   useEffect(() => {
     if (!deck) return
     const timer = setTimeout(() => {
-      persistDeck({ ...deck, featuredCardIds: pickFeaturedCardIds(deck.cards, cardDataMap) })
+      deckStore.save({ ...deck, featuredCardIds: pickFeaturedCardIds(deck.cards, cardDataMap) })
     }, 500)
     return () => clearTimeout(timer)
   }, [deck, cardDataMap])
@@ -233,7 +238,7 @@ function DeckPage() {
   // could silently undo an accepted plan.
 
   const surface = useMemo(
-    () => deckSurfaceFromLocalDeck({
+    () => deckSurfaceFromSavedDeck({
       deck,
       setDeck,
       history,

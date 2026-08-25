@@ -22,7 +22,8 @@ import {
 } from '../../lib/wizard-state'
 import { projectLocked } from '../../lib/deck-utils'
 import { intentFromWizard } from '../../lib/deck-intent'
-import { persistDeck, pickFeaturedCardIds } from '../../lib/deck-storage'
+import { pickFeaturedCardIds } from '../../lib/deck'
+import { deckStore } from '../../lib/storage/deck-store'
 import { generateDeckName } from '../../lib/deck-naming'
 import { cardSupply } from '../../lib/scryfall/card-supply'
 import { getCardName } from '../../lib/scryfall/types'
@@ -185,7 +186,7 @@ function NewDeckWizard() {
     const description = state.deckDescription || selectedCombo?.explanation || ''
     const fillResult = getFillColors(state)
     const colors = fillResult.ready && fillResult.colors?.length ? fillResult.colors : undefined
-    persistDeck({
+    deckStore.save({
       id: deckId,
       name,
       description,

@@ -1,8 +1,5 @@
 import { useCallback, useState } from 'react'
 import {
-  loadDeckPending,
-  persistDeckPending,
-  clearDeckPending,
   intentFingerprint,
   buildPendingUpdate,
   hydratePending,
@@ -10,6 +7,7 @@ import {
   clearCardLevelPending,
   type DeckPending,
 } from './deck-pending'
+import { deckStore } from './storage/deck-store'
 import { useSkipFirst } from './use-skip-first'
 import type { DeckIntent } from './deck-intent'
 import type { DeckSection } from './section-plan'
@@ -47,7 +45,7 @@ export function useDeckPending(
   const fingerprint = intentFingerprint(committedIntent)
 
   const [pendingState, setPending] = useState<DeckPending>(() =>
-    hydratePending(loadDeckPending(deckId), committedIntent),
+    hydratePending(deckStore.loadPending(deckId), committedIntent),
   )
 
   // Re-run the eviction on EVERY render whose fingerprint moved, not only on
@@ -64,7 +62,7 @@ export function useDeckPending(
   // Skip the persist effect on the very first commit — the initial state came
   // straight from storage (or is the empty slot), so re-writing it is noise.
   useSkipFirst(() => {
-    persistDeckPending(deckId, pending)
+    deckStore.savePending(deckId, pending)
   }, [deckId, pending])
 
   const setStagedPlan = useCallback(
@@ -100,5 +98,3 @@ export function useDeckPending(
     clearCardLevelPending: clearCardLevel,
   }
 }
-
-export { clearDeckPending }

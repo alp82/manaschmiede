@@ -1,7 +1,7 @@
 import { isBasicLandId } from '../../convex/lib/basicLands'
 import type { DeckCard, DeckDisplayCard } from './deck-utils'
 import { mergeCardsIntoDeck, projectLocked } from './deck-utils'
-import type { LocalDeck } from './deck-storage'
+import type { Deck } from './deck'
 import type { DeckSection } from './section-plan'
 import { pickSectionForCard } from './section-plan'
 import { applySectionInheritance } from './section-assignment'
@@ -13,10 +13,10 @@ import type { WizardState, WizardAction } from './wizard-state'
  * One editing surface, two containers.
  *
  * The wizard's fill step and the deck route render the same editor against two
- * different state containers — `WizardState` via `dispatch`, `LocalDeck` via
+ * different state containers — `WizardState` via `dispatch`, `Deck` via
  * `setDeck`. Before this module each wrote the mutators separately and they
  * drifted (issue #26). `DeckSurface` is the seam; `deckSurfaceFromWizard`
- * and `deckSurfaceFromLocalDeck` are its two adapters, the same shape
+ * and `deckSurfaceFromSavedDeck` are its two adapters, the same shape
  * `section-fill-intent.ts` already uses for section fill.
  *
  * Two things stay out on purpose:
@@ -260,10 +260,10 @@ export function deckSurfaceFromWizard(input: WizardDeckSurfaceInput): DeckSurfac
 
 // ─── Local-deck adapter ──────────────────────────────────────────────────
 
-export interface LocalDeckSurfaceInput {
+export interface SavedDeckSurfaceInput {
   /** Null while the deck is still loading; every mutator then no-ops. */
-  deck: LocalDeck | null
-  setDeck: (updater: (prev: LocalDeck | null) => LocalDeck | null) => void
+  deck: Deck | null
+  setDeck: (updater: (prev: Deck | null) => Deck | null) => void
   history: WritableHistory
   lockedCardIds: Set<string>
   /** Localized lanes to render — a staged plan when one is staged. */
@@ -280,17 +280,17 @@ export interface LocalDeckSurfaceInput {
 }
 
 /**
- * Adapt a persisted `LocalDeck` + `setDeck` into a DeckSurface.
+ * Adapt a persisted `Deck` + `setDeck` into a DeckSurface.
  *
  * Every mutator writes functionally and reads `prev` for the deck, its plan and
  * its assignments. `useStagedRederive` is the other writer of `sectionPlan` /
  * `sectionAssignments` and it also writes functionally, so a mutator that read
  * either from a closure could silently undo an accepted plan.
  */
-export function deckSurfaceFromLocalDeck(input: LocalDeckSurfaceInput): DeckSurface {
+export function deckSurfaceFromSavedDeck(input: SavedDeckSurfaceInput): DeckSurface {
   const { deck, setDeck, history, cardDataMap } = input
 
-  const touch = (prev: LocalDeck, next: Partial<LocalDeck>): LocalDeck => ({
+  const touch = (prev: Deck, next: Partial<Deck>): Deck => ({
     ...prev,
     ...next,
     updatedAt: Date.now(),

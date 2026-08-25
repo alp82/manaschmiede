@@ -7,7 +7,7 @@ import {
 import { committedColors, type DeckIntent } from './deck-intent'
 import { structuralKey } from './deck-pending'
 import { useSkipFirst } from './use-skip-first'
-import type { LocalDeck } from './deck-storage'
+import type { Deck } from './deck'
 import type { ScryfallCard } from './scryfall/types'
 import type { TFn } from './i18n/types'
 
@@ -303,7 +303,7 @@ export function laneStatusFor(plan: StagedPlan | null, laneId: string): LaneRevi
 interface UseStagedRederiveArgs {
   displayCards: DeckDisplayCard[]
   t: TFn
-  setDeck: (updater: (prev: LocalDeck | null) => LocalDeck | null) => void
+  setDeck: (updater: (prev: Deck | null) => Deck | null) => void
   /**
    * The deck's currently committed section plan. REQUIRED, because the previous
    * plan every stale-lane diff is measured against is DERIVED from it — see the

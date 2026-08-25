@@ -540,7 +540,7 @@ or a query clause outside an entry's `toQuery`.
 
 The wizard's fill step and the deck route render the same editing surface
 against two different state containers — `WizardState` via `dispatch`,
-`LocalDeck` via `setDeck`. Two modules define what they share as an interface
+`Deck` via `setDeck`. Two modules define what they share as an interface
 and adapt each container onto it:
 
 - `src/lib/section-fill-intent.ts` — `SectionFillIntent`, consumed by
@@ -563,6 +563,39 @@ there can silently undo an accepted plan). A genuine behavioural fork stays a
 separate prop: `fill` is the wizard's, `resolveLaneStatus` is the route's.
 Deliberate non-goals, both from issue #26: zone (every write targets `'main'`),
 and unified history storage (the wizard persists its stacks, the route does not).
+
+## Persistence goes through the storage seam, never `localStorage`
+
+Nothing that persists deck or wizard state calls `localStorage`. Two modules
+under `src/lib/storage/` own it, and `docs/adr/0004-persistence-seam.md`
+records why:
+
+- `src/lib/storage/backend.ts` — `StorageBackend`, three string operations,
+  plus `readJson` / `writeJson`. Two adapters: `localStorageBackend` in the
+  browser, `memoryBackend` in tests. Every operation is total, so a server
+  render, a private-mode window and a full quota all read as "no value" and no
+  caller carries a guard.
+- `src/lib/storage/deck-store.ts` — `DeckStore`: `list`, `load`, `save`,
+  `remove`, `append`, and the two pending-slot methods. It owns both deck keys,
+  because deleting a deck has to delete its pending slot. `deckStore` is the
+  app's instance and forwards to whichever backend is installed.
+
+`coerceDecks` is the one place a stored blob becomes `Deck[]`. `src/lib/deck.ts`
+holds the `Deck` shape itself — the type formerly called `LocalDeck`.
+
+`wizard-state.ts` is the one module that reads `storageBackend()` directly
+rather than through a store. Its two keys hold one reducer state each, with no
+lifecycle to share and nothing to merge, so a facade over them would be a
+`Middle Man`. That is the exception, not the pattern to copy.
+
+**How to apply:** a new persisted value gets a method on the store that owns
+that value's lifecycle, never a fresh key with its own `try` / `catch`. Tests
+need no storage setup at all: `src/test-setup.ts` installs a fresh
+`memoryBackend()` before every test, and a test wanting its own isolated store
+calls `createInMemoryDeckStore()`. Never add a `localStorage.clear()` to a
+`beforeEach`. Single-scalar user preferences (sound, locale, the usage-log
+panel) still call `localStorage` directly; move one onto the backend when it
+next needs a test.
 
 <!-- convex-ai-start -->
 This project uses [Convex](https://convex.dev) as its backend.

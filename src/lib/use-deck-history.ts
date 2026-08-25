@@ -128,7 +128,7 @@ export function useDeckHistory(
   }, [core, currentCards, applyCards])
 
   // Stable identity between renders that changed nothing, so consumers can
-  // memoize on it — `deckSurfaceFromWizard` / `deckSurfaceFromLocalDeck` both
+  // memoize on it — `deckSurfaceFromWizard` / `deckSurfaceFromSavedDeck` both
   // take the history object and would otherwise be rebuilt every render. The
   // stack lengths are read off the mutable core, so they belong in the deps:
   // every push or pop happens alongside a state change that re-renders.

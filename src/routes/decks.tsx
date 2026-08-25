@@ -8,7 +8,8 @@ import { EmptyState } from '../components/ui/EmptyState'
 import { getCardImageUri, getCardName } from '../lib/scryfall/types'
 import { cardSupply } from '../lib/scryfall/card-supply'
 import { scryfallKeys } from '../lib/scryfall/keys'
-import { loadDecks, type LocalDeck } from '../lib/deck-storage'
+import type { Deck } from '../lib/deck'
+import { deckStore } from '../lib/storage/deck-store'
 import { getTotalCards } from '../lib/deck-utils'
 import { useT, useI18n } from '../lib/i18n'
 import type { ScryfallCard } from '../lib/scryfall/types'
@@ -34,14 +35,14 @@ function DecksPage() {
   const queryClient = useQueryClient()
   const { scryfallLang } = useI18n()
 
-  // Loaded in an effect, not a `useState` initializer: `loadDecks` reads
+  // Loaded in an effect, not a `useState` initializer: the store reads
   // localStorage, so an initializer renders 0 decks on the server and N on the
   // client, and React tears the tree down with a hydration mismatch. Same
   // pattern as `routes/index.tsx`.
-  const [decks, setDecks] = useState<LocalDeck[]>([])
+  const [decks, setDecks] = useState<Deck[]>([])
   const [loaded, setLoaded] = useState(false)
   useEffect(() => {
-    setDecks(loadDecks())
+    setDecks(deckStore.list())
     setLoaded(true)
   }, [])
 
@@ -150,7 +151,7 @@ function DecksPage() {
  * ──────────────────────────────────────────────────────────── */
 
 interface DeckTileProps {
-  deck: LocalDeck
+  deck: Deck
   ids: string[]
   cardsById: ReadonlyMap<string, ScryfallCard>
   loading: boolean

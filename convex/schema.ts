@@ -2,24 +2,6 @@ import { defineSchema, defineTable } from 'convex/server'
 import { v } from 'convex/values'
 
 export default defineSchema({
-  decks: defineTable({
-    userId: v.string(),
-    name: v.string(),
-    description: v.optional(v.string()),
-    cards: v.array(
-      v.object({
-        scryfallId: v.string(),
-        quantity: v.number(),
-        zone: v.literal('main'),
-      }),
-    ),
-    tags: v.optional(v.array(v.string())),
-    isPublic: v.boolean(),
-    updatedAt: v.number(),
-  })
-    .index('by_userId', ['userId'])
-    .index('by_public', ['isPublic']),
-
   llmUsageLogs: defineTable({
     status: v.union(v.literal('pending'), v.literal('complete'), v.literal('error')),
     action: v.string(),

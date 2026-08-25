@@ -2,13 +2,13 @@ import { committedColors, type DeckIntent } from './deck-intent'
 import type { DeckSection } from './section-plan'
 import type { CoreCombo, ChatMessage } from './wizard-state'
 
-const KEY_PREFIX = 'manaschmiede-deck-pending:'
-
 /**
  * Per-deck pending slot: the transient mid-review state (M2 staged re-derive
  * plan + M3 offered combos + the re-fill chat) that survives a reload. Keyed
- * by deck id, separate from the curated 60 (`manaschmiede-decks`) — nothing
- * here touches the persisted deck until the user Applies.
+ * by deck id, separate from the curated 60 — nothing here touches the
+ * persisted deck until the user Applies. Reading and writing the slot belongs
+ * to `storage/deck-store.ts`, which owns both keys because deleting a deck has
+ * to delete its slot; this module is the slot's shape and its pure rules.
  *
  * `intentFingerprint` records which committed intent the slot was derived
  * against, so a committed-intent change can evict a now-stale slot.
@@ -49,22 +49,6 @@ export function intentFingerprint(intent: DeckIntent): string {
  */
 export function isPendingStale(pending: DeckPending, currentIntent: DeckIntent): boolean {
   return intentFingerprint(currentIntent) !== pending.intentFingerprint
-}
-
-export function loadDeckPending(id: string): DeckPending | null {
-  try {
-    return JSON.parse(localStorage.getItem(KEY_PREFIX + id) || 'null')
-  } catch {
-    return null
-  }
-}
-
-export function persistDeckPending(id: string, pending: DeckPending): void {
-  localStorage.setItem(KEY_PREFIX + id, JSON.stringify(pending))
-}
-
-export function clearDeckPending(id: string): void {
-  localStorage.removeItem(KEY_PREFIX + id)
 }
 
 /**

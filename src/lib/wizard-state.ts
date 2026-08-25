@@ -1,4 +1,5 @@
 import { MANA_COLORS, type ManaColor } from './mana-colors'
+import { readJson, storageBackend, writeJson } from './storage/backend'
 import { RARITIES } from './rarity'
 import type { DeckCard } from './deck-utils'
 import type { ScryfallCard } from './scryfall/types'
@@ -119,7 +120,7 @@ function clampStep(value: unknown): 1 | 2 | 3 | 4 {
  * Pure core of `initialWizardState`: turn an already-parsed storage blob into a
  * WizardState the reducer's own invariants would accept.
  *
- * A plain `{ ...defaultState(), ...parsed }` is not enough, because localStorage
+ * A plain `{ ...defaultState(), ...parsed }` is not enough, because storage
  * holds whatever an older build (or a hand-edited devtools session) wrote:
  *
  * - `colors` is a fixed five-key record. A stored PARTIAL record replaced it
@@ -138,7 +139,7 @@ function clampStep(value: unknown): 1 | 2 | 3 | 4 {
  * - `maxStepReached` below `step` is reconciled up, or the stepper would refuse
  *   to navigate back to the step the user is standing on.
  *
- * Extracted so it can be tested without going through localStorage.
+ * Extracted so it can be tested without going through the storage backend.
  */
 export function hydrateWizardState(parsed: unknown): WizardState {
   const base = defaultState()
@@ -173,31 +174,21 @@ export function hydrateWizardState(parsed: unknown): WizardState {
 }
 
 export function initialWizardState(): WizardState {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    if (stored) return hydrateWizardState(JSON.parse(stored))
-  } catch {
-    // Corrupted storage, start fresh
-  }
-  return defaultState()
+  return hydrateWizardState(readJson<unknown>(storageBackend(), STORAGE_KEY, null))
 }
 
 export function persistWizardState(state: WizardState): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
-  } catch {
-    // Storage full or unavailable
-  }
+  writeJson(storageBackend(), STORAGE_KEY, state)
 }
 
 export function clearWizardState(): void {
-  localStorage.removeItem(STORAGE_KEY)
-  localStorage.removeItem(AUX_STORAGE_KEY)
+  storageBackend().delete(STORAGE_KEY)
+  storageBackend().delete(AUX_STORAGE_KEY)
 }
 
 /**
  * Start the wizard over. `RESET` is a pure reducer case and structurally cannot
- * reach localStorage, so a `RESET` on its own leaves the aux slot behind and
+ * reach storage, so a `RESET` on its own leaves the aux slot behind and
  * resurrects the previous session's combo history and 30-deep undo stack. The
  * two belong together; this is the only pairing that guarantees it.
  */
@@ -231,22 +222,16 @@ const defaultAux: WizardAuxState = {
 }
 
 export function loadWizardAux(): WizardAuxState {
-  try {
-    const stored = localStorage.getItem(AUX_STORAGE_KEY)
-    if (stored) return { ...defaultAux, ...JSON.parse(stored) }
-  } catch { /* corrupted */ }
-  return { ...defaultAux }
+  const stored = readJson<Partial<WizardAuxState>>(storageBackend(), AUX_STORAGE_KEY, {})
+  return { ...defaultAux, ...stored }
 }
 
 export function persistWizardAux(aux: Partial<WizardAuxState>): void {
-  try {
-    const current = loadWizardAux()
-    localStorage.setItem(AUX_STORAGE_KEY, JSON.stringify({ ...current, ...aux }))
-  } catch { /* storage full */ }
+  writeJson(storageBackend(), AUX_STORAGE_KEY, { ...loadWizardAux(), ...aux })
 }
 
 export function clearWizardAux(): void {
-  localStorage.removeItem(AUX_STORAGE_KEY)
+  storageBackend().delete(AUX_STORAGE_KEY)
 }
 
 export function getSelectedColors(colors: Record<ManaColor, ManaColorState>): ManaColor[] {

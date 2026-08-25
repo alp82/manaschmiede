@@ -7,7 +7,8 @@ import { Button } from '../components/ui/Button'
 import { EmptyState } from '../components/ui/EmptyState'
 import { getTotalCards } from '../lib/deck-utils'
 import { DeckMeta } from '../components/ui/DeckMeta'
-import { loadDecks, deleteDeck as deleteStoredDeck, type LocalDeck } from '../lib/deck-storage'
+import type { Deck } from '../lib/deck'
+import { deckStore } from '../lib/storage/deck-store'
 import { useSampleDecks } from '../lib/useSampleDecks'
 import { useT } from '../lib/i18n'
 
@@ -48,7 +49,7 @@ function HomePage() {
   const t = useT()
   const navigate = useNavigate()
 
-  const [decks, setDecks] = useState<LocalDeck[]>([])
+  const [decks, setDecks] = useState<Deck[]>([])
   const catalogRef = useRef<HTMLDivElement>(null)
   // Picked after mount, not in an initializer: `Math.random()` in an
   // initializer runs once on the server and again on the client, the two
@@ -61,7 +62,7 @@ function HomePage() {
   }, [])
 
   const reloadDecks = useCallback(() => {
-    setDecks(loadDecks())
+    setDecks(deckStore.list())
   }, [])
 
   useEffect(() => {
@@ -78,7 +79,7 @@ function HomePage() {
 
   function confirmDeleteDeck() {
     if (pendingDeleteDeckId) {
-      deleteStoredDeck(pendingDeleteDeckId)
+      deckStore.remove(pendingDeleteDeckId)
       setDecks((prev) => prev.filter((d) => d.id !== pendingDeleteDeckId))
     }
     setPendingDeleteDeckId(null)

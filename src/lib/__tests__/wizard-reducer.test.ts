@@ -34,14 +34,15 @@
  *   - SET_RARITY_FILTER accepts []
  *   - TOGGLE_LOCK can leave an orphan lock for a removed card
  *   - SET_SECTION_PLAN leaves assignments for dropped section ids behind
- *   - RESET does not touch localStorage
+ *   - RESET does not touch storage
  *   - CLEAR_SECTION_ASSIGNMENTS is never dispatched anywhere — a dead action
  *
- * `src/test-setup.ts`'s MemoryStorage is a module-level singleton with no
- * per-test reset, so the storage-touching blocks clear it in `beforeEach`.
+ * The storage-touching blocks need no `beforeEach` cleanup: `src/test-setup.ts`
+ * installs a fresh in-memory `StorageBackend` before every test, so each starts
+ * from empty storage.
  */
 
-import { beforeEach, describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   wizardReducer,
   getSelectedCombo,
@@ -56,6 +57,7 @@ import {
   type WizardAction,
   type CoreCombo,
 } from '../wizard-state'
+import { storageBackend } from '../storage/backend'
 import type { ScryfallCard } from '../scryfall/types'
 import type { DeckCard } from '../deck-utils'
 import type { DeckSection } from '../section-plan'
@@ -664,10 +666,6 @@ describe('C10: hydrateWizardState', () => {
 })
 
 describe('C10: initialWizardState (storage-backed)', () => {
-  beforeEach(() => {
-    localStorage.clear()
-  })
-
   it('C10-o: empty storage → the defaults', () => {
     expect(initialWizardState()).toEqual(makeState())
   })
@@ -678,12 +676,12 @@ describe('C10: initialWizardState (storage-backed)', () => {
   })
 
   it('C10-q: corrupt JSON → the defaults, no throw', () => {
-    localStorage.setItem('manaschmiede-wizard', '{not json')
+    storageBackend().write('manaschmiede-wizard', '{not json')
     expect(initialWizardState()).toEqual(makeState())
   })
 
   it('C10-r: a persisted out-of-range step is clamped on the way back in', () => {
-    localStorage.setItem('manaschmiede-wizard', JSON.stringify({ step: 7, maxStepReached: 7 }))
+    storageBackend().write('manaschmiede-wizard', JSON.stringify({ step: 7, maxStepReached: 7 }))
     expect(initialWizardState().step).toBe(4)
   })
 })
@@ -691,19 +689,15 @@ describe('C10: initialWizardState (storage-backed)', () => {
 // ─── C11: reset pairing and aux persistence ──────────────────────────────────
 
 describe('C11: reset pairing and aux persistence', () => {
-  beforeEach(() => {
-    localStorage.clear()
-  })
-
   it('C11-a: RESET returns the defaults', () => {
     const state = makeState({ step: 4, maxStepReached: 4, deckName: 'x', deckCards: [makeCard('x')] })
     expect(wizardReducer(state, { type: 'RESET' })).toEqual(makeState())
   })
 
-  it('C11-b: RESET is a pure reducer case — it does NOT touch localStorage', () => {
+  it('C11-b: RESET is a pure reducer case — it does NOT touch storage', () => {
     persistWizardState(makeState({ deckName: 'still here' }))
     wizardReducer(makeState({ deckName: 'still here' }), { type: 'RESET' })
-    expect(localStorage.getItem('manaschmiede-wizard')).toContain('still here')
+    expect(storageBackend().read('manaschmiede-wizard')).toContain('still here')
   })
 
   it('C11-c: resetWizard dispatches RESET *and* clears the aux slot', () => {
@@ -719,12 +713,12 @@ describe('C11: reset pairing and aux persistence', () => {
     persistWizardState(makeState({ deckName: 'x' }))
     persistWizardAux({ historyIndex: 2 })
     clearWizardState()
-    expect(localStorage.getItem('manaschmiede-wizard')).toBeNull()
-    expect(localStorage.getItem('manaschmiede-wizard-aux')).toBeNull()
+    expect(storageBackend().read('manaschmiede-wizard')).toBeNull()
+    expect(storageBackend().read('manaschmiede-wizard-aux')).toBeNull()
   })
 
   it('C11-e: loadWizardAux fills missing keys from the defaults', () => {
-    localStorage.setItem('manaschmiede-wizard-aux', JSON.stringify({ historyIndex: 5 }))
+    storageBackend().write('manaschmiede-wizard-aux', JSON.stringify({ historyIndex: 5 }))
     const aux = loadWizardAux()
     expect(aux.historyIndex).toBe(5)
     expect(aux.comboBuffer).toEqual([])

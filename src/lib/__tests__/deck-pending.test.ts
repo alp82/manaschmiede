@@ -1,7 +1,11 @@
 /**
- * RED tests — loadDeckPending, persistDeckPending, clearDeckPending,
- * intentFingerprint, and isPendingStale do NOT exist yet.
- * All must be exported from src/lib/deck-pending.ts (M4 implementer).
+ * The pure rules of the per-deck pending slot: the fingerprint, the staleness
+ * predicate, and the four state builders.
+ *
+ * Reading and writing the slot moved to `storage/deck-store.ts` (issue #29),
+ * so the I/O cases that used to live here — round-trip, per-deck keying,
+ * clearing, corrupt and missing slots, key isolation — are in
+ * `deck-store.test.ts` now.
  *
  * CRITICAL NOTE FOR THE IMPLEMENTER:
  *   `intentFingerprint` MUST encode the SAME structural-field set as
@@ -10,23 +14,14 @@
  *   could fire without invalidating the slot (or vice-versa).
  *   Ideally share a `structuralKey(intent)` helper between them.
  *
- * Storage key prefix: 'manaschmiede-deck-pending:<deckId>'
- * (must not collide with 'manaschmiede-decks' or 'manaschmiede-wizard')
- *
  * Manual smoke tests (NOT in this file — final review only):
  *   - useDeckPending hook
  *   - $id.tsx reload-resume integration
- *   - deleteDeck slot-clear extension
  *   - Apply-clears-slot flow
- *
- * This file covers deck-pending.ts's pure functions only.
  */
 
-import { beforeEach, describe, it, expect } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import {
-  loadDeckPending,
-  persistDeckPending,
-  clearDeckPending,
   intentFingerprint,
   isPendingStale,
   hydratePending,
@@ -85,124 +80,6 @@ function makePending(intentOverride?: Partial<DeckIntent>) {
     refillChat,
   }
 }
-
-// ─── Setup ───────────────────────────────────────────────────────────────────
-
-beforeEach(() => {
-  localStorage.clear()
-})
-
-// ─── persistDeckPending / loadDeckPending — round-trip ───────────────────────
-
-describe('persistDeckPending / loadDeckPending - round-trip', () => {
-  it('TC-1a: persist makePending() under deck-A, load returns deep-equal (all nested fields)', () => {
-    const pending = makePending()
-    persistDeckPending('deck-A', pending)
-    const loaded = loadDeckPending('deck-A')
-    expect(loaded).toEqual(pending)
-  })
-
-  it('TC-1b: persist minimal object (intentFingerprint only, no optional fields) → load returns same shape (optional fields absent, not null-coerced)', () => {
-    const minimal = { intentFingerprint: 'fp-xyz' }
-    persistDeckPending('deck-B', minimal)
-    const loaded = loadDeckPending('deck-B')
-    expect(loaded).toEqual({ intentFingerprint: 'fp-xyz' })
-    // Optional fields must be absent, not present as null/undefined
-    expect(loaded).not.toHaveProperty('stagedPlan')
-    expect(loaded).not.toHaveProperty('offeredCombos')
-    expect(loaded).not.toHaveProperty('refillChat')
-  })
-
-  it('TC-1c: persist v1 then v2 (different fingerprint) under deck-A → load returns v2', () => {
-    const v1 = { intentFingerprint: 'fp-v1' }
-    const v2 = { intentFingerprint: 'fp-v2' }
-    persistDeckPending('deck-A', v1)
-    persistDeckPending('deck-A', v2)
-    const loaded = loadDeckPending('deck-A')
-    expect(loaded).toEqual(v2)
-  })
-})
-
-// ─── namespacing ──────────────────────────────────────────────────────────────
-
-describe('namespacing', () => {
-  it('TC-2a: persist different data under deck-A and deck-B → each loads its own (no cross-contamination)', () => {
-    const pendingA = makePending()
-    const pendingB = { intentFingerprint: 'fp-b-only', stagedPlan: [makeSection('burn-spells', 10)] }
-    persistDeckPending('deck-A', pendingA)
-    persistDeckPending('deck-B', pendingB)
-    expect(loadDeckPending('deck-A')).toEqual(pendingA)
-    expect(loadDeckPending('deck-B')).toEqual(pendingB)
-  })
-
-  it('TC-2b: persist under deck-A → localStorage key is manaschmiede-deck-pending:deck-A, parseable JSON, deep-equal to input', () => {
-    const pending = makePending()
-    persistDeckPending('deck-A', pending)
-    const raw = localStorage.getItem('manaschmiede-deck-pending:deck-A')
-    expect(raw).not.toBeNull()
-    const parsed = JSON.parse(raw!)
-    expect(parsed).toEqual(pending)
-  })
-
-  it('TC-2c: persist under deck-A → manaschmiede-decks sentinel is UNCHANGED', () => {
-    localStorage.setItem('manaschmiede-decks', '["sentinel"]')
-    persistDeckPending('deck-A', makePending())
-    expect(localStorage.getItem('manaschmiede-decks')).toBe('["sentinel"]')
-  })
-
-  it('TC-2d: persist under deck-A → manaschmiede-wizard sentinel is UNCHANGED', () => {
-    localStorage.setItem('manaschmiede-wizard', '{"step":1}')
-    persistDeckPending('deck-A', makePending())
-    expect(localStorage.getItem('manaschmiede-wizard')).toBe('{"step":1}')
-  })
-})
-
-// ─── clearDeckPending ────────────────────────────────────────────────────────
-
-describe('clearDeckPending', () => {
-  it('TC-3a: persist A and B, clear A → load A is null, load B intact', () => {
-    const pendingA = makePending()
-    const pendingB = { intentFingerprint: 'fp-b' }
-    persistDeckPending('deck-A', pendingA)
-    persistDeckPending('deck-B', pendingB)
-    clearDeckPending('deck-A')
-    expect(loadDeckPending('deck-A')).toBeNull()
-    expect(loadDeckPending('deck-B')).toEqual(pendingB)
-  })
-
-  it('TC-3b: clear a never-persisted id → no throw, load returns null', () => {
-    expect(() => clearDeckPending('never-existed')).not.toThrow()
-    expect(loadDeckPending('never-existed')).toBeNull()
-  })
-
-  it('TC-3c: persist A, clear A → localStorage.getItem(manaschmiede-deck-pending:deck-A) is null', () => {
-    persistDeckPending('deck-A', makePending())
-    clearDeckPending('deck-A')
-    expect(localStorage.getItem('manaschmiede-deck-pending:deck-A')).toBeNull()
-  })
-})
-
-// ─── loadDeckPending — missing/corrupt ────────────────────────────────────────
-
-describe('loadDeckPending - missing/corrupt', () => {
-  it('TC-4a: load never-persisted id → null (not undefined, not {})', () => {
-    const result = loadDeckPending('no-such-deck')
-    expect(result).toBeNull()
-  })
-
-  it('TC-4b: slot contains invalid JSON → returns null, does NOT throw (mirrors deck-storage.ts parse guard)', () => {
-    localStorage.setItem('manaschmiede-deck-pending:corrupt-deck', 'not valid json {{{')
-    expect(() => {
-      const result = loadDeckPending('corrupt-deck')
-      expect(result).toBeNull()
-    }).not.toThrow()
-  })
-
-  it("TC-4c: slot contains 'null' → load returns null", () => {
-    localStorage.setItem('manaschmiede-deck-pending:null-deck', 'null')
-    expect(loadDeckPending('null-deck')).toBeNull()
-  })
-})
 
 // ─── intentFingerprint — structural stability ─────────────────────────────────
 

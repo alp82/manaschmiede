@@ -8,7 +8,6 @@
  * @module
  */
 
-import type * as decks from "../decks.js";
 import type * as generateDeck from "../generateDeck.js";
 import type * as lib_anthropic from "../lib/anthropic.js";
 import type * as lib_basicLands from "../lib/basicLands.js";
@@ -32,7 +31,6 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
-  decks: typeof decks;
   generateDeck: typeof generateDeck;
   "lib/anthropic": typeof lib_anthropic;
   "lib/basicLands": typeof lib_basicLands;

@@ -11,7 +11,7 @@ import { RARITIES } from './rarity'
  * color/budget/rarity enforcement. It is intentionally INERT: editing it never
  * cascades into the card list. `colors` is a committed/unselected map (no
  * 'maybe' — maybes are resolved at wizard finish via getFillColors). The
- * card-derived LocalDeck.colors stays a display concern and is never the AI
+ * card-derived Deck.colors stays a display concern and is never the AI
  * constraint.
  */
 export interface DeckIntent {

@@ -4,7 +4,8 @@ import type { ScryfallCard } from '../lib/scryfall/types'
 import type { PerPlayerRate, SimulationResult } from '../lib/simulation/types'
 import { Button } from './ui/Button'
 import { useSimulation } from '../lib/simulation/use-simulation'
-import { loadDecks, type LocalDeck } from '../lib/deck-storage'
+import type { Deck } from '../lib/deck'
+import { deckStore } from '../lib/storage/deck-store'
 import { cardSupply } from '../lib/scryfall/card-supply'
 import { useI18n } from '../lib/i18n'
 
@@ -19,12 +20,12 @@ export function SimulationPanel({ deckId, deckName, cards, cardDataMap }: Simula
   const { scryfallLang } = useI18n()
   const { state, run, cancel } = useSimulation()
   const [opponentId, setOpponentId] = useState<string>('mirror')
-  const [opponentDeck, setOpponentDeck] = useState<LocalDeck | null>(null)
+  const [opponentDeck, setOpponentDeck] = useState<Deck | null>(null)
   const [opponentCardData, setOpponentCardData] = useState<Map<string, ScryfallCard>>(new Map())
   const [loadingOpponent, setLoadingOpponent] = useState(false)
 
   const savedDecks = useMemo(() => {
-    return loadDecks().filter((d) => d.id !== deckId)
+    return deckStore.list().filter((d) => d.id !== deckId)
   }, [deckId])
 
   // Fetch opponent card data when selection changes

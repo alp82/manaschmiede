@@ -5,7 +5,7 @@
  * `section-fill-intent.ts` already uses for fill:
  *
  *   deckSurfaceFromWizard({ state, dispatch, history, ... })  -> DeckSurface
- *   deckSurfaceFromLocalDeck({ deck, setDeck, history, ... }) -> DeckSurface
+ *   deckSurfaceFromSavedDeck({ deck, setDeck, history, ... }) -> DeckSurface
  *
  * Both adapters are plain functions over already-computed values, so every
  * mutator is drivable from node with a fake `dispatch` / `setDeck` and no
@@ -28,14 +28,14 @@
 import { describe, it, expect } from 'vitest'
 import {
   deckSurfaceFromWizard,
-  deckSurfaceFromLocalDeck,
+  deckSurfaceFromSavedDeck,
   assignAddedCard,
   inheritProposalSections,
   type DeckSurface,
 } from '../deck-surface'
 import { wizardReducer } from '../wizard-state'
 import type { WizardState, WizardAction } from '../wizard-state'
-import type { LocalDeck } from '../deck-storage'
+import type { Deck } from '../deck'
 import type { DeckCard, DeckDisplayCard } from '../deck-utils'
 import type { DeckSection } from '../section-plan'
 import type { ScryfallCard } from '../scryfall/types'
@@ -106,7 +106,7 @@ function wizardState(overrides: Partial<WizardState> = {}): WizardState {
   }
 }
 
-function localDeck(overrides: Partial<LocalDeck> = {}): LocalDeck {
+function localDeck(overrides: Partial<Deck> = {}): Deck {
   return {
     id: 'deck-1',
     name: 'Route Deck',
@@ -178,13 +178,13 @@ function wizardSurface(state: WizardState, extra: { lockedCardIds?: Set<string>;
 
 // ─── Route adapter harness ────────────────────────────────────────────────
 
-function routeSurface(deck: LocalDeck) {
-  const updaters: Array<(prev: LocalDeck | null) => LocalDeck | null> = []
+function routeSurface(deck: Deck) {
+  const updaters: Array<(prev: Deck | null) => Deck | null> = []
   const history = fakeHistory()
   const names: string[] = []
   const descriptions: string[] = []
   const cardData: ScryfallCard[] = []
-  const surface = deckSurfaceFromLocalDeck({
+  const surface = deckSurfaceFromSavedDeck({
     deck,
     setDeck: (updater) => { updaters.push(updater) },
     history,
@@ -200,8 +200,8 @@ function routeSurface(deck: LocalDeck) {
     onDescriptionChange: (d) => { descriptions.push(d) },
   })
   /** Run every queued updater against `prev`, the way React would. */
-  const settle = (prev: LocalDeck | null = deck) =>
-    updaters.reduce<LocalDeck | null>((acc, updater) => updater(acc), prev)
+  const settle = (prev: Deck | null = deck) =>
+    updaters.reduce<Deck | null>((acc, updater) => updater(acc), prev)
   return { surface, updaters, settle, history, names, descriptions, cardData }
 }
 
@@ -513,7 +513,7 @@ describe('deckSurfaceFromWizard', () => {
 
 // ─── Route-specific: every write reads `prev` ─────────────────────────────
 
-describe('deckSurfaceFromLocalDeck — reads prev, never a closure', () => {
+describe('deckSurfaceFromSavedDeck — reads prev, never a closure', () => {
   it('addCard merges into the deck React hands it, not the captured one', () => {
     const captured = localDeck({ cards: [] })
     const h = routeSurface(captured)
