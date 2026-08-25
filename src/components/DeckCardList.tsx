@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { ScryfallCard } from '../lib/scryfall/types'
 import { getCardName, getCardImageUri } from '../lib/scryfall/types'
-import type { DeckCard, DeckZone } from '../lib/deck-utils'
+import type { DeckCard } from '../lib/deck-utils'
 import { cn } from '../lib/utils'
 import { useT } from '../lib/i18n'
 import { ConfirmModal } from './ConfirmModal'
@@ -9,9 +9,8 @@ import { ConfirmModal } from './ConfirmModal'
 interface DeckCardListProps {
   cards: DeckCard[]
   cardData: Map<string, ScryfallCard>
-  zone: DeckZone
-  onUpdateQuantity: (scryfallId: string, zone: DeckZone, quantity: number) => void
-  onRemoveCard: (scryfallId: string, zone: DeckZone) => void
+  onUpdateQuantity: (scryfallId: string, quantity: number) => void
+  onRemoveCard: (scryfallId: string) => void
   onCardSelect?: (scryfallId: string) => void
   onToggleLock?: (scryfallId: string) => void
 }
@@ -27,17 +26,14 @@ interface DeckCardListProps {
 export function DeckCardList({
   cards,
   cardData,
-  zone,
   onUpdateQuantity,
   onRemoveCard,
   onCardSelect,
   onToggleLock,
 }: DeckCardListProps) {
   const t = useT()
-  const [pendingRemove, setPendingRemove] = useState<{ scryfallId: string; zone: DeckZone; name: string } | null>(null)
-  const zoneCards = cards.filter((c) => c.zone === zone)
-
-  if (zoneCards.length === 0) {
+  const [pendingRemove, setPendingRemove] = useState<{ scryfallId: string; name: string } | null>(null)
+  if (cards.length === 0) {
     // TODO: migrate to <EmptyState> — current list lives in a narrow
     // sidebar where a Cinzel display-section title would be oversized.
     return (
@@ -49,7 +45,7 @@ export function DeckCardList({
 
   return (
     <div>
-      {zoneCards.map((dc) => {
+      {cards.map((dc) => {
         const card = cardData.get(dc.scryfallId)
         const name = card ? getCardName(card) : dc.scryfallId
         const imageUrl = card ? getCardImageUri(card, 'small') : undefined
@@ -59,7 +55,7 @@ export function DeckCardList({
 
         return (
           <div
-            key={dc.scryfallId + '-' + dc.zone}
+            key={dc.scryfallId}
             className={cn(
               'group relative flex items-center gap-3 border-b border-hairline/60 px-3 py-2 transition-colors hover:bg-ash-800/60',
               isLocked && 'pl-4',
@@ -89,9 +85,9 @@ export function DeckCardList({
                 onClick={() => {
                   if (isLocked) return
                   if (dc.quantity <= 1) {
-                    setPendingRemove({ scryfallId: dc.scryfallId, zone: dc.zone, name })
+                    setPendingRemove({ scryfallId: dc.scryfallId, name })
                   } else {
-                    onUpdateQuantity(dc.scryfallId, dc.zone, dc.quantity - 1)
+                    onUpdateQuantity(dc.scryfallId, dc.quantity - 1)
                   }
                 }}
                 disabled={isLocked}
@@ -110,7 +106,7 @@ export function DeckCardList({
               <button
                 type="button"
                 onClick={() => {
-                  if (!isLocked) onUpdateQuantity(dc.scryfallId, dc.zone, dc.quantity + 1)
+                  if (!isLocked) onUpdateQuantity(dc.scryfallId, dc.quantity + 1)
                 }}
                 disabled={isLocked}
                 className={cn(
@@ -165,7 +161,7 @@ export function DeckCardList({
               type="button"
               onClick={() => {
                 if (isLocked) return
-                setPendingRemove({ scryfallId: dc.scryfallId, zone: dc.zone, name })
+                setPendingRemove({ scryfallId: dc.scryfallId, name })
               }}
               disabled={isLocked}
               className={cn(
@@ -187,7 +183,7 @@ export function DeckCardList({
         confirmLabel={t('confirm.removeCardConfirm')}
         cancelLabel={t('confirm.cancel')}
         onConfirm={() => {
-          if (pendingRemove) onRemoveCard(pendingRemove.scryfallId, pendingRemove.zone)
+          if (pendingRemove) onRemoveCard(pendingRemove.scryfallId)
           setPendingRemove(null)
         }}
         onCancel={() => setPendingRemove(null)}

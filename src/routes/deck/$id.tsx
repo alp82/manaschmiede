@@ -13,21 +13,18 @@ import { UndoRedoButtons } from '../../components/ui/UndoRedoButtons'
 import { useToast } from '../../components/ui/Toast'
 import { analyzeDeck } from '../../lib/balance'
 import { useDeckChat } from '../../lib/useDeckChat'
-import type { PendingChanges } from '../../lib/useDeckChat'
 import { loadDeck, persistDeck, pickFeaturedCardIds, type LocalDeck } from '../../lib/deck-storage'
 import { emptyIntent, deriveIntentFilters, buildChatIntentContext, type DeckIntent } from '../../lib/deck-intent'
-import { pickSectionForCard } from '../../lib/section-plan'
-import { applySectionInheritance, buildSectionLabelMap } from '../../lib/section-assignment'
+import { buildSectionLabelMap } from '../../lib/section-assignment'
+import { deckSurfaceFromLocalDeck } from '../../lib/deck-surface'
 import { useStagedRederive } from '../../lib/use-staged-rederive'
 import { useDeckPending } from '../../lib/use-deck-pending'
 import { sectionFillIntentFromDeck } from '../../lib/section-fill-intent'
-import { BASIC_LAND_ID_SET } from '../../lib/basic-lands'
 import { useDeckCardData } from '../../lib/use-deck-card-data'
 import { useDeckHistory } from '../../lib/use-deck-history'
 import { useSections, useSectionCards, useDeckDisplay } from '../../lib/use-deck-sections'
 import type { ScryfallCard } from '../../lib/scryfall/types'
-import type { DeckZone } from '../../lib/deck-utils'
-import { getTotalCards, copyDecklistToClipboard, mergeCardsIntoDeck, deriveLockedIds, deriveColorsFromCards } from '../../lib/deck-utils'
+import { getTotalCards, copyDecklistToClipboard, deriveLockedIds, deriveColorsFromCards } from '../../lib/deck-utils'
 import { useT, useI18n } from '../../lib/i18n'
 import { useDeckSounds } from '../../lib/sounds'
 
@@ -90,131 +87,7 @@ function DeckPage() {
     scryfallLang,
   })
 
-  // ─── Deck Mutations ──────────────────────────────────────────
-
-  const addCard = useCallback((card: ScryfallCard) => {
-    if (!deck) return
-    history.snapshot()
-    setCardDataMap((prev) => new Map(prev).set(card.id, card))
-    setDeck((prev) => {
-      if (!prev) return prev
-      const { merged, addedIds } = mergeCardsIntoDeck(
-        prev.cards,
-        [{ scryfallId: card.id, quantity: 1 }],
-        (id) => BASIC_LAND_ID_SET.has(id),
-      )
-      // Auto-assign the card to its best-fit section so it doesn't land in the
-      // "unassigned" bucket - but only when the addition actually stuck (the
-      // 4-copy cap can drop it) and a section plan exists.
-      const plan = prev.sectionPlan ?? []
-      let sectionAssignments = prev.sectionAssignments
-      if (addedIds.includes(card.id) && plan.length > 0) {
-        const sectionId = pickSectionForCard(card, plan)
-        if (sectionId) {
-          const current = sectionAssignments?.[sectionId] ?? []
-          if (!current.includes(card.id)) {
-            sectionAssignments = { ...sectionAssignments, [sectionId]: [...current, card.id] }
-          }
-        }
-      }
-      return { ...prev, cards: merged, sectionAssignments, updatedAt: Date.now() }
-    })
-  }, [deck, history])
-
-  const updateQuantity = useCallback((scryfallId: string, zone: DeckZone, quantity: number) => {
-    history.snapshot()
-    setDeck((prev) => {
-      if (!prev) return prev
-      const cards = prev.cards.map((c) =>
-        c.scryfallId === scryfallId && c.zone === zone ? { ...c, quantity } : c,
-      )
-      return { ...prev, cards, updatedAt: Date.now() }
-    })
-  }, [history])
-
-  const removeCard = useCallback((scryfallId: string, zone: DeckZone) => {
-    history.snapshot()
-    setDeck((prev) => {
-      if (!prev) return prev
-      const cards = prev.cards.filter((c) => !(c.scryfallId === scryfallId && c.zone === zone))
-      return { ...prev, cards, updatedAt: Date.now() }
-    })
-  }, [history])
-
-  // DeckEditor's quantity/remove callbacks are zone-agnostic (main zone only);
-  // adapt them onto the zone-aware mutators the DeckCardList slot also uses.
-  const changeQuantityMain = useCallback((scryfallId: string, qty: number) => {
-    updateQuantity(scryfallId, 'main', qty)
-  }, [updateQuantity])
-
-  const removeCardMain = useCallback((scryfallId: string) => {
-    removeCard(scryfallId, 'main')
-  }, [removeCard])
-
-  const updateDeckName = useCallback((name: string) => {
-    setDeckName(name)
-    setDeck((prev) => (prev ? { ...prev, name, updatedAt: Date.now() } : prev))
-  }, [])
-
-  const updateDeckDescription = useCallback((description: string) => {
-    setDeckDescription(description)
-    setDeck((prev) => (prev ? { ...prev, description, updatedAt: Date.now() } : prev))
-  }, [])
-
-  const toggleLock = useCallback((scryfallId: string) => {
-    history.snapshot()
-    setDeck((prev) => {
-      if (!prev) return prev
-      const cards = prev.cards.map((c) =>
-        c.scryfallId === scryfallId ? { ...c, locked: !c.locked } : c,
-      )
-      return { ...prev, cards, updatedAt: Date.now() }
-    })
-  }, [history])
-
-  // ─── AI Chat (edit mode) ────────────────────────────────────
-
-  const handleDeckUpdate = useCallback(
-    (proposal: PendingChanges) => {
-      const { resolvedCards, deckName, description, changes, targetSection } = proposal
-      setDeck((prev) => {
-        if (!prev) return prev
-
-        // Inherit section assignments for the applied change set via the shared
-        // helper: a swap's added card takes the removed card's section, removed
-        // ids are purged, and remaining adds go to the lane the caller targeted
-        // (a re-fill or top-up) or else are routed by pickSectionForCard.
-        // Skip entirely when no plan exists — applySectionInheritance with an
-        // empty `sections` would drop every add into unassigned; the prior
-        // direct sectionAssignments is the correct no-plan fallback.
-        let sectionAssignments = prev.sectionAssignments
-        const plan = prev.sectionPlan ?? []
-        if (changes.length > 0 && plan.length > 0) {
-          sectionAssignments = applySectionInheritance(
-            sectionAssignments ?? {},
-            changes,
-            {
-              targetSection,
-              resolveCard: (cid) => cardDataMap.get(cid),
-              sections: plan,
-            },
-          )
-        }
-
-        return {
-          ...prev,
-          cards: resolvedCards,
-          sectionAssignments,
-          name: deckName || prev.name,
-          description: description || prev.description,
-          updatedAt: Date.now(),
-        }
-      })
-      if (deckName) setDeckName(deckName)
-      if (description) setDeckDescription(description)
-    },
-    [cardDataMap],
-  )
+  // ─── AI Chat ────────────────────────────────────────────────
 
   const handleCardDataUpdate = useCallback((card: ScryfallCard) => {
     setCardDataMap((prev) => new Map(prev).set(card.id, card))
@@ -338,6 +211,45 @@ function DeckPage() {
   // one (a tribal lane keeps its id across a tribe switch).
   const chatSectionLabels = useMemo(() => buildSectionLabelMap(localizedPlan), [localizedPlan])
 
+  // Build section-based card groups
+  // While a plan is staged the lanes on screen are the PROPOSAL's, so they are
+  // bucketed with the proposal's own assignments — otherwise the header count
+  // reads the committed filing while the deficit right below it reads the
+  // proposal, and the two disagree (#42). With nothing staged this is the
+  // deck's committed filing, unchanged.
+  const sectionCards = useSectionCards({
+    deckDisplay,
+    sections: localizedPlan,
+    sectionAssignments: stagedAssignments ?? deck?.sectionAssignments ?? {},
+    lockedSource: lockedCardIds,
+    fallbackByType: true,
+  })
+
+  // ─── Deck surface ───────────────────────────────────────────
+  // The one seam the editor and the chat ledger both write through. Every
+  // mutator writes functionally and reads `prev`: useStagedRederive is the
+  // other writer of sectionPlan / sectionAssignments, so a closure read here
+  // could silently undo an accepted plan.
+
+  const surface = useMemo(
+    () => deckSurfaceFromLocalDeck({
+      deck,
+      setDeck,
+      history,
+      lockedCardIds,
+      sections: localizedPlan,
+      sectionCards,
+      cardDataMap,
+      cardsLoading,
+      onCardData: handleCardDataUpdate,
+      name: deckName,
+      description: deckDescription,
+      onNameChange: setDeckName,
+      onDescriptionChange: setDeckDescription,
+    }),
+    [deck, history, lockedCardIds, localizedPlan, sectionCards, cardDataMap, cardsLoading, handleCardDataUpdate, deckName, deckDescription],
+  )
+
   const {
     messages,
     isLoading: chatLoading,
@@ -351,7 +263,7 @@ function DeckPage() {
     cards: deck?.cards ?? [],
     cardDataMap,
     deckDescription,
-    onDeckUpdate: handleDeckUpdate,
+    onDeckUpdate: surface.applyProposal,
     onCardDataUpdate: handleCardDataUpdate,
     lockedCardIds,
     sectionAssignments: deck?.sectionAssignments ?? {},
@@ -408,20 +320,6 @@ function DeckPage() {
     if (!deck || deck.cards.length === 0) return null
     return analyzeDeck(deck.cards, cardDataMap, t)
   }, [deck?.cards, cardDataMap, t])
-
-  // Build section-based card groups
-  // While a plan is staged the lanes on screen are the PROPOSAL's, so they are
-  // bucketed with the proposal's own assignments — otherwise the header count
-  // reads the committed filing while the deficit right below it reads the
-  // proposal, and the two disagree (#42). With nothing staged this is the
-  // deck's committed filing, unchanged.
-  const sectionCards = useSectionCards({
-    deckDisplay,
-    sections: localizedPlan,
-    sectionAssignments: stagedAssignments ?? deck?.sectionAssignments ?? {},
-    lockedSource: lockedCardIds,
-    fallbackByType: true,
-  })
 
   // Per-lane re-fill (deck-view re-derive). The intent-driven fill request
   // routes through the EXISTING single chat ledger (decision 7, last-wins) — a
@@ -483,16 +381,15 @@ function DeckPage() {
   // Edit-only rail: shaker + flat card list, fed to DeckEditor's cardListSlot.
   const cardListSlot = (
     <>
-      <SimulationPanel deckId={id} deckName={deckName} cards={deck.cards} cardDataMap={cardDataMap} />
+      <SimulationPanel deckId={id} deckName={surface.name} cards={surface.cards} cardDataMap={cardDataMap} />
       <div className="mt-3 border border-hairline bg-ash-800/40 p-3">
         <p className="mb-2 font-mono text-mono-label uppercase tracking-mono-label text-cream-300">{t('deck.cardList')}</p>
         <DeckCardList
-          cards={deck.cards}
+          cards={surface.cards}
           cardData={cardDataMap}
-          zone="main"
-          onUpdateQuantity={updateQuantity}
-          onRemoveCard={removeCard}
-          onToggleLock={toggleLock}
+          onUpdateQuantity={surface.changeQuantity}
+          onRemoveCard={surface.removeCard}
+          onToggleLock={surface.toggleLock}
         />
       </div>
     </>
@@ -511,8 +408,8 @@ function DeckPage() {
           <div className="min-w-0 flex-1">
             <input
               type="text"
-              value={deckName}
-              onChange={(e) => updateDeckName(e.target.value)}
+              value={surface.name}
+              onChange={(e) => surface.setName(e.target.value)}
               onKeyDown={(e) => e.key.length === 1 && sounds.typing()}
               className="w-full border-0 border-b border-hairline bg-transparent font-display text-2xl uppercase tracking-display text-cream-100 focus:border-cream-200 focus:outline-none sm:text-display-section"
               placeholder={t('deck.namePlaceholder')}
@@ -520,8 +417,8 @@ function DeckPage() {
             />
             <input
               type="text"
-              value={deckDescription}
-              onChange={(e) => updateDeckDescription(e.target.value)}
+              value={surface.description}
+              onChange={(e) => surface.setDescription(e.target.value)}
               onKeyDown={(e) => e.key.length === 1 && sounds.typing()}
               className="mt-3 w-full border-0 border-b border-hairline bg-transparent font-body text-sm italic text-cream-400 focus:border-cream-200 focus:outline-none"
               placeholder={t('deck.descriptionPlaceholder')}
@@ -532,10 +429,10 @@ function DeckPage() {
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
             <UndoRedoButtons
               show={mainCount > 0}
-              canUndo={history.canUndo}
-              canRedo={history.canRedo}
-              onUndo={() => { history.undo(); sounds.uiClick() }}
-              onRedo={() => { history.redo(); sounds.uiClick() }}
+              canUndo={surface.history.canUndo}
+              canRedo={surface.history.canRedo}
+              onUndo={() => { surface.history.undo(); sounds.uiClick() }}
+              onRedo={() => { surface.history.redo(); sounds.uiClick() }}
               undoLabel={t('action.undo')}
               redoLabel={t('action.redo')}
             />
@@ -612,20 +509,8 @@ function DeckPage() {
 
         {/* ─── Lanes + chat/fill rail ────────────────────────── */}
         <DeckEditor
-          editing
-          cards={deck.cards}
-          cardDataMap={cardDataMap}
-          sections={localizedPlan}
-          sectionCards={sectionCards}
-          lockedCardIds={lockedCardIds}
-          onAddCard={addCard}
-          onToggleLock={toggleLock}
-          onChangeQuantity={changeQuantityMain}
-          onRemoveCard={removeCardMain}
-          onUndo={history.undo}
-          onRedo={history.redo}
+          surface={surface}
           analysis={analysis}
-          cardsLoading={cardsLoading}
           cardListSlot={cardListSlot}
           renderExtraLightboxActions={renderEditLightboxActions}
           resolveLaneStatus={laneStatus}

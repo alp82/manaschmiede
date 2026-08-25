@@ -506,6 +506,34 @@ i18n keys — and every one of those is a compile error when missed. Never
 reintroduce a per-filter prop on `FilterBar`, a hand-listed filter-name array,
 or a query clause outside an entry's `toQuery`.
 
+## One seam, two container adapters
+
+The wizard's fill step and the deck route render the same editing surface
+against two different state containers — `WizardState` via `dispatch`,
+`LocalDeck` via `setDeck`. Two modules define what they share as an interface
+and adapt each container onto it:
+
+- `src/lib/section-fill-intent.ts` — `SectionFillIntent`, consumed by
+  `useSectionFill`.
+- `src/lib/deck-surface.ts` — `DeckSurface`: the deck, its lanes, and the
+  mutators (`addCard`, `changeQuantity`, `removeCard`, `toggleLock`,
+  `applyProposal`, `setName`, `setDescription`). `DeckEditor` takes one
+  `surface` prop and cannot tell which container it is in; the chat ledger's
+  `onDeckUpdate` is `surface.applyProposal`.
+
+Both adapters are plain functions over already-computed values, not hooks, so
+every mutator is drivable from a node test with a fake `dispatch` / `setDeck`.
+Keep them free of `this`, since callers detach the methods.
+
+**How to apply:** a behaviour both surfaces need goes on the seam, and the
+adapters express the container's own idiom — the wizard dispatches reducer
+actions, the route writes functionally and reads `prev` (`useStagedRederive` is
+the other writer of `sectionPlan` / `sectionAssignments`, so a closure read
+there can silently undo an accepted plan). A genuine behavioural fork stays a
+separate prop: `fill` is the wizard's, `resolveLaneStatus` is the route's.
+Deliberate non-goals, both from issue #26: zone (every write targets `'main'`),
+and unified history storage (the wizard persists its stacks, the route does not).
+
 <!-- convex-ai-start -->
 This project uses [Convex](https://convex.dev) as its backend.
 
