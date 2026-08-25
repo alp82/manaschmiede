@@ -15,7 +15,17 @@ import type { TFn } from './i18n/types'
 export interface StagedSection extends DeckSection {
   /** scryfallIds bucketed into this lane. */
   bucketedCards: string[]
-  /** max(0, targetCount - bucketedCards.length). */
+  /**
+   * COPIES bucketed into this lane — the sum of `quantity` over
+   * `bucketedCards`, not its length (#42).
+   *
+   * `targetCount` is a share of the 60 slots left once the locked copies are
+   * subtracted, so it is measured in copies. Counting distinct cards against it
+   * subtracts cards from copies: a lane holding 5 playsets reads as 5 against a
+   * target of 16, while the lane header directly above it reads "10 / 16".
+   */
+  bucketedCount: number
+  /** max(0, targetCount - bucketedCount). */
   deficit: number
 }
 
@@ -25,6 +35,18 @@ export interface StagedPlan {
   unassigned: string[]
   /** ids of lanes whose target or bucketed count changed vs the previous plan. */
   staleLaneIds: string[]
+  /**
+   * The lane → scryfallIds map this plan was bucketed with, published so the
+   * deck view can render the PROPOSAL rather than the filing it replaces.
+   *
+   * While a plan is staged the screen shows the proposed lanes; bucketing them
+   * with the deck's committed `sectionAssignments` put the deficit and the
+   * lane-header count in different vocabularies, so the two disagreed on screen
+   * (#42). Routing by role is also what `acceptPlan` does — `rebucketAssignments`
+   * re-routes every id through `pickSectionForCard` — so what the user reviews
+   * is now what Accept produces.
+   */
+  assignments: Record<string, string[]>
 }
 
 /**
@@ -83,38 +105,27 @@ export function computeStaleLanes(
       continue
     }
     const targetChanged = prev.targetCount !== section.targetCount
-    const bucketDropped = section.bucketedCards.length < prev.bucketedCards.length
+    const bucketDropped = section.bucketedCount < prev.bucketedCount
     if (targetChanged || bucketDropped) staleLaneIds.push(section.id)
   }
   return staleLaneIds
 }
 
 /**
- * Re-bucket prior sectionAssignments against a new plan by role: each
- * previously-assigned id is re-routed via pickSectionForCard; ids whose role no
- * longer maps to a lane are dropped. Duplicate ids across old buckets de-dupe
- * (first wins). When `nextPlan` is empty, returns `prevAssignments` unchanged.
+ * Strip a bucketed section back to the bare `DeckSection` that gets persisted.
+ *
+ * `bucketedCards` / `bucketedCount` / `deficit` are DERIVED from the deck's
+ * current cards — they are re-computed on every render and must never reach
+ * `deck.sectionPlan` or the pending slot, where they would be a frozen snapshot
+ * of the cards as they were at Accept time. An inline destructure did this
+ * once, and adding a fourth derived field silently let it through: a spread
+ * carries excess properties past the compiler without complaint. One home, so
+ * a new derived field is one edit.
  */
-export function rebucketAssignments(
-  prevAssignments: Record<string, string[]>,
-  nextPlan: DeckSection[],
-  resolveCard: (id: string) => ScryfallCard | undefined,
-): Record<string, string[]> {
-  if (nextPlan.length === 0) return prevAssignments
-  const next: Record<string, string[]> = {}
-  const seen = new Set<string>()
-  for (const ids of Object.values(prevAssignments)) {
-    for (const id of ids) {
-      if (seen.has(id)) continue
-      seen.add(id)
-      const card = resolveCard(id)
-      if (!card) continue
-      const sectionId = pickSectionForCard(card, nextPlan)
-      if (!sectionId) continue
-      ;(next[sectionId] ??= []).push(id)
-    }
-  }
-  return next
+export function toPlanSections(sections: StagedSection[]): DeckSection[] {
+  return sections.map(
+    ({ bucketedCards: _cards, bucketedCount: _count, deficit: _deficit, ...section }) => section,
+  )
 }
 
 /**
@@ -172,25 +183,36 @@ export function bucketPlanAgainstCards(
   // Locked cards land in the 'core' bucket (highest precedence in
   // bucketSectionCards), so role lanes only count non-locked cards.
   // deficit = max(0, target - non-core-bucketed) — exactly as the render path.
-  const proposedAssignments: Record<string, string[]> = {}
+  // Every card, lands included — `pickSectionForCard` sends a land to the
+  // 'lands' lane and nowhere else, so lands still can't inflate a role lane,
+  // and the published map is a COMPLETE filing rather than a partial one.
+  // `acceptPlan` commits it verbatim, so anything missing here would be a card
+  // the user saw in a lane during review and lost to 'unassigned' on Accept.
+  const assignments: Record<string, string[]> = {}
   for (const d of deckCards) {
-    if (d.card.type_line.toLowerCase().includes('land')) continue
     const sectionId = pickSectionForCard(d.card, plan)
     if (!sectionId) continue
-    ;(proposedAssignments[sectionId] ??= []).push(d.scryfallId)
+    ;(assignments[sectionId] ??= []).push(d.scryfallId)
   }
   const buckets = bucketSectionCards({
     deckDisplay: deckCards,
     sections: plan,
-    sectionAssignments: proposedAssignments,
+    sectionAssignments: assignments,
     lockedSource: lockedIds,
     fallbackByType: false,
   })
 
   const sections: StagedSection[] = plan.map((section) => {
-    const bucketedCards = (buckets[section.id] ?? []).map((d) => d.scryfallId)
-    const deficit = Math.max(0, section.targetCount - bucketedCards.length)
-    return { ...section, bucketedCards, deficit }
+    const bucketed = buckets[section.id] ?? []
+    // COPIES, not distinct cards — targetCount is a share of the 60 slots, and
+    // the lane header sums quantities too (#42).
+    const bucketedCount = bucketed.reduce((sum, d) => sum + d.quantity, 0)
+    return {
+      ...section,
+      bucketedCards: bucketed.map((d) => d.scryfallId),
+      bucketedCount,
+      deficit: Math.max(0, section.targetCount - bucketedCount),
+    }
   })
 
   const unassigned = (buckets['unassigned'] ?? []).map((d) => d.scryfallId)
@@ -199,7 +221,7 @@ export function bucketPlanAgainstCards(
   // count dropped (newly under-filled).
   const staleLaneIds = previousPlan ? computeStaleLanes(sections, previousPlan) : []
 
-  return { sections, unassigned, staleLaneIds }
+  return { sections, unassigned, staleLaneIds, assignments }
 }
 
 /**
@@ -273,7 +295,7 @@ export function laneStatusFor(plan: StagedPlan | null, laneId: string): LaneRevi
   // re-derive — stop dimming it, even though it is still in the staged plan and
   // therefore still in staleLaneIds until Accept. Over-filled is NOT answered:
   // a shrunk target leaves the lane above its count with nothing to fill.
-  if (section && section.bucketedCards.length === section.targetCount) return undefined
+  if (section && section.bucketedCount === section.targetCount) return undefined
   const refillDeficit = section ? section.deficit : 0
   return { stale: true, refillDeficit, refillCount: refillCountFor(refillDeficit) }
 }
@@ -282,7 +304,6 @@ interface UseStagedRederiveArgs {
   displayCards: DeckDisplayCard[]
   t: TFn
   setDeck: (updater: (prev: LocalDeck | null) => LocalDeck | null) => void
-  resolveCard: (id: string) => ScryfallCard | undefined
   /**
    * The deck's currently committed section plan. REQUIRED, because the previous
    * plan every stale-lane diff is measured against is DERIVED from it — see the
@@ -323,6 +344,16 @@ export interface UseStagedRederiveResult {
   /** The staged (proposed) section plan, or null when nothing is staged. */
   stagedPlan: DeckSection[] | null
   /**
+   * The lane → scryfallIds map the staged plan was bucketed with, or null when
+   * nothing is staged.
+   *
+   * The deck view buckets its lanes with this instead of the deck's committed
+   * `sectionAssignments` while a plan is under review, so the number under a
+   * lane header and the deficit in the re-fill prompt below it count the same
+   * cards (#42) — and so the review shows what Accept will produce.
+   */
+  stagedAssignments: Record<string, string[]> | null
+  /**
    * True when the current staged plan was rehydrated from the persisted slot on
    * mount (not freshly staged this session). Lets the UI show "Resumed from your
    * last session" copy instead of the present-tense "Intent changed" copy.
@@ -348,8 +379,8 @@ export interface UseStagedRederiveResult {
  * OWN state — it is NOT routed through useDeckChat.pending (the re-derived plan
  * is its own staging layer; only card-level proposals share the single pending
  * slot). `acceptPlan` writes the staged plan into the deck's persisted
- * `sectionPlan` and re-buckets `sectionAssignments` (misfits → unassigned),
- * then clears the staged layer. `discardPlan` clears it without touching the
+ * `sectionPlan` and commits the staged assignments verbatim (misfits →
+ * unassigned), then clears the staged layer. `discardPlan` clears it without touching the
  * deck. The staged plan is backed by the per-deck pending slot (via
  * `initialPlan` for rehydration + `onStagedChange` for persistence), so a
  * mid-review reload resumes the proposed plan.
@@ -374,7 +405,6 @@ export function useStagedRederive({
   displayCards,
   t,
   setDeck,
-  resolveCard,
   committedPlan,
   initialPlan,
   onStagedChange,
@@ -418,7 +448,7 @@ export function useStagedRederive({
       // No-op when the re-derive produces a plan structurally identical to the
       // committed plan (same ids, same targetCounts, no stale lanes): suppress
       // the Accept/Discard banner because accepting would do nothing visible.
-      const proposedSections = proposed.sections.map(({ bucketedCards: _b, deficit: _d, ...s }) => s)
+      const proposedSections = toPlanSections(proposed.sections)
       if (proposed.staleLaneIds.length === 0 && plansEqual(proposedSections, committedPlanRef.current)) {
         return
       }
@@ -431,25 +461,24 @@ export function useStagedRederive({
   const discardPlan = useCallback(() => setStagedSections(null), [])
 
   const acceptPlan = useCallback(() => {
-    if (!stagedSections) return
+    if (!stagedSections || !staged) return
     setDeck((prev) => {
       if (!prev) return prev
-      // Re-bucket the existing assignments against the new plan by role: each
-      // previously-assigned id is re-routed via pickSectionForCard; ids whose
-      // role no longer maps to a lane are dropped from assignments (they surface
-      // in the unassigned bucket at render time). An empty plan keeps the prior
-      // assignments untouched.
-      const prevAssignments = prev.sectionAssignments ?? {}
-      const rebucketed = rebucketAssignments(prevAssignments, stagedSections, resolveCard)
+      // Commit exactly the filing the user reviewed. It used to re-derive one
+      // here from `prev.sectionAssignments`, which walked only ids that were
+      // ALREADY filed — so a card added while the deck had no plan showed up in
+      // a lane during review and dropped to 'unassigned' the moment Accept
+      // landed, with the lane header falling on commit (#42). The staged
+      // assignments route every card, so what was reviewed is what is saved.
       return {
         ...prev,
         sectionPlan: stagedSections,
-        sectionAssignments: rebucketed,
+        sectionAssignments: staged.assignments,
         updatedAt: Date.now(),
       }
     })
     setStagedSections(null)
-  }, [stagedSections, setDeck, resolveCard])
+  }, [stagedSections, staged, setDeck])
 
   const laneStatus = useCallback(
     (laneId: string): LaneStatus | undefined => {
@@ -472,6 +501,7 @@ export function useStagedRederive({
 
   return {
     stagedPlan: stagedSections,
+    stagedAssignments: staged?.assignments ?? null,
     resumed,
     stage,
     acceptPlan,

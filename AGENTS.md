@@ -139,9 +139,12 @@ Six primitives carry most of the UI:
   chip / tag / badge. Variants: `default` (hairline, inverts when selected),
   `ghost`. Has `selected` state and optional `indexLabel`.
 - **Shared visual language:** `src/components/ui/button-styles.ts` exports
-  `buttonLikeBase`, `buttonLikeVariants`, `buttonLikeSizes`. Both Button and
-  Pill consume these so they can't drift. Edit there to adjust Specimen
-  button visuals globally.
+  `buttonLikeBase`, `buttonLikeVariants`, `buttonLikeSizes`, and
+  `buttonLikeFocus`. Both Button and Pill consume these so they can't drift.
+  Edit there to adjust Specimen button visuals globally. A clickable element
+  that genuinely can't be a Button or a Pill (an icon square, a picker trigger)
+  takes `buttonLikeFocus` rather than a hand-written focus style, so the whole
+  app focuses the same way.
 - **Horizontal hairline primitive** = Stepper + Tabs + Breadcrumb.
 - **Floating hairline panel primitive** = Tooltip + Popover + Toast
   (margin variant).
@@ -263,10 +266,9 @@ Tiny mono-tag label, hairline underline 1px above, no box, 6px offset,
 `click-soft @ 0.05` volume on mount.
 
 `src/components/ui/HoverTooltip.tsx` is the only tooltip in the app (the
-color-mode switch and the stats filter's LINKED yoke use it) and it does
-**not** meet that spec — it draws a bordered box, offsets 8px, and plays no
-sound. Treat that as debt, not as the standard: use the component, and if you
-are already editing it, bring it to the spec above.
+color-mode switch and the stats filter's LINKED yoke use it) and it meets that
+spec — the hairline is a top border on the label itself, so there is no frame
+and no fill. Use the component; don't hand-roll a second tooltip.
 
 ### Toast (default: margin variant)
 

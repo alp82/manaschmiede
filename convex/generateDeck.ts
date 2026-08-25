@@ -450,7 +450,9 @@ async function generateWithEnforcement(
   lockedCards?: Array<{ name: string; quantity: number }>,
   options?: EnforceDeckSizeOptions,
 ): Promise<GeneratedDeck> {
-  const model = MODELS.fast
+  // Quality tier (#46): deciding what 60 cards belong together IS the product.
+  // One call per deck build, so the tier costs little in aggregate.
+  const model = MODELS.main
   const logId = await startLlmLog(ctx, 'chat.generate', model, systemPrompt, messages)
   const result = await callAnthropic(systemPrompt, messages, { model, maxTokens: 4096 })
   const deck = await parseAndLog(ctx, logId, result, parseResponse)

@@ -305,6 +305,7 @@ function DeckPage() {
 
   const {
     stagedPlan,
+    stagedAssignments,
     resumed: stagedPlanResumed,
     stage: stageRederive,
     acceptPlan,
@@ -314,7 +315,6 @@ function DeckPage() {
     displayCards: deckDisplay,
     t,
     setDeck,
-    resolveCard,
     committedPlan,
     initialPlan: deckPending.stagedPlan,
     onStagedChange: setStagedPlan,
@@ -410,10 +410,15 @@ function DeckPage() {
   }, [deck?.cards, cardDataMap, t])
 
   // Build section-based card groups
+  // While a plan is staged the lanes on screen are the PROPOSAL's, so they are
+  // bucketed with the proposal's own assignments — otherwise the header count
+  // reads the committed filing while the deficit right below it reads the
+  // proposal, and the two disagree (#42). With nothing staged this is the
+  // deck's committed filing, unchanged.
   const sectionCards = useSectionCards({
     deckDisplay,
     sections: localizedPlan,
-    sectionAssignments: deck?.sectionAssignments ?? {},
+    sectionAssignments: stagedAssignments ?? deck?.sectionAssignments ?? {},
     lockedSource: lockedCardIds,
     fallbackByType: true,
   })

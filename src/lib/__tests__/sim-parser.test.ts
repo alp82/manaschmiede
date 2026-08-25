@@ -126,16 +126,37 @@ describe('parseScryfallCard', () => {
     expect(parsed.toughness).toBe(4)
   })
 
-  it('[C] reads a variable power or toughness as zero', () => {
-    // Issue #38.
-    // A `*/*` creature is whatever its ability says, and the model has no
-    // ability to read - so it comes in as a 0/0 and dies to state-based
-    // actions the moment it resolves.
-    const card = scryfall({ id: 'c', power: '*', toughness: '*' })
-    const parsed = parseScryfallCard(card)
+  it('[R] floors a variable power or toughness at 1 rather than 0', () => {
+    // Issue #38. A variable-P/T creature is whatever its characteristic-defining
+    // ability says, and the model has no ability to read. At 0 it is destroyed
+    // by state-based actions the instant it resolves, making the card a
+    // guaranteed blank in every game it appears in. 1 is wrong too, but wrong
+    // by a bounded amount and in the direction that lets the card be played.
+    const parsed = parseScryfallCard(scryfall({ id: 'c', power: '*', toughness: '*' }))
+
+    expect(parsed.power).toBe(1)
+    expect(parsed.toughness).toBe(1)
+  })
+
+  it('[R] floors every other unreadable printed value at 1 too', () => {
+    // Scryfall prints `*` with arithmetic (`1+*`), superscripts (`*²`) and `?`.
+    // `1+*` reaches 1 through parseInt, which stops at the `+`; the rest are
+    // NaN and take the same floor. All are creatures with a real body.
+    for (const value of ['1+*', '*\u00b2', '?', '2+*']) {
+      const parsed = parseScryfallCard(scryfall({ id: 'c', power: value, toughness: value }))
+
+      expect(parsed.power).toBeGreaterThanOrEqual(1)
+      expect(parsed.toughness).toBeGreaterThanOrEqual(1)
+    }
+  })
+
+  it('[R] leaves a printed zero alone', () => {
+    // A 0/1 wall is a real card, not an unreadable value - the floor must not
+    // touch it.
+    const parsed = parseScryfallCard(scryfall({ id: 'c', power: '0', toughness: '1' }))
 
     expect(parsed.power).toBe(0)
-    expect(parsed.toughness).toBe(0)
+    expect(parsed.toughness).toBe(1)
   })
 
   it('[R] gives a noncreature no power or toughness', () => {

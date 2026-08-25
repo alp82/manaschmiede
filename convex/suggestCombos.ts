@@ -208,7 +208,9 @@ export const suggest = action({
 
     const systemPrompt = getComboSystemPrompt(language)
     const inputMessages = [{ role: 'user', content: userPrompt }]
-    const model = MODELS.fast
+    // Quality tier (#46): a combo is a synergy claim about two or more cards
+    // interacting, which is the reasoning the cheap tier is weakest at.
+    const model = MODELS.main
     const logId = await startLlmLog(ctx, 'suggestCombos', model, systemPrompt, inputMessages)
     const llmResult = await callAnthropic(systemPrompt, inputMessages, { model, maxTokens: 4096 })
 

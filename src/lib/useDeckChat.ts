@@ -8,7 +8,7 @@ import type { IntentContext } from '../../convex/lib/intentContext'
 import type { ScryfallCard } from './scryfall/types'
 import { getCardName } from './scryfall/types'
 import { TARGET_DECK_SIZE, type DeckCard } from './deck-utils'
-import { BASIC_LAND_IDS, BASIC_LAND_NAMES, BASIC_LAND_ID_SET } from './basic-lands'
+import { BASIC_LAND_IDS, BASIC_LAND_IDS_BY_NAME, BASIC_LAND_ID_SET } from './basic-lands'
 import { computeDeckDiff, applyDelta, resolveRemoveIds, enforceDeltaSize } from './deck-diff'
 import { buildCardSectionLabels } from './section-assignment'
 import { analyzeComposition, summarizeComposition } from './synergy-validation'
@@ -308,12 +308,12 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
             // lookup one at a time.
             const deltaLands = await cardSupply
               .cardsById(
-                delta.add.map((entry) => BASIC_LAND_NAMES[entry.name]),
+                delta.add.map((entry) => BASIC_LAND_IDS_BY_NAME[entry.name]),
                 scryfallLang,
               )
               .catch(() => new Map<string, ScryfallCard>())
             for (const entry of delta.add) {
-              const canonicalId = BASIC_LAND_NAMES[entry.name]
+              const canonicalId = BASIC_LAND_IDS_BY_NAME[entry.name]
               if (canonicalId) {
                 const landCard = deltaLands.get(canonicalId)
                 if (landCard) {
@@ -408,13 +408,13 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
           // one batch before walking the list.
           const deckLands = await cardSupply
             .cardsById(
-              deckResult.cards.map((card) => BASIC_LAND_NAMES[card.name]),
+              deckResult.cards.map((card) => BASIC_LAND_IDS_BY_NAME[card.name]),
               scryfallLang,
             )
             .catch(() => new Map<string, ScryfallCard>())
 
           for (const card of deckResult.cards) {
-            const canonicalId = BASIC_LAND_NAMES[card.name]
+            const canonicalId = BASIC_LAND_IDS_BY_NAME[card.name]
             if (canonicalId) {
               const existing = resolvedMap.get(canonicalId)
               if (existing) {

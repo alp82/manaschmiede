@@ -11,8 +11,16 @@ export const BASIC_LAND_IDS: Record<string, string> = {
   G: '3279314f-d639-4489-b2ab-3621bb3ca64b', // Forest (M21)
 }
 
-/** Map from English basic land name → canonical Scryfall ID. */
-export const BASIC_LAND_NAMES: Record<string, string> = {
+/**
+ * Map from English basic land name → canonical Scryfall ID.
+ *
+ * Named `..._IDS_BY_NAME`, not `BASIC_LAND_NAMES`: `convex/lib/deckRules.ts`
+ * exports a `BASIC_LAND_NAMES` that is the SET of the five names, and
+ * `convex/lib/` is deliberately dependency-free so `src/` can import it. One
+ * identifier meaning two things across the two trees type-checks and reads
+ * correctly at the import site while returning something else entirely.
+ */
+export const BASIC_LAND_IDS_BY_NAME: Record<string, string> = {
   Plains: BASIC_LAND_IDS.W,
   Island: BASIC_LAND_IDS.U,
   Swamp: BASIC_LAND_IDS.B,

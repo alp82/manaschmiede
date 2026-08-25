@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { ManaSymbol } from './ManaSymbol'
 import { MANA_COLORS, type ManaColor } from '../lib/mana-colors'
 import { Pill } from './ui/Pill'
+import { Button } from './ui/Button'
+import { buttonLikeFocus } from './ui/button-styles'
 import { HoverTooltip } from './ui/HoverTooltip'
 import { cn } from '../lib/utils'
 import { useT } from '../lib/i18n'
@@ -78,16 +80,15 @@ export function FilterBar({
 
         <div className="ml-auto flex items-center gap-4">
           {activeFilters.size > 0 && (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
               onClick={() => {
                 sounds.dismiss()
                 onPatch(clearFiltersPatch(activeFilters))
               }}
-              className="cursor-pointer font-mono text-mono-tag uppercase tracking-mono-tag text-cream-500 transition-colors hover:text-ink-red-bright"
             >
               {t('filter.clearAll')}
-            </button>
+            </Button>
           )}
           <AddFilterPicker
             available={availableToAdd}
@@ -215,7 +216,7 @@ function ActiveFilter({
             'inline-flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center',
             'border border-transparent text-cream-400 transition-colors',
             'hover:border-hairline-strong hover:text-ink-red-bright',
-            'focus-visible:outline-none focus-visible:border-ink-red',
+            buttonLikeFocus,
           )}
         >
           <span aria-hidden="true" className="text-lg leading-none">×</span>
@@ -270,7 +271,10 @@ function AddFilterPicker({
           'flex items-center gap-2 border border-hairline-strong bg-ash-800 px-3 py-2',
           'font-mono text-mono-label uppercase tracking-mono-label text-cream-100',
           'cursor-pointer transition-colors hover:border-cream-300',
-          'focus-visible:outline-none focus-visible:border-ink-red',
+          // The focus RING, not an ink-red border: the border is already
+          // ink-red while the drawer is open, so a focus border was
+          // indistinguishable from the live state.
+          buttonLikeFocus,
           open && 'border-ink-red',
         )}
       >

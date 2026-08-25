@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { RangeSlider } from '../../ui/RangeSlider'
 import { HoverTooltip } from '../../ui/HoverTooltip'
+import { Pill } from '../../ui/Pill'
 import { useT } from '../../../lib/i18n'
-import { cn } from '../../../lib/utils'
 import type { FilterControlProps, FilterSlice, FilterSpec } from '../spec'
 
 const STAT_SLIDER_MAX = 12
@@ -130,21 +130,19 @@ function StatsControl({ state, onChange, ariaLabel }: FilterControlProps) {
         </div>
       </div>
 
+      {/* The yoke is a toggle, so it is a <Pill>, not a hand-rolled button: a
+          selected toggle inverts to cream fill + ash glyph + ink-red border.
+          It used to take the ink-red FILL, which is the primary-CTA look. Only
+          the square hit area is overridden, so the rest stays the primitive. */}
       <HoverTooltip hint={linked ? t('filter.statsLinkedHint') : t('filter.statsUnlinkedHint')}>
-        <button
-          type="button"
+        <Pill
+          selected={linked}
           onClick={() => setLinked((l) => !l)}
-          aria-pressed={linked}
           aria-label={linked ? t('filter.statsLinked') : t('filter.statsUnlinked')}
-          className={cn(
-            'inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center border transition-colors',
-            linked
-              ? 'border-ink-red bg-ink-red text-cream-100'
-              : 'border-hairline text-cream-500 hover:border-hairline-strong hover:text-cream-300',
-          )}
+          className="h-10 w-10 shrink-0 p-0"
         >
           <span aria-hidden="true" className="text-xl leading-none">{linked ? '⇌' : '⇵'}</span>
-        </button>
+        </Pill>
       </HoverTooltip>
     </div>
   )

@@ -10,12 +10,24 @@
  * pick it up automatically.
  */
 
+/**
+ * The Specimen focus ring, on its own so hand-rolled buttons that can't be a
+ * <Button> or a <Pill> (icon squares, the filter bar's picker trigger) focus
+ * identically instead of inventing a border color each time.
+ *
+ * A RING, deliberately - an ink-red BORDER on focus is indistinguishable from
+ * ink-red as a live state, which is what it means everywhere else.
+ */
+export const buttonLikeFocus =
+  'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ink-red ' +
+  'focus-visible:ring-offset-2 focus-visible:ring-offset-ash-900'
+
 export const buttonLikeBase =
   'relative inline-flex items-center justify-center ' +
   'font-mono uppercase whitespace-nowrap ' +
   'border transition-colors duration-150 ease-out ' +
   'cursor-pointer select-none rounded-none ' +
-  'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ink-red focus-visible:ring-offset-2 focus-visible:ring-offset-ash-900 ' +
+  buttonLikeFocus + ' ' +
   'disabled:cursor-not-allowed disabled:opacity-40 disabled:pointer-events-none'
 
 export const buttonLikeVariants = {

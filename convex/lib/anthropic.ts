@@ -7,11 +7,20 @@
  * that table.
  */
 export const MODELS = {
-  /** Quality tier. Only reached as `callAnthropic`'s default - see below. */
-  main: 'claude-sonnet-4-20250514',
   /**
-   * Cheap tier: classification, strategy parsing, deck generation, delta edits,
-   * section fill, combos. In practice every call site passes this explicitly.
+   * Quality tier: whole-deck generation and combo suggestion.
+   *
+   * Those two calls are where reasoning quality becomes recommendation
+   * quality, which is AGENTS.md's first hard requirement. They are also the
+   * two least frequent calls in the app - one per deck build, one per combo
+   * pass - so the tier costs little in aggregate. See
+   * docs/adr/0003-model-tiers.md.
+   */
+  main: 'claude-sonnet-5',
+  /**
+   * Cheap tier: classification, strategy parsing, delta edits, chat questions,
+   * section fill. The mechanical calls - the ones that route, classify, or fill
+   * a named slot rather than decide what belongs in a deck.
    */
   fast: 'claude-haiku-4-5-20251001',
 } as const
@@ -19,10 +28,14 @@ export const MODELS = {
 /**
  * Per-million-token pricing (USD), input / output.
  *
- * Checked against Anthropic's published rates on 2026-08-24. Haiku 4.5 is
- * $1.00 / $5.00 - the previous 0.80 / 4 understated every Haiku cost in
- * `llmUsageLogs` by 20%. Sonnet 4 is $3 / $15 and is now a deprecated model;
- * see the note on MODELS.main.
+ * Checked against Anthropic's published rates on 2026-08-25. Haiku 4.5 is
+ * $1.00 / $5.00 - the earlier 0.80 / 4 understated every Haiku cost in
+ * `llmUsageLogs` by 20%.
+ *
+ * Sonnet 5 is listed at its STANDARD $3 / $15, not the $2 / $10 introductory
+ * rate that runs through 2026-08-31. An estimate that reads high for a few
+ * days is the safe direction; the intro rate would silently under-report every
+ * cost from September on.
  */
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   [MODELS.main]: { input: 3, output: 15 },
@@ -55,18 +68,24 @@ export function isTruncated(result: Pick<LlmResult, 'stopReason'>): boolean {
   return result.stopReason === 'max_tokens'
 }
 
+/**
+ * `model` is REQUIRED, not defaulted. A default meant the quality tier was
+ * reachable only by NOT choosing - so every call site typed `MODELS.fast` and
+ * the tier sat unused behind a deprecated id until #46 found it. A tier you
+ * have to name is a tier somebody decided.
+ */
 export async function callAnthropic(
   system: string,
   messages: Array<{ role: string; content: string }>,
-  options?: { model?: string; maxTokens?: number },
+  options: { model: string; maxTokens?: number },
 ): Promise<LlmResult> {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
     throw new Error('ANTHROPIC_API_KEY is not configured')
   }
 
-  const model = options?.model ?? MODELS.main
-  const maxTokens = options?.maxTokens ?? 4096
+  const model = options.model
+  const maxTokens = options.maxTokens ?? 4096
   const start = Date.now()
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
