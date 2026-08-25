@@ -107,22 +107,4 @@ describe('mergeCardsIntoDeck', () => {
     expect(m2[0].quantity).toBe(2)
     expect(a2).toHaveLength(0)
   })
-
-  it('sideboard-zone entry is never merged with a main-zone addition — a new main entry is created', () => {
-    // Existing entry is on sideboard; adding the same id to main should create a NEW main entry
-    const existing = [makeCard('bolt', 2, 'sideboard')]
-    const { merged, addedIds } = mergeCardsIntoDeck(
-      existing,
-      [{ scryfallId: 'bolt', quantity: 2 }],
-      noBasic,
-    )
-    // Should now have two entries: one sideboard + one main
-    expect(merged).toHaveLength(2)
-    const mainEntry = merged.find((c) => c.zone === 'main')
-    const sideEntry = merged.find((c) => c.zone === 'sideboard')
-    expect(mainEntry).toBeDefined()
-    expect(mainEntry!.quantity).toBe(2)
-    expect(sideEntry!.quantity).toBe(2)
-    expect(addedIds).toContain('bolt')
-  })
 })

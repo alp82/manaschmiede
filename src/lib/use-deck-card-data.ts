@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { QueryClient } from '@tanstack/react-query'
-import { getCardsCollection, getLocalizedCardData } from './scryfall/client'
-import { scryfallKeys } from './scryfall/queries'
+import { cardSupply } from './scryfall/card-supply'
 import type { DeckCard } from './deck-utils'
 import type { ScryfallCard } from './scryfall/types'
 
@@ -12,10 +11,13 @@ interface UseDeckCardDataOpts {
 }
 
 /**
- * Resolve Scryfall data for every card in a deck. Fires one batched
- * /cards/collection request for the default prints, then per-card
- * localization upgrades in the background. When a `queryClient` is given,
- * results are seeded into its cache so remounts are instant.
+ * Resolve Scryfall data for every card in a deck. One batched request for the
+ * default prints, then localization upgrades — `cardSupply` owns that
+ * ordering, so this hook only has to decide what to do with each card as it
+ * lands.
+ *
+ * `cardsLoading` clears as soon as every requested card has a print to render;
+ * the localization upgrades keep arriving through `onCard` afterwards.
  */
 export function useDeckCardData(
   cards: DeckCard[],
@@ -44,49 +46,20 @@ export function useDeckCardData(
     let cancelled = false
     setCardsLoading(true)
 
-    // Dedupe the batch request — a deck can include the same card id twice
-    // (e.g. tokens, basic lands duplicated across zones).
-    const uniqueMissing = Array.from(new Set(missingIds))
+    const wanted = new Set(missingIds)
+    const painted = new Set<string>()
 
-    getCardsCollection(uniqueMissing)
-      .then((batch) => {
-        if (cancelled) return
-        if (batch.length > 0) {
-          setCardDataMap((prev) => {
-            const next = new Map(prev)
-            for (const card of batch) {
-              next.set(card.id, card)
-              queryClient?.setQueryData(scryfallKeys.card(card.id, card.lang), card)
-              // Seed the active-locale key so remounts under the same locale
-              // hit the cache; localization upgrades below will overwrite
-              // this entry with the localized print when available.
-              queryClient?.setQueryData(scryfallKeys.card(card.id, scryfallLang), card)
-            }
-            return next
-          })
-        }
-        // Fire per-card localization upgrades in the background. These hit
-        // the rate-limited queue but don't block the initial render.
-        if (scryfallLang !== 'en') {
-          for (const card of batch) {
-            if (cancelled) return
-            if (card.lang === scryfallLang) continue
-            getLocalizedCardData(card, card.id, card.set, card.collector_number, scryfallLang)
-              .then((localized) => {
-                if (cancelled || !localized || localized.lang !== scryfallLang) return
-                setCardDataMap((prev) => {
-                  const next = new Map(prev)
-                  next.set(card.id, localized)
-                  return next
-                })
-                queryClient?.setQueryData(
-                  scryfallKeys.card(card.id, scryfallLang),
-                  localized,
-                )
-              })
-              .catch(() => {})
-          }
-        }
+    cardSupply
+      .cardsById(missingIds, scryfallLang, {
+        queryClient,
+        onCard: (card) => {
+          if (cancelled) return
+          setCardDataMap((prev) => new Map(prev).set(card.id, card))
+          painted.add(card.id)
+          // Every card has something renderable now — don't make the UI wait
+          // on the localization tail.
+          if (painted.size >= wanted.size) setCardsLoading(false)
+        },
       })
       .catch(() => {})
       .finally(() => {

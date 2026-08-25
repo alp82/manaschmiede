@@ -40,8 +40,8 @@ export function makeCard(
 
 /**
  * A basic land printing: common rarity, ~$0 price, "Basic Land — <name>" type
- * line. Pass a canonical id from BASIC_LAND_IDS to model what the resolver
- * produces, or any other id to model an alternate printing.
+ * line. Pass a canonical id from BASIC_LAND_ID_BY_COLOR to model what the
+ * resolver produces, or any other id to model an alternate printing.
  */
 export function makeBasicLand(id: string, name: string, color_identity: string[]): ScryfallCard {
   return {

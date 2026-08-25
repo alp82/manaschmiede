@@ -11,7 +11,7 @@ import { loadDecks, deleteDeck as deleteStoredDeck, type LocalDeck } from '../li
 import { useSampleDecks } from '../lib/useSampleDecks'
 import { useT } from '../lib/i18n'
 
-// Curated iconic MTG cards — rotated once per page load for the hero plate.
+// Curated iconic MTG cards — one is picked per page load for the hero plate.
 // Using Scryfall's named endpoint with `version=art_crop` returns a redirect
 // to the card art crop image, so these URLs can be used directly in <img src>.
 const HERO_ART_URLS = [
@@ -50,9 +50,15 @@ function HomePage() {
 
   const [decks, setDecks] = useState<LocalDeck[]>([])
   const catalogRef = useRef<HTMLDivElement>(null)
-  const [heroArtUrl] = useState(
-    () => HERO_ART_URLS[Math.floor(Math.random() * HERO_ART_URLS.length)],
-  )
+  // Picked after mount, not in an initializer: `Math.random()` in an
+  // initializer runs once on the server and again on the client, the two
+  // disagree, and React tears the whole tree down with a hydration mismatch.
+  // Waiting a tick costs nothing visually - the crop can't paint before it
+  // downloads either way.
+  const [heroArtUrl, setHeroArtUrl] = useState<string | null>(null)
+  useEffect(() => {
+    setHeroArtUrl(HERO_ART_URLS[Math.floor(Math.random() * HERO_ART_URLS.length)])
+  }, [])
 
   const reloadDecks = useCallback(() => {
     setDecks(loadDecks())
@@ -101,12 +107,14 @@ function HomePage() {
       <section className="relative mx-[calc(50%-50vw)] overflow-hidden">
         {/* Background plate — Scryfall art crop, ink-darkened */}
         <div className="absolute inset-0 -z-10">
-          <img
-            src={heroArtUrl}
-            alt=""
-            aria-hidden="true"
-            className="h-full w-full object-cover opacity-35"
-          />
+          {heroArtUrl && (
+            <img
+              src={heroArtUrl}
+              alt=""
+              aria-hidden="true"
+              className="h-full w-full object-cover opacity-35"
+            />
+          )}
           {/* Heavy ash scrim — fades from semi-transparent at top to
               solid at the bottom so content blends into the page below */}
           <div
@@ -197,7 +205,7 @@ function HomePage() {
                         {d.name}
                       </h3>
                       <div className="mt-3">
-                        <DeckMeta format={d.format} totalCards={totalCards} colors={d.colors} />
+                        <DeckMeta totalCards={totalCards} colors={d.colors} />
                       </div>
                     </div>
                   </Link>

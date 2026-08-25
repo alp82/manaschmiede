@@ -1,6 +1,7 @@
 import { getTraitById } from './trait-mappings'
 import type { ScryfallCard } from './scryfall/types'
 import type { DynamicKey, TFn } from './i18n/types'
+import { TARGET_DECK_SIZE } from '../../convex/lib/deckRules'
 
 export interface DeckSection {
   id: string
@@ -334,7 +335,7 @@ export function deriveSectionPlan(
 
   // Calculate available slots
   const landCount = template.landCount
-  const availableSlots = Math.max(60 - coreCardCount - landCount, baseSections.length * 2)
+  const availableSlots = Math.max(TARGET_DECK_SIZE - coreCardCount - landCount, baseSections.length * 2)
   const totalWeight = template.weights.slice(0, baseSections.length).reduce((s, w) => s + w, 0)
 
   // Distribute slots proportionally, then clamp so total doesn't exceed availableSlots
@@ -394,7 +395,7 @@ export function deriveSectionPlan(
 
   // Add lands section - absorb any rounding mismatch
   const currentTotal = coreCardCount + sections.reduce((s, sec) => s + sec.targetCount, 0)
-  const actualLandCount = Math.max(60 - currentTotal, 18)
+  const actualLandCount = Math.max(TARGET_DECK_SIZE - currentTotal, 18)
 
   sections.push({
     id: 'lands',

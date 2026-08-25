@@ -23,7 +23,6 @@ export interface IntentContext {
   archetypes: string[]
   traits: string[]
   customStrategy?: string
-  format?: string
   budgetMin?: number | null
   budgetMax?: number | null
 }
@@ -43,8 +42,8 @@ export const COLOR_NAMES: Record<string, string> = {
  * Byte-identical to the inline block this replaced in fillSection so the two
  * AI paths can't drift (guarded by the byte-parity test in
  * src/lib/__tests__/intent-context.test.ts). Returns '' when there's nothing
- * to constrain — no colors, archetypes, traits, strategy, budget, or
- * non-casual format — so the prompt stays clean for unconstrained decks.
+ * to constrain — no colors, archetypes, traits, strategy, or budget — so the
+ * prompt stays clean for unconstrained decks.
  */
 export function buildIntentContextPrompt(ctx: IntentContext): string {
   let body = ''
@@ -58,7 +57,6 @@ export function buildIntentContextPrompt(ctx: IntentContext): string {
   if (ctx.archetypes.length > 0) body += `\nArchetypes: ${ctx.archetypes.join(', ')}`
   if (ctx.traits.length > 0) body += `\nTraits: ${ctx.traits.join(', ')}`
   if (ctx.customStrategy) body += `\nStrategy: ${ctx.customStrategy}`
-  if (ctx.format && ctx.format !== 'casual') body += `\nFormat: ${ctx.format}`
   if (ctx.budgetMin != null) body += `\nBudget: min $${ctx.budgetMin.toFixed(2)} per card`
   if (ctx.budgetMax != null) body += `\nBudget: max $${ctx.budgetMax.toFixed(2)} per card`
 

@@ -6,7 +6,6 @@ export function useSampleDecks(onComplete: () => void) {
     const newDecks = SAMPLE_DECKS.map((sample) => ({
       id: crypto.randomUUID(),
       name: sample.name,
-      format: sample.format,
       cards: sample.cards,
       createdAt: Date.now(),
       updatedAt: Date.now(),

@@ -6,19 +6,11 @@ export default defineSchema({
     userId: v.string(),
     name: v.string(),
     description: v.optional(v.string()),
-    format: v.union(
-      v.literal('standard'),
-      v.literal('modern'),
-      v.literal('casual'),
-    ),
     cards: v.array(
       v.object({
         scryfallId: v.string(),
         quantity: v.number(),
-        zone: v.union(
-          v.literal('main'),
-          v.literal('sideboard'),
-        ),
+        zone: v.literal('main'),
       }),
     ),
     tags: v.optional(v.array(v.string())),

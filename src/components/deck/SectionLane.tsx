@@ -48,7 +48,6 @@ interface SectionLaneProps {
   section: SectionLaneDescriptor
   items: DeckDisplayCard[]
   newCardIds: Set<string>
-  editing: boolean
   onOpenLightbox: (card: ScryfallCard) => void
   onToggleLock: (scryfallId: string) => void
   onChangeQuantity: (scryfallId: string, qty: number) => void
@@ -81,8 +80,8 @@ interface SectionLaneProps {
 /**
  * Unified deck-section lane — a superset of the view-mode lane (deck view) and
  * the fill-mode lane (wizard). Without `fillSlot`/`sectionState` it renders the
- * read/edit lane: collapse toggle, count (with target + progress when
- * `targetCount` is set), and edit-gated card controls. With them it renders the
+ * edit lane: collapse toggle, count (with target + progress when
+ * `targetCount` is set), and the card controls. With them it renders the
  * fill-mode lane: progress bar, AI preview/loading/error states, and the fill
  * buttons supplied via `fillSlot`.
  */
@@ -90,7 +89,6 @@ export const SectionLane = memo(function SectionLane({
   section,
   items,
   newCardIds,
-  editing,
   onOpenLightbox,
   onToggleLock,
   onChangeQuantity,
@@ -222,9 +220,9 @@ export const SectionLane = memo(function SectionLane({
                       locked={locked}
                       isNew={newCardIds.has(scryfallId)}
                       onClick={() => onOpenLightbox(card)}
-                      onToggleLock={editing ? () => onToggleLock(scryfallId) : undefined}
-                      onChangeQuantity={editing ? (qty) => onChangeQuantity(scryfallId, qty) : undefined}
-                      onRemove={editing ? () => onRemoveCard(scryfallId) : undefined}
+                      onToggleLock={() => onToggleLock(scryfallId)}
+                      onChangeQuantity={(qty) => onChangeQuantity(scryfallId, qty)}
+                      onRemove={() => onRemoveCard(scryfallId)}
                     />
                   </div>
                 )

@@ -1,9 +1,9 @@
 import { action } from './_generated/server'
 import { v } from 'convex/values'
-import { callAnthropic } from './lib/anthropic'
+import { MODELS, callAnthropic } from './lib/anthropic'
 import { startLlmLog, parseAndLog } from './lib/logLlmUsage'
 import { parseStrategyQueries } from './lib/strategyParse'
-import { parseJsonLadder } from './lib/jsonLadder'
+import { isNonEmptyString, parseCardList } from './lib/parseCardList'
 import { HARD_FILTER_PROMPT_RULES } from './lib/cardFilters'
 /**
  * The combo system prompt. Exported so the hard-filter wiring is testable in
@@ -66,12 +66,35 @@ OUTPUT FORMAT (JSON ONLY):
 Respond ONLY with the JSON object.`
 }
 
+interface Combo {
+  name: string
+  cards: string[]
+  explanation: string
+}
+
 interface ComboResult {
-  combos: Array<{
-    name: string
-    cards: string[]
-    explanation: string
-  }>
+  combos: Combo[]
+}
+
+/**
+ * Coerce one raw combo. A combo needs a name, at least two named cards, and an
+ * explanation - anything else is dropped. The shape is local to this action, so
+ * the adapter is too; only the name rule comes from the shared module.
+ */
+function comboEntry(raw: unknown): Combo | null {
+  if (raw === null || typeof raw !== 'object') return null
+  const { name, cards, explanation } = raw as {
+    name?: unknown
+    cards?: unknown
+    explanation?: unknown
+  }
+  if (!isNonEmptyString(name)) return null
+  if (typeof explanation !== 'string') return null
+  if (!Array.isArray(cards) || cards.length < 2) return null
+  // Every element has to be a real card name - a null in here would reach
+  // Scryfall as a lookup.
+  if (!cards.every(isNonEmptyString)) return null
+  return { name, cards: [...cards], explanation }
 }
 
 /**
@@ -80,21 +103,11 @@ interface ComboResult {
  * either way.
  */
 export function parseComboResponse(text: string): ComboResult {
-  const result = parseJsonLadder<ComboResult>(text)
-
-  if (!result.combos || !Array.isArray(result.combos)) {
-    throw new Error('AI response has an invalid format')
-  }
-
-  return {
-    combos: result.combos.filter(
-      (c) =>
-        typeof c.name === 'string' &&
-        Array.isArray(c.cards) &&
-        c.cards.length >= 2 &&
-        typeof c.explanation === 'string',
-    ),
-  }
+  const parsed = parseCardList<{ combos: Combo }>(text, {
+    lists: { combos: { entry: comboEntry, required: true } },
+    onFailure: 'throw',
+  })
+  return { combos: parsed.lists.combos }
 }
 
 export const suggest = action({
@@ -107,7 +120,6 @@ export const suggest = action({
     requiredKeywords: v.optional(v.array(v.string())),
     pinnedCard: v.optional(v.string()),
     customStrategy: v.optional(v.string()),
-    format: v.optional(v.string()),
     budgetLimit: v.optional(v.number()),
     rejectedCards: v.optional(v.array(v.object({
       name: v.string(),
@@ -165,10 +177,6 @@ export const suggest = action({
       userPrompt += `\nUSER STRATEGY (treat as a commitment): The player described their deck as: "${args.customStrategy}". At least 2 of the 5 combos MUST clearly reflect this — lean into its themes, creature types, and effects. If the theme is narrow, still honor it in as many combos as the card pool allows.\n`
     }
 
-    if (args.format && args.format !== 'casual') {
-      userPrompt += `Format: ${args.format}\n`
-    }
-
     if (args.budgetLimit != null) {
       userPrompt += `Budget: max $${args.budgetLimit.toFixed(2)} per card\n`
     }
@@ -200,7 +208,9 @@ export const suggest = action({
 
     const systemPrompt = getComboSystemPrompt(language)
     const inputMessages = [{ role: 'user', content: userPrompt }]
-    const model = 'claude-haiku-4-5-20251001'
+    // Quality tier (#46): a combo is a synergy claim about two or more cards
+    // interacting, which is the reasoning the cheap tier is weakest at.
+    const model = MODELS.main
     const logId = await startLlmLog(ctx, 'suggestCombos', model, systemPrompt, inputMessages)
     const llmResult = await callAnthropic(systemPrompt, inputMessages, { model, maxTokens: 4096 })
 
@@ -212,7 +222,6 @@ export const parseStrategy = action({
   args: {
     customStrategy: v.string(),
     selectedColors: v.array(v.string()),
-    format: v.optional(v.string()),
     language: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<{ queries: string[] }> => {

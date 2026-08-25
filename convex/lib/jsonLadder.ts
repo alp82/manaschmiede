@@ -5,6 +5,11 @@
  * response wrapped in a code fence or buried in prose still parses, and a
  * truncated one fails the same way everywhere.
  *
+ * This module gets *some* JSON out of a response; `parseCardList.ts` owns the
+ * step after it - turning that unknown value into the lists and scalars a
+ * caller asked for. Card-list callers go through parseCardList and should not
+ * reach for this directly.
+ *
  * Zero runtime imports, so it is importable from node tests the same way
  * cardPoolQueries.ts and deltaPrompt.ts are.
  */

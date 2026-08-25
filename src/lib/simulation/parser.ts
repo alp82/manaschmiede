@@ -2,7 +2,7 @@ import type { ScryfallCard } from '../scryfall/types'
 import type { DeckCard } from '../deck-utils'
 import type { CardType, Keyword, SimCard } from './types'
 import { isBasicLand } from '../deck-utils'
-import { BASIC_LAND_ID_SET } from '../basic-lands'
+import { isBasicLandId } from '../../../convex/lib/basicLands'
 import { parseCost, parseLandColors } from './mana'
 import { parseEffects } from './effects'
 
@@ -35,11 +35,35 @@ function getMainType(typeLine: string): CardType {
   return 'other'
 }
 
+/**
+ * The body a creature gets when its printed power or toughness is variable.
+ *
+ * Not the real value - that comes from a characteristic-defining ability
+ * ("equal to the number of creatures you control") the model has no way to
+ * evaluate. It is a floor, chosen because 0 is the one answer that is always
+ * wrong: a 0/0 is destroyed by state-based actions the instant it resolves, so
+ * the card is a guaranteed blank in every game and drags the deck's measured
+ * win rate down (#38). 1 is wrong by a bounded amount, in the direction that
+ * lets the card be played.
+ */
+const VARIABLE_PT_FLOOR = 1
+
+/**
+ * Read a printed power or toughness.
+ *
+ * An ABSENT value is 0 - a noncreature has no power, and 0 is the right answer
+ * there. A value that is PRESENT but not a plain number is variable, and takes
+ * `VARIABLE_PT_FLOOR`. Scryfall prints those as a bare star, star arithmetic
+ * (`1+` star), a superscript star, or `?`; star arithmetic reaches its constant
+ * through parseInt, which stops at the `+`, and the rest are NaN.
+ */
 function parsePT(value: string | undefined): number {
   if (!value) return 0
-  if (value === '*') return 0
-  const num = parseInt(value, 10)
-  return isNaN(num) ? 0 : num
+  // A plain integer is printed exactly as it plays - including a real 0, which
+  // is what a 0/1 wall has and which the floor must not touch.
+  if (/^-?\d+$/.test(value)) return parseInt(value, 10)
+  const constant = parseInt(value, 10)
+  return isNaN(constant) ? VARIABLE_PT_FLOOR : Math.max(constant, VARIABLE_PT_FLOOR)
 }
 
 export function parseScryfallCard(card: ScryfallCard): SimCard {
@@ -72,7 +96,7 @@ export function parseScryfallCard(card: ScryfallCard): SimCard {
     keywords,
     producesColors,
     effects: parseEffects(oracleText, cardType),
-    isBasicLand: isBasicLand(card) || BASIC_LAND_ID_SET.has(card.id),
+    isBasicLand: isBasicLand(card) || isBasicLandId(card.id),
     isSnow: typeLine.toLowerCase().includes('snow'),
   }
 }

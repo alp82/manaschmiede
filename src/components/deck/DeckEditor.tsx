@@ -18,11 +18,11 @@ import { useT } from '../../lib/i18n'
 import { useDeckSounds } from '../../lib/sounds'
 import type { ScryfallCard } from '../../lib/scryfall/types'
 import { getCardName } from '../../lib/scryfall/types'
-import type { DeckCard, DeckDisplayCard } from '../../lib/deck-utils'
 import { isBasicLand } from '../../lib/deck-utils'
 import type { DeckSection } from '../../lib/section-plan'
 import type { BalanceAnalysis } from '../../lib/balance'
 import type { ChatMessage, PendingChanges } from '../../lib/useDeckChat'
+import type { DeckSurface } from '../../lib/deck-surface'
 import type { SectionFillState } from '../../lib/useSectionFill'
 import type { ManaColor } from '../../lib/mana-colors'
 import { buildLaneDescriptors, useDeckDisplay } from '../../lib/use-deck-sections'
@@ -54,19 +54,12 @@ interface DeckEditorFill {
 }
 
 interface DeckEditorProps {
-  cards: DeckCard[]
-  cardDataMap: Map<string, ScryfallCard>
-  /** Ordered, localized sections (id + label + targetCount + description). */
-  sections: DeckSection[]
-  /** Bucketed display cards keyed by section id (from useSectionCards). */
-  sectionCards: Record<string, DeckDisplayCard[]>
-  /** Read-only locked id set; the editor never owns a copy. */
-  lockedCardIds: Set<string>
-  editing: boolean
-  onAddCard: (card: ScryfallCard) => void
-  onToggleLock: (scryfallId: string) => void
-  onChangeQuantity: (scryfallId: string, qty: number) => void
-  onRemoveCard: (scryfallId: string) => void
+  /**
+   * The deck being edited plus every mutator, adapted from whichever container
+   * owns it — `deckSurfaceFromWizard` or `deckSurfaceFromLocalDeck`. The editor
+   * holds no deck state of its own and never learns which container it is in.
+   */
+  surface: DeckSurface
   chat: DeckEditorChat
   analysis: BalanceAnalysis | null
   /** Wizard-only fill controls. When absent, no fill UI / progress / Fill-All. */
@@ -88,18 +81,14 @@ interface DeckEditorProps {
   cardListSlot?: ReactNode
   /** Wizard-only ambient gradient colors. */
   ambientColors?: ManaColor[]
-  cardsLoading?: boolean
   /**
    * Route-specific extra lightbox actions, appended below the editor's own
    * quantity/remove controls. `close` dismisses the lightbox (the wizard's
    * "suggest replacement" closes it before sending the chat message).
    */
   renderExtraLightboxActions?: (card: ScryfallCard, close: () => void) => ReactNode
-  /** Undo/redo handlers; the keyboard shortcut forwards to these when present. */
-  onUndo?: () => void
-  onRedo?: () => void
   /**
-   * Appended to the search query (wizard supplies color/format/budget/rarity
+   * Appended to the search query (wizard supplies color/budget/rarity
    * constraints; the deck view searches unconstrained).
    */
   searchSuffix?: string
@@ -122,21 +111,13 @@ const TINT_MAP: Record<string, string> = {
 
 /**
  * Shared chat / cards / stats workspace for the deck wizard (fill mode) and the
- * deck view (edit mode). Holds NO deck-card state — every mutation routes out
- * through callbacks. Owns only UI/interaction state: search + filters + lightbox
- * + mobile tab + undo/redo keyboard handler + the remove-card confirm.
+ * deck view. Holds NO deck-card state — the deck and every mutator arrive as
+ * one `DeckSurface`, so the editor cannot tell which container it is in. Owns
+ * only UI/interaction state: search + filters + lightbox + mobile tab +
+ * undo/redo keyboard handler + the remove-card confirm.
  */
 export function DeckEditor({
-  cards,
-  cardDataMap,
-  sections,
-  sectionCards,
-  lockedCardIds,
-  editing,
-  onAddCard,
-  onToggleLock,
-  onChangeQuantity,
-  onRemoveCard,
+  surface,
   chat,
   analysis,
   fill,
@@ -144,15 +125,25 @@ export function DeckEditor({
   includeEmptySections,
   cardListSlot,
   ambientColors,
-  cardsLoading,
   renderExtraLightboxActions,
-  onUndo,
-  onRedo,
   searchSuffix = '',
   desktopBottomGap = 0,
 }: DeckEditorProps) {
   const t = useT()
   const sounds = useDeckSounds()
+
+  const {
+    cards,
+    cardDataMap,
+    sections,
+    sectionCards,
+    lockedCardIds,
+    cardsLoading,
+    addCard: onAddCard,
+    toggleLock: onToggleLock,
+    changeQuantity: onChangeQuantity,
+    removeCard: onRemoveCard,
+  } = surface
 
   const [mobileTab, setMobileTab] = useState<MobileTab>('cards')
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
@@ -182,18 +173,16 @@ export function DeckEditor({
     return () => window.removeEventListener('resize', update)
   }, [desktopBottomGap])
 
-  // Undo/redo keyboard shortcut — forwards to the route's history handlers.
-  // Refs keep the listener stable while always seeing the latest handlers.
-  const onUndoRef = useRef(onUndo)
-  onUndoRef.current = onUndo
-  const onRedoRef = useRef(onRedo)
-  onRedoRef.current = onRedo
+  // Undo/redo keyboard shortcut — forwards to the container's history. A ref
+  // keeps the listener stable while always seeing the current handlers.
+  const historyRef = useRef(surface.history)
+  historyRef.current = surface.history
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
         e.preventDefault()
-        if (e.shiftKey) onRedoRef.current?.()
-        else onUndoRef.current?.()
+        if (e.shiftKey) historyRef.current.redo()
+        else historyRef.current.undo()
       }
     }
     document.addEventListener('keydown', handleKeyDown)
@@ -286,7 +275,7 @@ export function DeckEditor({
   const renderLightboxActions = useCallback((card: ScryfallCard): ReactNode => {
     const close = () => setLightboxIndex(null)
     const extras = renderExtraLightboxActions?.(card, close)
-    const deckCard = editing ? cards.find((c) => c.scryfallId === card.id && c.zone === 'main') : undefined
+    const deckCard = cards.find((c) => c.scryfallId === card.id && c.zone === 'main')
 
     if (!deckCard && !extras) return null
 
@@ -328,7 +317,7 @@ export function DeckEditor({
         {extras}
       </div>
     )
-  }, [renderExtraLightboxActions, editing, cards, lockedCardIds, onChangeQuantity, sounds, t])
+  }, [renderExtraLightboxActions, cards, lockedCardIds, onChangeQuantity, sounds, t])
 
   // Build the wizard's per-section fill button(s). Lands adjust their basic
   // count; non-land sections fill via the AI, or top up via chat once seeded.
@@ -464,9 +453,9 @@ export function DeckEditor({
               locked={locked}
               isNew={chat.newCardIds.has(scryfallId)}
               onClick={() => openLightbox(card)}
-              onToggleLock={editing ? () => onToggleLock(scryfallId) : undefined}
-              onChangeQuantity={editing ? (qty) => onChangeQuantity(scryfallId, qty) : undefined}
-              onRemove={editing ? () => setPendingRemoveId(scryfallId) : undefined}
+              onToggleLock={() => onToggleLock(scryfallId)}
+              onChangeQuantity={(qty) => onChangeQuantity(scryfallId, qty)}
+              onRemove={() => setPendingRemoveId(scryfallId)}
             />
           ))}
         </div>
@@ -481,7 +470,6 @@ export function DeckEditor({
                 section={lane}
                 items={sectionCards[lane.id] ?? []}
                 newCardIds={chat.newCardIds}
-                editing={editing}
                 onOpenLightbox={openLightbox}
                 onToggleLock={onToggleLock}
                 onChangeQuantity={onChangeQuantity}
@@ -652,7 +640,7 @@ export function DeckEditor({
           currentIndex={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
           onNavigate={setLightboxIndex}
-          renderActions={editing || renderExtraLightboxActions ? renderLightboxActions : undefined}
+          renderActions={renderLightboxActions}
         />
       )}
 

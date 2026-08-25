@@ -57,7 +57,7 @@ import { describe, it, expect } from 'vitest'
 import {
   deriveStagedPlan,
   bucketPlanAgainstCards,
-  rebucketAssignments,
+  toPlanSections,
   structuralFieldsChanged,
   plansEqual,
   computeStaleLanes,
@@ -65,7 +65,7 @@ import {
   laneStatusFor,
 } from '../use-staged-rederive'
 import type { StagedPlan, StagedSection } from '../use-staged-rederive'
-import type { DeckDisplayCard } from '../deck-utils'
+import { bucketSectionCards, type DeckDisplayCard } from '../deck-utils'
 import type { DeckIntent } from '../deck-intent'
 import type { ScryfallCard } from '../scryfall/types'
 
@@ -232,6 +232,17 @@ describe('deriveStagedPlan - non-destructive bucketing (decision 3)', () => {
 
 describe('deriveStagedPlan - deficit math (decision 8)', () => {
   /**
+   * Every count here is in COPIES, not distinct cards (#42).
+   *
+   * `targetCount` is a share of the 60 slots left after the locked copies are
+   * subtracted - `deriveStagedPlan` measures `coreCardCount` as a quantity sum
+   * for exactly that reason. Counting the lane's DISTINCT cards against it
+   * subtracts cards from copies: a lane holding 5 playsets reads as 5 against a
+   * target of 16 and reports a deficit of 11, while the lane header right above
+   * it reads "10 / 16". The re-fill prompt then asks the model for 11 more
+   * cards and pushes the deck past 60.
+   */
+  /**
    * TC-4: a lane with targetCount 16 and 5 bucketed non-locked cards → deficit 11.
    * coreCardCount=12 (3 locked × qty4) → aggressive-creatures targetCount=16.
    * 5 non-locked creatures bucketed → deficit = 16 - 5 = 11.
@@ -262,8 +273,12 @@ describe('deriveStagedPlan - deficit math (decision 8)', () => {
     expect(lane!.targetCount).toBe(16)
     // Only the 5 non-locked creatures are in the lane (locked go to core bucket)
     expect(lane!.bucketedCards).toHaveLength(5)
-    // deficit = 16 - 5 = 11 (NOT 8 which would be wrong: 16 - 5 - 3 locked)
-    expect(lane!.deficit).toBe(11)
+    // 5 distinct cards at quantity 2 = 10 COPIES in the lane.
+    expect(lane!.bucketedCount).toBe(10)
+    // deficit = 16 - 10 = 6 (NOT 8, which would be 16 - 5 - 3 locked; and NOT
+    // 11, which counted the 5 distinct cards against a target measured in
+    // copies - see the describe block's note on #42).
+    expect(lane!.deficit).toBe(6)
   })
 
   /**
@@ -306,6 +321,92 @@ describe('deriveStagedPlan - deficit math (decision 8)', () => {
     expect(lane).toBeDefined()
     // deficit must be >= 0, never negative
     expect(lane!.deficit).toBeGreaterThanOrEqual(0)
+  })
+})
+
+// ─── The deficit and the lane header must count the same thing (#42) ─────────
+
+/**
+ * `bucketPlanAgainstCards` computes the deficit; `bucketSectionCards` (through
+ * `useSectionCards`) computes the number under the lane header. They used to
+ * disagree twice over - the deficit routed cards by role while the header read
+ * the deck's committed `sectionAssignments`, and the deficit counted distinct
+ * cards while the header summed quantities. The staged plan now publishes the
+ * `assignments` it bucketed with, so the deck view can render the proposal it
+ * is asking the user to review rather than the filing it is replacing.
+ */
+describe('staged deficit vs. lane header (#42)', () => {
+  const PLAN = [
+    {
+      id: 'aggressive-creatures',
+      label: 'Creatures',
+      description: '',
+      targetCount: 16,
+      role: 'creatures' as const,
+      scryfallHints: [],
+    },
+    {
+      id: 'burn-tricks',
+      label: 'Burn',
+      description: '',
+      targetCount: 6,
+      role: 'spells' as const,
+      scryfallHints: [],
+    },
+  ]
+
+  const DECK: DeckDisplayCard[] = [
+    makeDeckDisplayCard('core-1', 4, 'Creature — Goblin', '', true),
+    makeDeckDisplayCard('creature-1', 4, 'Creature — Goblin'),
+    makeDeckDisplayCard('creature-2', 3, 'Creature — Goblin'),
+    makeDeckDisplayCard('instant-1', 2, 'Instant'),
+    makeDeckDisplayCard('land-1', 20, 'Basic Land — Mountain'),
+  ]
+
+  it('D1: bucketedCount is the lane\'s COPIES, not its distinct cards', () => {
+    const plan = bucketPlanAgainstCards(DECK, PLAN, null)
+    const lane = plan.sections.find((s) => s.id === 'aggressive-creatures')!
+
+    expect(lane.bucketedCards).toHaveLength(2)
+    expect(lane.bucketedCount).toBe(7)
+    expect(lane.deficit).toBe(16 - 7)
+  })
+
+  it('D2: every lane\'s bucketedCount equals what the header renders from the same assignments', () => {
+    const plan = bucketPlanAgainstCards(DECK, PLAN, null)
+
+    // Exactly the call the deck route makes, handed the proposal's own
+    // assignments instead of the deck's committed ones.
+    const rendered = bucketSectionCards({
+      deckDisplay: DECK,
+      sections: PLAN,
+      sectionAssignments: plan.assignments,
+      lockedSource: new Set(['core-1']),
+      fallbackByType: true,
+    })
+
+    for (const section of plan.sections) {
+      const headerCount = (rendered[section.id] ?? []).reduce((sum, d) => sum + d.quantity, 0)
+      expect(headerCount).toBe(section.bucketedCount)
+    }
+  })
+
+  it('D3: a lane whose COPIES reach its target has answered the re-derive', () => {
+    // burn-tricks holds one instant at quantity 6 - one distinct card, six
+    // copies, against a target of 6. Counting distinct cards read this as a
+    // deficit of 5 and kept offering a re-fill for a lane that was full.
+    const deck: DeckDisplayCard[] = [
+      makeDeckDisplayCard('core-1', 4, 'Creature — Goblin', '', true),
+      makeDeckDisplayCard('instant-1', 6, 'Instant'),
+    ]
+    const plan = bucketPlanAgainstCards(deck, PLAN, null)
+    const lane = plan.sections.find((s) => s.id === 'burn-tricks')!
+
+    expect(lane.bucketedCount).toBe(6)
+    expect(lane.deficit).toBe(0)
+    expect(
+      laneStatusFor({ ...plan, staleLaneIds: ['burn-tricks'] }, 'burn-tricks'),
+    ).toBeUndefined()
   })
 })
 
@@ -373,32 +474,15 @@ describe('deriveStagedPlan - staleLaneIds', () => {
   })
 })
 
-// ─── rebucketAssignments (extracted pure core) ───────────────────────────────
+// ─── The assignments a plan publishes are what Accept commits (#42) ──────────
 
-describe('rebucketAssignments', () => {
-  /**
-   * Minimal ScryfallCard stub factory for rebucketAssignments tests.
-   * pickSectionForCard only reads `type_line` and `oracle_text`.
-   */
-  function makeCard(id: string, type_line: string, oracle_text = ''): ScryfallCard {
-    return {
-      id,
-      name: id,
-      lang: 'en',
-      layout: 'normal',
-      cmc: 2,
-      type_line,
-      oracle_text,
-      color_identity: [],
-      set: 'tst',
-      set_name: 'Test',
-      rarity: 'common',
-      collector_number: '1',
-      legalities: {},
-    }
-  }
-
-  /** Aggro plan sections for rebucket tests (matches TC fixtures). */
+/**
+ * `acceptPlan` used to re-derive the committed filing from
+ * `prev.sectionAssignments`, which walked only ids that were ALREADY filed. It
+ * now commits `StagedPlan.assignments` verbatim, so these tests cover what that
+ * map must contain for the commit to be faithful to the review screen.
+ */
+describe('StagedPlan.assignments (what acceptPlan commits)', () => {
   const AGGRO_PLAN = [
     { id: 'aggressive-creatures', role: 'creatures' as const, label: 'Creatures', description: '', targetCount: 16, weight: 16, scryfallHints: [] },
     { id: 'burn-tricks', role: 'spells' as const, label: 'Burn', description: '', targetCount: 6, weight: 6, scryfallHints: [] },
@@ -406,58 +490,73 @@ describe('rebucketAssignments', () => {
     { id: 'lands', role: 'lands' as const, label: 'Lands', description: '', targetCount: 22, weight: 0, scryfallHints: [] },
   ]
 
-  /**
-   * TC-R1: a card whose role maps to a new-plan lane lands in that lane.
-   */
-  it('TC-R1: creature card maps to aggressive-creatures lane', () => {
-    const creatureCard = makeCard('creature-a', 'Creature — Goblin')
-    const resolveCard = (id: string) => id === 'creature-a' ? creatureCard : undefined
-    const prevAssignments = { 'old-creatures': ['creature-a'] }
-    const result = rebucketAssignments(prevAssignments, AGGRO_PLAN, resolveCard)
-    expect(result['aggressive-creatures']).toContain('creature-a')
+  it('AS-a: a card that was NEVER filed still reaches its lane', () => {
+    // The regression: a card added while the deck had no section plan is never
+    // written to sectionAssignments (the `plan.length > 0` gate in $id.tsx), so
+    // the old re-derive never saw it. It rendered in a lane during review and
+    // dropped to 'unassigned' the moment Accept landed.
+    const deck: DeckDisplayCard[] = [makeDeckDisplayCard('never-filed', 2, 'Creature — Goblin')]
+    const plan = bucketPlanAgainstCards(deck, AGGRO_PLAN, null)
+
+    expect(plan.assignments['aggressive-creatures']).toContain('never-filed')
   })
 
-  /**
-   * TC-R2: a card whose role has NO lane in the new plan is dropped.
-   * Planeswalker type → preferredRoles=[] → pickSectionForCard returns null → dropped.
-   */
-  it('TC-R2: card with no matching role in the new plan is dropped', () => {
-    const planeswalkerCard = makeCard('misfit-a', 'Planeswalker — Chandra', '+1: Deal 1 damage.')
-    const resolveCard = (id: string) => id === 'misfit-a' ? planeswalkerCard : undefined
-    const prevAssignments = { 'old-section': ['misfit-a'] }
-    const result = rebucketAssignments(prevAssignments, AGGRO_PLAN, resolveCard)
-    // The card should not appear in any bucket
-    for (const ids of Object.values(result)) {
+  it('AS-b: lands are filed to the lands lane, not dropped', () => {
+    const deck: DeckDisplayCard[] = [makeDeckDisplayCard('mountain', 20, 'Basic Land — Mountain')]
+    const plan = bucketPlanAgainstCards(deck, AGGRO_PLAN, null)
+
+    expect(plan.assignments['lands']).toContain('mountain')
+  })
+
+  it('AS-c: a card whose role has no lane in the plan is filed nowhere', () => {
+    // Planeswalker → preferredRoles=[] → pickSectionForCard returns null. It
+    // surfaces in the unassigned bucket at render time instead.
+    const deck: DeckDisplayCard[] = [
+      makeDeckDisplayCard('misfit-a', 1, 'Planeswalker — Chandra', '+1: Deal 1 damage.'),
+    ]
+    const plan = bucketPlanAgainstCards(deck, AGGRO_PLAN, null)
+
+    for (const ids of Object.values(plan.assignments)) {
       expect(ids).not.toContain('misfit-a')
     }
+    expect(plan.unassigned).toContain('misfit-a')
   })
 
+  it('AS-d: every id is filed at most once', () => {
+    const deck: DeckDisplayCard[] = [
+      makeDeckDisplayCard('creature-1', 2, 'Creature — Goblin'),
+      makeDeckDisplayCard('instant-1', 2, 'Instant', 'Destroy target creature.'),
+      makeDeckDisplayCard('mountain', 20, 'Basic Land — Mountain'),
+    ]
+    const plan = bucketPlanAgainstCards(deck, AGGRO_PLAN, null)
+
+    const allIds = Object.values(plan.assignments).flat()
+    expect(new Set(allIds).size).toBe(allIds.length)
+  })
+})
+
+// ─── toPlanSections — derived fields must never be persisted ─────────────────
+
+describe('toPlanSections', () => {
   /**
-   * TC-R3: duplicate ids across old buckets de-dupe (first wins).
+   * `bucketedCards` / `bucketedCount` / `deficit` are re-derived on every
+   * render. Persisted into `deck.sectionPlan` they become a frozen snapshot of
+   * the cards as they were at Accept time. An inline destructure did this
+   * stripping once and silently missed `bucketedCount` when it was added — a
+   * spread carries excess properties past the compiler without complaint, so
+   * this is the test that catches the next one.
    */
-  it('TC-R3: duplicate ids across old buckets are de-duped (first wins)', () => {
-    const creatureCard = makeCard('creature-dup', 'Creature — Goblin')
-    const resolveCard = (id: string) => id === 'creature-dup' ? creatureCard : undefined
-    // Same id appears in two old buckets
-    const prevAssignments = {
-      'old-a': ['creature-dup'],
-      'old-b': ['creature-dup'],
+  it('TP-a: strips every derived field, keeping only the DeckSection keys', () => {
+    const deck: DeckDisplayCard[] = [makeDeckDisplayCard('creature-1', 2, 'Creature — Goblin')]
+    const plan = bucketPlanAgainstCards(deck, [
+      { id: 'aggressive-creatures', role: 'creatures' as const, label: 'Creatures', description: '', targetCount: 16, scryfallHints: [] },
+    ], null)
+
+    for (const section of toPlanSections(plan.sections)) {
+      expect(Object.keys(section).sort()).toEqual(
+        ['description', 'id', 'label', 'role', 'scryfallHints', 'targetCount'],
+      )
     }
-    const result = rebucketAssignments(prevAssignments, AGGRO_PLAN, resolveCard)
-    // Must appear exactly once in the result
-    const allIds = Object.values(result).flat()
-    const count = allIds.filter((id) => id === 'creature-dup').length
-    expect(count).toBe(1)
-  })
-
-  /**
-   * TC-R4: nextPlan.length === 0 → returns prevAssignments unchanged (the guard).
-   */
-  it('TC-R4: empty nextPlan → returns prevAssignments unchanged', () => {
-    const prevAssignments = { 'some-section': ['card-a', 'card-b'] }
-    const resolveCard = (_id: string) => undefined
-    const result = rebucketAssignments(prevAssignments, [], resolveCard)
-    expect(result).toBe(prevAssignments) // same reference, not a copy
   })
 })
 
@@ -611,8 +710,11 @@ describe('bucketPlanAgainstCards - rehydration path (G2: persisted plan, not fre
     const result = bucketPlanAgainstCards(deckCards, PERSISTED_PLAN, null)
     const lane = result.sections.find((s) => s.id === 'aggressive-creatures')
     expect(lane).toBeDefined()
-    // targetCount=16, 5 non-locked bucketed → deficit=11 (NOT 8 if locked incorrectly counted)
-    expect(lane!.deficit).toBe(11)
+    // targetCount=16; the 5 non-locked creatures are 10 COPIES → deficit=6.
+    // If the 12 locked copies were wrongly counted the lane would read 22 and
+    // the deficit would floor at 0, so the check still discriminates (#42).
+    expect(lane!.bucketedCount).toBe(10)
+    expect(lane!.deficit).toBe(6)
   })
 
   it('G2-c: misfits (Planeswalker) land in unassigned', () => {
@@ -668,11 +770,12 @@ describe('computeStaleLanes - new lanes', () => {
     role: 'creatures',
     scryfallHints: [],
     bucketedCards: bucketed,
+    bucketedCount: bucketed.length,
     deficit: Math.max(0, targetCount - bucketed.length),
   })
 
   it('SL-a: a lane with NO counterpart in the previous plan is stale', () => {
-    const previousPlan: StagedPlan = { sections: [lane('old-lane', 8, [])], unassigned: [], staleLaneIds: [] }
+    const previousPlan: StagedPlan = { sections: [lane('old-lane', 8, [])], unassigned: [], staleLaneIds: [], assignments: {} }
     expect(computeStaleLanes([lane('brand-new-lane', 8, [])], previousPlan)).toEqual(['brand-new-lane'])
   })
 
@@ -681,13 +784,14 @@ describe('computeStaleLanes - new lanes', () => {
       sections: [lane('aggressive-creatures', 16, []), lane('burn-tricks', 6, [])],
       unassigned: [],
       staleLaneIds: [],
+      assignments: {},
     }
     const swapped = [lane('control-creatures', 12, []), lane('counterspells', 8, [])]
     expect(computeStaleLanes(swapped, previousPlan)).toEqual(['control-creatures', 'counterspells'])
   })
 
   it('SL-c: an UNCHANGED lane surviving the swap is still not flagged', () => {
-    const previousPlan: StagedPlan = { sections: [lane('removal', 4, ['a'])], unassigned: [], staleLaneIds: [] }
+    const previousPlan: StagedPlan = { sections: [lane('removal', 4, ['a'])], unassigned: [], staleLaneIds: [], assignments: {} }
     expect(computeStaleLanes([lane('removal', 4, ['a'])], previousPlan)).toEqual([])
   })
 })
@@ -709,6 +813,7 @@ describe('laneStatusFor', () => {
     role: 'creatures',
     scryfallHints: [],
     bucketedCards: bucketed,
+    bucketedCount: bucketed.length,
     deficit: Math.max(0, targetCount - bucketed.length),
   })
 
@@ -716,6 +821,7 @@ describe('laneStatusFor', () => {
     sections,
     unassigned: [],
     staleLaneIds,
+    assignments: {},
   })
 
   it('LS-a: nothing staged → undefined for every lane', () => {
@@ -814,6 +920,7 @@ describe('refillCountFor (decision 5 - a stale lane re-fills to its DEFICIT)', (
       role: 'spells',
       scryfallHints: [],
       bucketedCards: bucketed,
+      bucketedCount: bucketed.length,
       deficit: Math.max(0, targetCount - bucketed.length),
     })
     const bucketed = Array.from({ length: 12 }, (_, i) => `spell-${i}`)
@@ -821,12 +928,13 @@ describe('refillCountFor (decision 5 - a stale lane re-fills to its DEFICIT)', (
       sections: [lane(12, bucketed)],
       unassigned: [],
       staleLaneIds: [],
+      assignments: {},
     }
     const shrunk = lane(8, bucketed)
     const staleLaneIds = computeStaleLanes([shrunk], previousPlan)
     expect(staleLaneIds).toContain('burn-tricks')
 
-    const status = laneStatusFor({ sections: [shrunk], unassigned: [], staleLaneIds }, 'burn-tricks')
+    const status = laneStatusFor({ sections: [shrunk], unassigned: [], staleLaneIds, assignments: {} }, 'burn-tricks')
     // Stale, so the lane dims — but refillCount null, so no button is offered
     // and nothing is sent. Falling back to targetCount here would ask for a
     // whole extra lane and push the deck past 60.

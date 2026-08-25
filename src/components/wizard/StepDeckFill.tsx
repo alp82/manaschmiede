@@ -7,22 +7,23 @@ import { DeckCardList } from '../DeckCardList'
 import { Button } from '../ui/Button'
 import { UndoRedoButtons } from '../ui/UndoRedoButtons'
 import { analyzeDeck } from '../../lib/balance'
-import { useDeckChat, type ChatMessage as DeckChatMessage, type PendingChanges } from '../../lib/useDeckChat'
+import { useDeckChat, type ChatMessage as DeckChatMessage } from '../../lib/useDeckChat'
 import { useSectionFill } from '../../lib/useSectionFill'
-import { BASIC_LAND_ID_SET } from '../../lib/basic-lands'
-import { pickSectionForCard } from '../../lib/section-plan'
+import { isBasicLandId } from '../../../convex/lib/basicLands'
+import { TARGET_DECK_SIZE } from '../../../convex/lib/deckRules'
 import { buildSearchFilterSuffix } from '../../lib/trait-mappings'
 import { useT, useI18n } from '../../lib/i18n'
 import type { ScryfallCard } from '../../lib/scryfall/types'
-import type { DeckCard, DeckZone } from '../../lib/deck-utils'
-import { isBasicLand, projectLocked, mergeCardsIntoDeck, getTotalCards } from '../../lib/deck-utils'
+import type { DeckCard } from '../../lib/deck-utils'
+import { isBasicLand, projectLocked, getTotalCards } from '../../lib/deck-utils'
 import { getCardName } from '../../lib/scryfall/types'
 import type { DeckSection } from '../../lib/section-plan'
 import type { WizardState, WizardAction } from '../../lib/wizard-state'
 import { getActiveColors, getSelectedColors, getSelectedCombo } from '../../lib/wizard-state'
 import { buildChatIntentContext } from '../../lib/deck-intent'
 import { sectionFillIntentFromWizard } from '../../lib/section-fill-intent'
-import { applySectionInheritance, buildSectionLabelMap } from '../../lib/section-assignment'
+import { buildSectionLabelMap } from '../../lib/section-assignment'
+import { deckSurfaceFromWizard } from '../../lib/deck-surface'
 import type { DeckFilters } from '../../lib/card-validation'
 import { useDeckSounds } from '../../lib/sounds'
 import { useDeckHistory } from '../../lib/use-deck-history'
@@ -58,15 +59,6 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
   }, [state.lockedCardIds, selectedCombo])
 
   const cards = useMemo(() => projectLocked(state.deckCards, lockedCardIds), [state.deckCards, lockedCardIds])
-
-  const handleDeckUpdate = useCallback((proposal: PendingChanges) => {
-    dispatch({
-      type: 'SET_DECK',
-      cards: projectLocked(proposal.resolvedCards, lockedCardIds),
-      name: proposal.deckName,
-      description: proposal.description,
-    })
-  }, [dispatch, lockedCardIds])
 
   const handleCardDataUpdate = useCallback((card: ScryfallCard) => {
     setCardDataMap((prev) => new Map(prev).set(card.id, card))
@@ -206,11 +198,11 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
     if (!canFillLands) return
     history.snapshot()
     // Remove existing basic lands so we can recalculate from scratch
-    const withoutBasicLands = state.deckCards.filter((c) => !BASIC_LAND_ID_SET.has(c.scryfallId))
+    const withoutBasicLands = state.deckCards.filter((c) => !isBasicLandId(c.scryfallId))
     const nonLandTotal = withoutBasicLands
       .filter((c) => c.zone === 'main')
       .reduce((s, c) => s + c.quantity, 0)
-    const landTarget = Math.max(60 - nonLandTotal, 0)
+    const landTarget = Math.max(TARGET_DECK_SIZE - nonLandTotal, 0)
     if (landTarget > 0) {
       dispatch({ type: 'SET_DECK', cards: withoutBasicLands })
       await fillLands(landTarget)
@@ -218,129 +210,13 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
     }
   }, [state.deckCards, canFillLands, fillLands, sounds, history, dispatch])
 
-  // ─── Chat (for free-text refinement) ─────────────────────────
-
-  const sectionLabels = useMemo(() => buildSectionLabelMap(sections), [sections])
-
-  // Allowed colors for AI enforcement = committed (selected) colors; fall back
-  // to active colors (selected + maybe) only when nothing is committed, so the
-  // wizard chat isn't fully unconstrained while colors are still being chosen.
-  const intentFilters = useMemo((): DeckFilters => {
-    const selected = getSelectedColors(state.colors)
-    const colors = selected.length > 0 ? selected : getActiveColors(state.colors)
-    return {
-      colors,
-      format: state.format,
-      budgetMin: state.budgetMin,
-      budgetMax: state.budgetMax,
-      rarities: state.rarityFilter,
-    }
-  }, [state.colors, state.format, state.budgetMin, state.budgetMax, state.rarityFilter])
-
-  const intentContext = useMemo(
-    () => buildChatIntentContext(
-      intentFilters.colors,
-      state.selectedArchetypes,
-      state.selectedTraits,
-      {
-        customStrategy: state.customStrategy || undefined,
-        format: state.format,
-        budgetMin: state.budgetMin,
-        budgetMax: state.budgetMax,
-      },
-    ),
-    [intentFilters.colors, state.selectedArchetypes, state.selectedTraits, state.customStrategy, state.format, state.budgetMin, state.budgetMax],
-  )
-
-  const {
-    messages,
-    isLoading: chatLoading,
-    pending,
-    newCardIds,
-    sendMessage,
-    applyChanges,
-    discardChanges,
-  } = useDeckChat({
-    cards: state.deckCards,
-    cardDataMap,
-    deckDescription: state.deckDescription,
-    onDeckUpdate: handleDeckUpdate,
-    onCardDataUpdate: handleCardDataUpdate,
-    lockedCardIds,
-    sectionAssignments: state.sectionAssignments,
-    sectionLabels,
-    initialMessages: state.chatMessages,
-    onMessagesChange: handleChatMessagesChange,
-    intentFilters,
-    intentContext,
-  })
-
-  const applyChangesWithSound = useCallback(() => {
-    history.snapshot()
-
-    if (pending?.changes) {
-      const next = applySectionInheritance(state.sectionAssignments, pending.changes, {
-        targetSection: pending.targetSection,
-        resolveCard: (id) => cardDataMap.get(id),
-        sections,
-      })
-
-      // Dispatch only sections whose assignments actually changed.
-      for (const [sectionId, ids] of Object.entries(next)) {
-        const before = state.sectionAssignments[sectionId] ?? []
-        const changed = before.length !== ids.length || before.some((id, i) => ids[i] !== id)
-        if (changed) {
-          dispatch({ type: 'ASSIGN_SECTION', sectionId, scryfallIds: ids })
-        }
-      }
-    }
-
-    applyChanges()
-    sounds.aiShuffle()
-  }, [applyChanges, sounds, history, pending, state.sectionAssignments, dispatch, cardDataMap, sections])
-
   // ─── Card Data Fetching ──────────────────────────────────────
 
   const { cardsLoading } = useDeckCardData(state.deckCards, cardDataMap, setCardDataMap, { scryfallLang })
 
-  // ─── Search suffix ───────────────────────────────────────────
-
-  const searchSuffix = useMemo(() => {
-    const activeColors = getActiveColors(state.colors)
-    return buildSearchFilterSuffix(activeColors, {
-      format: state.format,
-      budgetMin: state.budgetMin,
-      budgetMax: state.budgetMax,
-      rarities: state.rarityFilter,
-    })
-  }, [state.colors, state.format, state.budgetMin, state.budgetMax, state.rarityFilter])
-
-  // ─── Computed Values ─────────────────────────────────────────
-
-  const analysis = useMemo(() => {
-    if (state.deckCards.length === 0) return null
-    return analyzeDeck(state.deckCards, cardDataMap, state.format, t)
-  }, [state.deckCards, cardDataMap, state.format, t])
+  // ─── Section display ─────────────────────────────────────────
 
   const deckDisplay = useDeckDisplay(cards, cardDataMap)
-
-  const mainCount = getTotalCards(state.deckCards, 'main')
-
-  const prevMainCount = useRef(mainCount)
-  useEffect(() => {
-    if (mainCount === 60 && prevMainCount.current !== 60) {
-      sounds.deckComplete()
-    }
-    prevMainCount.current = mainCount
-  }, [mainCount, sounds])
-
-  const handleFinishClick = () => {
-    if (mainCount !== 60) {
-      setFinishBlockedOpen(true)
-      return
-    }
-    onFinish(cardDataMap)
-  }
 
   // Build section card assignments for display. The core lane is synthesized
   // here (target = coreCardCount) so DeckEditor can show its progress.
@@ -366,6 +242,126 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
     return [coreSection, ...sections]
   }, [selectedCombo, sections, coreCardCount, t])
 
+  // ─── Deck surface ────────────────────────────────────────────
+  // The one seam the editor and the chat ledger both write through. `plan` is
+  // what cards get filed into; `sections` is what renders, and prepends the
+  // synthetic core lane the surface never files into.
+
+  const surface = useMemo(
+    () => deckSurfaceFromWizard({
+      state,
+      dispatch,
+      history,
+      cards,
+      lockedCardIds,
+      plan: sections,
+      sections: editorSections,
+      sectionCards,
+      cardDataMap,
+      cardsLoading,
+      onCardData: handleCardDataUpdate,
+    }),
+    [state, dispatch, history, cards, lockedCardIds, sections, editorSections, sectionCards, cardDataMap, cardsLoading, handleCardDataUpdate],
+  )
+
+  // ─── Chat (for free-text refinement) ─────────────────────────
+
+  const sectionLabels = useMemo(() => buildSectionLabelMap(sections), [sections])
+
+  // Allowed colors for AI enforcement = committed (selected) colors; fall back
+  // to active colors (selected + maybe) only when nothing is committed, so the
+  // wizard chat isn't fully unconstrained while colors are still being chosen.
+  const intentFilters = useMemo((): DeckFilters => {
+    const selected = getSelectedColors(state.colors)
+    const colors = selected.length > 0 ? selected : getActiveColors(state.colors)
+    return {
+      colors,
+      budgetMin: state.budgetMin,
+      budgetMax: state.budgetMax,
+      rarities: state.rarityFilter,
+    }
+  }, [state.colors, state.budgetMin, state.budgetMax, state.rarityFilter])
+
+  const intentContext = useMemo(
+    () => buildChatIntentContext(
+      intentFilters.colors,
+      state.selectedArchetypes,
+      state.selectedTraits,
+      {
+        customStrategy: state.customStrategy || undefined,
+        budgetMin: state.budgetMin,
+        budgetMax: state.budgetMax,
+      },
+    ),
+    [intentFilters.colors, state.selectedArchetypes, state.selectedTraits, state.customStrategy, state.budgetMin, state.budgetMax],
+  )
+
+  const {
+    messages,
+    isLoading: chatLoading,
+    pending,
+    newCardIds,
+    sendMessage,
+    applyChanges,
+    discardChanges,
+  } = useDeckChat({
+    cards: state.deckCards,
+    cardDataMap,
+    deckDescription: state.deckDescription,
+    onDeckUpdate: surface.applyProposal,
+    onCardDataUpdate: handleCardDataUpdate,
+    lockedCardIds,
+    sectionAssignments: state.sectionAssignments,
+    sectionLabels,
+    initialMessages: state.chatMessages,
+    onMessagesChange: handleChatMessagesChange,
+    intentFilters,
+    intentContext,
+  })
+
+  // Section inheritance and the undo snapshot both live in the surface's
+  // applyProposal, which the chat ledger calls — all this adds is the sound.
+  const applyChangesWithSound = useCallback(() => {
+    applyChanges()
+    sounds.aiShuffle()
+  }, [applyChanges, sounds])
+
+  // ─── Search suffix ───────────────────────────────────────────
+
+  const searchSuffix = useMemo(() => {
+    const activeColors = getActiveColors(state.colors)
+    return buildSearchFilterSuffix(activeColors, {
+      budgetMin: state.budgetMin,
+      budgetMax: state.budgetMax,
+      rarities: state.rarityFilter,
+    })
+  }, [state.colors, state.budgetMin, state.budgetMax, state.rarityFilter])
+
+  // ─── Computed Values ─────────────────────────────────────────
+
+  const analysis = useMemo(() => {
+    if (state.deckCards.length === 0) return null
+    return analyzeDeck(state.deckCards, cardDataMap, t)
+  }, [state.deckCards, cardDataMap, t])
+
+  const mainCount = getTotalCards(state.deckCards, 'main')
+
+  const prevMainCount = useRef(mainCount)
+  useEffect(() => {
+    if (mainCount === TARGET_DECK_SIZE && prevMainCount.current !== TARGET_DECK_SIZE) {
+      sounds.deckComplete()
+    }
+    prevMainCount.current = mainCount
+  }, [mainCount, sounds])
+
+  const handleFinishClick = () => {
+    if (mainCount !== TARGET_DECK_SIZE) {
+      setFinishBlockedOpen(true)
+      return
+    }
+    onFinish(cardDataMap)
+  }
+
   // Count how many sections still need filling
   const unfilledCount = sections.filter((s) => {
     if (s.id === 'lands') return false
@@ -381,56 +377,15 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
 
   // Check if "Adjust lands" would actually change anything
   const landsNeedAdjustment = useMemo(() => {
-    const currentLands = state.deckCards.filter((c) => BASIC_LAND_ID_SET.has(c.scryfallId) && c.zone === 'main')
+    const currentLands = state.deckCards.filter((c) => isBasicLandId(c.scryfallId) && c.zone === 'main')
     if (currentLands.length === 0) return true // no lands yet - show "Auto-fill"
     const nonLandTotal = state.deckCards
-      .filter((c) => c.zone === 'main' && !BASIC_LAND_ID_SET.has(c.scryfallId))
+      .filter((c) => c.zone === 'main' && !isBasicLandId(c.scryfallId))
       .reduce((s, c) => s + c.quantity, 0)
-    const targetTotal = Math.max(60 - nonLandTotal, 0)
+    const targetTotal = Math.max(TARGET_DECK_SIZE - nonLandTotal, 0)
     const currentTotal = currentLands.reduce((s, c) => s + c.quantity, 0)
     return currentTotal !== targetTotal
   }, [state.deckCards])
-
-  // ─── Adapter callbacks ───────────────────────────────────────
-
-  const handleAddCard = useCallback((card: ScryfallCard) => {
-    history.snapshot()
-    handleCardDataUpdate(card)
-    const { merged, addedIds } = mergeCardsIntoDeck(
-      projectLocked(state.deckCards, lockedCardIds),
-      [{ scryfallId: card.id, quantity: 1 }],
-      (id) => BASIC_LAND_ID_SET.has(id),
-    )
-    dispatch({ type: 'SET_DECK', cards: merged })
-    // Auto-assign to its best-fit section so it doesn't fall into "unassigned".
-    if (addedIds.includes(card.id) && sections.length > 0) {
-      const sectionId = pickSectionForCard(card, sections)
-      if (sectionId) {
-        const current = state.sectionAssignments[sectionId] ?? []
-        if (!current.includes(card.id)) {
-          dispatch({ type: 'ASSIGN_SECTION', sectionId, scryfallIds: [...current, card.id] })
-        }
-      }
-    }
-  }, [state.deckCards, state.sectionAssignments, sections, dispatch, history, handleCardDataUpdate])
-
-  const handleChangeQuantity = useCallback((scryfallId: string, qty: number) => {
-    history.snapshot()
-    const updated = state.deckCards.map((c) =>
-      c.scryfallId === scryfallId ? { ...c, quantity: qty } : c,
-    )
-    dispatch({ type: 'SET_DECK', cards: updated })
-  }, [state.deckCards, history, dispatch])
-
-  const handleRemoveCard = useCallback((scryfallId: string) => {
-    history.snapshot()
-    const updated = state.deckCards.filter((c) => c.scryfallId !== scryfallId)
-    dispatch({ type: 'SET_DECK', cards: updated })
-  }, [state.deckCards, history, dispatch])
-
-  const handleToggleLock = useCallback((scryfallId: string) => {
-    dispatch({ type: 'TOGGLE_LOCK', scryfallId })
-  }, [dispatch])
 
   const findCardSection = useCallback((scryfallId: string): string | null => {
     for (const [sectionId, ids] of Object.entries(state.sectionAssignments)) {
@@ -473,31 +428,20 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
 
   // ─── Stats rail (Simulation + flat card list) ────────────────
 
-  // DeckCardList is zone-aware; the wizard's mutators are zone-agnostic (main
-  // only), so adapt them the way the edit route does (changeQuantityMain etc.).
-  const slotUpdateQuantity = useCallback((scryfallId: string, _zone: DeckZone, qty: number) => {
-    handleChangeQuantity(scryfallId, qty)
-  }, [handleChangeQuantity])
-
-  const slotRemoveCard = useCallback((scryfallId: string, _zone: DeckZone) => {
-    handleRemoveCard(scryfallId)
-  }, [handleRemoveCard])
-
   // Both panels read the projected `cards` (carry `locked`) so DeckCardList can
   // render the lock slab; raw state.deckCards don't carry that flag. deckId=""
   // is a safe sentinel since the unsaved wizard deck isn't in storage.
   const cardListSlot = (
     <>
-      <SimulationPanel deckId="" deckName={state.deckName} cards={cards} cardDataMap={cardDataMap} />
+      <SimulationPanel deckId="" deckName={surface.name} cards={surface.cards} cardDataMap={cardDataMap} />
       <div className="mt-3 border border-hairline bg-ash-800/40 p-3">
         <p className="mb-2 font-mono text-mono-label uppercase tracking-mono-label text-cream-300">{t('deck.cardList')}</p>
         <DeckCardList
-          cards={cards}
+          cards={surface.cards}
           cardData={cardDataMap}
-          zone="main"
-          onUpdateQuantity={slotUpdateQuantity}
-          onRemoveCard={slotRemoveCard}
-          onToggleLock={handleToggleLock}
+          onUpdateQuantity={surface.changeQuantity}
+          onRemoveCard={surface.removeCard}
+          onToggleLock={surface.toggleLock}
         />
       </div>
     </>
@@ -510,22 +454,19 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
       {/* Header */}
       <header className="mb-6 flex flex-col gap-4 border-b border-hairline pb-5 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0 flex-1">
-          <span className="font-mono text-mono-marginal uppercase leading-none tracking-mono-marginal text-ink-red-bright">
-            {state.format.toUpperCase()}
-          </span>
           <input
             type="text"
-            value={state.deckName}
-            onChange={(e) => dispatch({ type: 'SET_DECK_METADATA', name: e.target.value })}
+            value={surface.name}
+            onChange={(e) => surface.setName(e.target.value)}
             onKeyDown={(e) => { if (e.key.length === 1) sounds.typing() }}
             placeholder={t('deck.namePlaceholder')}
             aria-label={t('deck.namePlaceholder')}
-            className="mt-2 w-full border-0 border-b border-hairline bg-transparent font-display text-2xl uppercase leading-tight tracking-display text-cream-100 placeholder-cream-500 focus:border-cream-200 focus:outline-none sm:text-display-section"
+            className="w-full border-0 border-b border-hairline bg-transparent font-display text-2xl uppercase leading-tight tracking-display text-cream-100 placeholder-cream-500 focus:border-cream-200 focus:outline-none sm:text-display-section"
           />
           <input
             type="text"
-            value={state.deckDescription}
-            onChange={(e) => dispatch({ type: 'SET_DECK_METADATA', description: e.target.value })}
+            value={surface.description}
+            onChange={(e) => surface.setDescription(e.target.value)}
             onKeyDown={(e) => { if (e.key.length === 1) sounds.typing() }}
             placeholder={t('deck.descriptionPlaceholder')}
             aria-label={t('deck.descriptionPlaceholder')}
@@ -535,10 +476,10 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">
           <UndoRedoButtons
             show={mainCount > 0}
-            canUndo={history.canUndo}
-            canRedo={history.canRedo}
-            onUndo={() => { history.undo(); sounds.uiClick() }}
-            onRedo={() => { history.redo(); sounds.uiClick() }}
+            canUndo={surface.history.canUndo}
+            canRedo={surface.history.canRedo}
+            onUndo={() => { surface.history.undo(); sounds.uiClick() }}
+            onRedo={() => { surface.history.redo(); sounds.uiClick() }}
             undoLabel={t('action.undo')}
             redoLabel={t('action.redo')}
           />
@@ -546,20 +487,8 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
       </header>
 
       <DeckEditor
-        editing
-        cards={cards}
-        cardDataMap={cardDataMap}
-        sections={editorSections}
-        sectionCards={sectionCards}
-        lockedCardIds={lockedCardIds}
-        onAddCard={handleAddCard}
-        onToggleLock={handleToggleLock}
-        onChangeQuantity={handleChangeQuantity}
-        onRemoveCard={handleRemoveCard}
-        onUndo={history.undo}
-        onRedo={history.redo}
+        surface={surface}
         analysis={analysis}
-        cardsLoading={cardsLoading}
         cardListSlot={cardListSlot}
         ambientColors={ambientColors}
         searchSuffix={searchSuffix}
@@ -596,7 +525,7 @@ export function StepDeckFill({ state, dispatch, onBack, onFinish, onReset }: Ste
             {t('wizard.back')}
           </Button>
           <div className="flex items-center gap-4">
-            <span className={`font-mono text-mono-marginal tabular-nums ${mainCount === 60 ? 'text-cream-100' : 'text-cream-400'}`}>
+            <span className={`font-mono text-mono-marginal tabular-nums ${mainCount === TARGET_DECK_SIZE ? 'text-cream-100' : 'text-cream-400'}`}>
               {t('wizard.cardCountOfTarget', { count: mainCount })}
             </span>
             <Button variant="primary" size="lg" onClick={handleFinishClick}>

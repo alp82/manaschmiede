@@ -1,20 +1,25 @@
 import { useState, useCallback, useRef, useMemo } from 'react'
-import { getCardByName, getLocalizedCardData } from './scryfall/client'
+import { getCardByName } from './scryfall/client'
+import { cardSupply } from './scryfall/card-supply'
 import { useI18n } from './i18n'
 import { getCardRejectionReason, type DeckFilters } from './card-validation'
 import { validateProposedCards } from './chat-validation'
 import type { IntentContext } from '../../convex/lib/intentContext'
 import type { ScryfallCard } from './scryfall/types'
-import { getCardName } from './scryfall/types'
 import type { DeckCard } from './deck-utils'
-import { BASIC_LAND_IDS, BASIC_LAND_NAMES, BASIC_LAND_ID_SET } from './basic-lands'
-import { computeDeckDiff, applyDelta, resolveRemoveIds, enforceDeltaSize } from './deck-diff'
+import { BASIC_LAND_ID_BY_NAME, isBasicLandId } from '../../convex/lib/basicLands'
+import {
+  computeDeckDiff,
+  applyDelta,
+  resolveRemoveIds,
+  enforceDeckCards,
+  enforceDeltaSize,
+} from './deck-diff'
 import { buildCardSectionLabels } from './section-assignment'
 import { analyzeComposition, summarizeComposition } from './synergy-validation'
 import type { CardChange } from './deck-chat-types'
 export type { CardChange } from './deck-chat-types'
 
-const TARGET_DECK_SIZE = 60
 
 function getColorIdentity(resolvedMap: Map<string, { card: ScryfallCard; quantity: number }>): string[] {
   const colors = new Set<string>()
@@ -27,59 +32,49 @@ function getColorIdentity(resolvedMap: Map<string, { card: ScryfallCard; quantit
   return colors.size > 0 ? Array.from(colors) : ['G'] // fallback to green
 }
 
-async function fillLands(
-  resolvedCards: DeckCard[],
-  resolvedMap: Map<string, { card: ScryfallCard; quantity: number }>,
-  onCardDataUpdate: (card: ScryfallCard) => void,
+/**
+ * Rebuild the resolved map against a post-enforcement card list, so every trim
+ * and every padded basic land reaches the ledger.
+ *
+ * Card data comes from the prior map first, then the deck's cached data, then
+ * one batched lookup by canonical id - cards the user already had are
+ * guaranteed to be cached (the send is gated behind `cardsLoading`), so a
+ * failed localized fetch costs the ledger a row, not the cards.
+ *
+ * Returns the map plus `fetched`, the cards resolved here for the first time,
+ * which the caller still has to push into the render batch.
+ */
+async function resolveMapForCards(
+  cards: DeckCard[],
+  prior: Map<string, { card: ScryfallCard; quantity: number }>,
+  cardDataMap: Map<string, ScryfallCard>,
   scryfallLang: string,
-): Promise<{ cards: DeckCard[]; added: Array<{ name: string; scryfallId: string; quantity: number; scryfallCard?: ScryfallCard }> }> {
-  const totalCards = resolvedCards.reduce((s, c) => s + c.quantity, 0)
-  if (totalCards >= TARGET_DECK_SIZE) return { cards: resolvedCards, added: [] }
+): Promise<{
+  resolved: Map<string, { card: ScryfallCard; quantity: number }>
+  fetched: ScryfallCard[]
+}> {
+  const isKnown = (id: string) => prior.has(id) || cardDataMap.has(id)
 
-  const deficit = TARGET_DECK_SIZE - totalCards
-  const deckColors = getColorIdentity(resolvedMap)
-  const landsPerColor = Math.floor(deficit / deckColors.length)
-  const remainder = deficit % deckColors.length
+  const fetched = await cardSupply
+    .cardsById(
+      cards.filter((c) => !isKnown(c.scryfallId)).map((c) => c.scryfallId),
+      scryfallLang,
+    )
+    .catch(() => new Map<string, ScryfallCard>())
 
-  const addedLands: Array<{ name: string; scryfallId: string; quantity: number; scryfallCard?: ScryfallCard }> = []
-  const updatedCards = [...resolvedCards]
-
-  for (let i = 0; i < deckColors.length; i++) {
-    const color = deckColors[i]
-    const landId = BASIC_LAND_IDS[color]
-    if (!landId) continue
-
-    const qty = landsPerColor + (i < remainder ? 1 : 0)
-    if (qty <= 0) continue
-
-    // Check if this land is already in the deck
-    const existingIdx = updatedCards.findIndex((c) => c.scryfallId === landId)
-    if (existingIdx >= 0) {
-      updatedCards[existingIdx] = {
-        ...updatedCards[existingIdx],
-        quantity: updatedCards[existingIdx].quantity + qty,
-      }
-    } else {
-      updatedCards.push({ scryfallId: landId, quantity: qty, zone: 'main' })
-    }
-
-    // Resolve the land card data
-    // Fetch card data directly by ID (not by name) to avoid promo printings
-    const landCard = await getLocalizedCardData(undefined, landId, undefined, undefined, scryfallLang)
-    if (landCard) {
-      onCardDataUpdate(landCard)
-      addedLands.push({
-        name: getCardName(landCard),
-        scryfallId: landCard.id,
-        quantity: qty,
-        scryfallCard: landCard,
-      })
-    } else {
-      addedLands.push({ name: color + ' Land', scryfallId: landId, quantity: qty })
-    }
+  const resolved = new Map<string, { card: ScryfallCard; quantity: number }>()
+  const firstSeen: ScryfallCard[] = []
+  for (const c of cards) {
+    const known = isKnown(c.scryfallId)
+    const card =
+      prior.get(c.scryfallId)?.card ??
+      cardDataMap.get(c.scryfallId) ??
+      fetched.get(c.scryfallId)
+    if (!card) continue
+    if (!known) firstSeen.push(card)
+    resolved.set(c.scryfallId, { card, quantity: c.quantity })
   }
-
-  return { cards: updatedCards, added: addedLands }
+  return { resolved, fetched: firstSeen }
 }
 
 export interface ChatMessage {
@@ -249,7 +244,7 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
         type ResolveOutcome =
           | { intent: 'question'; answer: string }
           | {
-              intent: 'change'
+              intent: 'rebuild'
               deckResult: GeneratedDeckShape
               resolvedCards: DeckCard[]
               resolvedMap: Map<string, { card: ScryfallCard; quantity: number }>
@@ -279,7 +274,6 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
             customStrategy: intentContext?.customStrategy,
             budgetMin: intentContext?.budgetMin ?? undefined,
             budgetMax: intentContext?.budgetMax ?? undefined,
-            format: intentContext?.format,
           })
 
           if (result.intent === 'question' && result.answer) {
@@ -295,11 +289,19 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
             const batchCardData: ScryfallCard[] = []
 
             const addCards: Array<{ scryfallId: string; card: ScryfallCard; quantity: number; isBasicLand: boolean }> = []
+            // Canonical basic-land IDs avoid printing mismatches in the diff.
+            // Resolve them all up front so the loop below never awaits a card
+            // lookup one at a time.
+            const deltaLands = await cardSupply
+              .cardsById(
+                delta.add.map((entry) => BASIC_LAND_ID_BY_NAME[entry.name]),
+                scryfallLang,
+              )
+              .catch(() => new Map<string, ScryfallCard>())
             for (const entry of delta.add) {
-              // Canonical basic-land IDs avoid printing mismatches in the diff.
-              const canonicalId = BASIC_LAND_NAMES[entry.name]
+              const canonicalId = BASIC_LAND_ID_BY_NAME[entry.name]
               if (canonicalId) {
-                const landCard = await getLocalizedCardData(undefined, canonicalId, undefined, undefined, scryfallLang)
+                const landCard = deltaLands.get(canonicalId)
                 if (landCard) {
                   batchCardData.push(landCard)
                   addCards.push({ scryfallId: canonicalId, card: landCard, quantity: entry.quantity, isBasicLand: true })
@@ -314,7 +316,7 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
                   scryfallId: scryfallCard.id,
                   card: scryfallCard,
                   quantity: entry.quantity,
-                  isBasicLand: BASIC_LAND_ID_SET.has(scryfallCard.id),
+                  isBasicLand: isBasicLandId(scryfallCard.id),
                 })
               } catch {
                 // Skip unresolvable cards.
@@ -337,28 +339,14 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
             // Rebuild the resolved map against the post-enforcement list so any
             // padded basic land (or trimmed copy) is reflected for validation
             // and the diff.
-            const resolvedMap = new Map<string, { card: ScryfallCard; quantity: number }>()
-            for (const rc of sizedCards) {
-              const prior = applied.resolvedMap.get(rc.scryfallId)
-              if (prior) {
-                resolvedMap.set(rc.scryfallId, { card: prior.card, quantity: rc.quantity })
-                continue
-              }
-              // Cards the user already had are guaranteed to be in cardDataMap
-              // (the send is gated behind cardsLoading). Use the cached entry
-              // before fetching so padded/trimmed basics always appear in the
-              // ledger even when the localized fetch fails.
-              const cached = cardDataMap.get(rc.scryfallId)
-              if (cached) {
-                resolvedMap.set(rc.scryfallId, { card: cached, quantity: rc.quantity })
-                continue
-              }
-              const landCard = await getLocalizedCardData(undefined, rc.scryfallId, undefined, undefined, scryfallLang)
-              if (landCard) {
-                batchCardData.push(landCard)
-                resolvedMap.set(rc.scryfallId, { card: landCard, quantity: rc.quantity })
-              }
-            }
+            const sized = await resolveMapForCards(
+              sizedCards,
+              applied.resolvedMap,
+              cardDataMap,
+              scryfallLang,
+            )
+            const resolvedMap = sized.resolved
+            batchCardData.push(...sized.fetched)
 
             return {
               intent: 'delta',
@@ -376,9 +364,18 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
           const resolvedMap = new Map<string, { card: ScryfallCard; quantity: number }>()
           const batchCardData: ScryfallCard[] = []
 
+          // Use canonical IDs for basic lands to avoid printing mismatches in
+          // diff. A full deck answer can name every basic, so resolve them in
+          // one batch before walking the list.
+          const deckLands = await cardSupply
+            .cardsById(
+              deckResult.cards.map((card) => BASIC_LAND_ID_BY_NAME[card.name]),
+              scryfallLang,
+            )
+            .catch(() => new Map<string, ScryfallCard>())
+
           for (const card of deckResult.cards) {
-            // Use canonical IDs for basic lands to avoid printing mismatches in diff
-            const canonicalId = BASIC_LAND_NAMES[card.name]
+            const canonicalId = BASIC_LAND_ID_BY_NAME[card.name]
             if (canonicalId) {
               const existing = resolvedMap.get(canonicalId)
               if (existing) {
@@ -387,7 +384,7 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
                 if (rc) rc.quantity += card.quantity
               } else {
                 resolvedCards.push({ scryfallId: canonicalId, quantity: card.quantity, zone: 'main' })
-                const landCard = await getLocalizedCardData(undefined, canonicalId, undefined, undefined, scryfallLang)
+                const landCard = deckLands.get(canonicalId)
                 if (landCard) {
                   batchCardData.push(landCard)
                   resolvedMap.set(canonicalId, { card: landCard, quantity: card.quantity })
@@ -417,7 +414,7 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
           }
 
           return {
-            intent: 'change',
+            intent: 'rebuild',
             deckResult,
             resolvedCards,
             resolvedMap,
@@ -438,11 +435,11 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
           return
         }
 
-        // Both change and delta resolve to a card map that the intent/synergy
+        // Both rebuild and delta resolve to a card map that the intent/synergy
         // gate vets; on rejection we re-prompt once with the same machinery.
         // Delta judges only the cards it added (the rest of the deck is the
         // user's existing, deliberate choices).
-        if (outcome.intent === 'change' || outcome.intent === 'delta') {
+        if (outcome.intent === 'rebuild' || outcome.intent === 'delta') {
           const judgeIds =
             outcome.intent === 'delta'
               ? new Set(
@@ -492,8 +489,8 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
           return
         }
 
-        // After possible retry, outcome must be 'change' to continue.
-        if (outcome.intent !== 'change') {
+        // After possible retry, outcome must be 'rebuild' to continue.
+        if (outcome.intent !== 'rebuild') {
           // Defensive: classifier flipped between attempts. Fall back to a
           // text answer instead of pretending we got a deck.
           throw new Error('Chat returned an answer instead of a deck')
@@ -509,61 +506,35 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
 
         if (abortRef.current) return
 
-        // Trim if over 60 (safety net after resolution)
-        let resolvedTotal = resolvedCards.reduce((s, c) => s + c.quantity, 0)
-        if (resolvedTotal > TARGET_DECK_SIZE) {
-          // Reduce non-locked, non-land cards from the end
-          for (let i = resolvedCards.length - 1; i >= 0 && resolvedTotal > TARGET_DECK_SIZE; i--) {
-            const rc = resolvedCards[i]
-            if (lockedCardIds?.has(rc.scryfallId)) continue
-            const data = resolvedMap.get(rc.scryfallId)
-            const isLand = data?.card.type_line?.includes('Land')
-            if (isLand) continue
-            const reduce = Math.min(rc.quantity - 1, resolvedTotal - TARGET_DECK_SIZE)
-            if (reduce > 0) {
-              rc.quantity -= reduce
-              resolvedTotal -= reduce
-              const mapEntry = resolvedMap.get(rc.scryfallId)
-              if (mapEntry) mapEntry.quantity = rc.quantity
-            }
-          }
-          // Remove zero-quantity
-          const filtered = resolvedCards.filter((c) => c.quantity > 0)
-          resolvedCards.length = 0
-          resolvedCards.push(...filtered)
-        }
+        // Force exactly 60 (safety net after resolution): trim whatever the
+        // model overshot, then pad with basic lands on the deck's colors. Both
+        // halves live in convex/lib/deckRules.ts under the 'rebuild' policy, so
+        // a chat rebuild and a server generate shape a deck the same way.
+        const sizedCards = enforceDeckCards(resolvedCards, {
+          trimPolicy: 'rebuild',
+          colors: getColorIdentity(resolvedMap),
+          lockedIds: lockedCardIds,
+          isLand: (id) => resolvedMap.get(id)?.card.type_line?.includes('Land') ?? false,
+        })
 
-        // Auto-fill basic lands if deck is under 60 cards
-        const { cards: filledCards, added: addedLands } = await fillLands(
-          resolvedCards,
+        const sized = await resolveMapForCards(
+          sizedCards,
           resolvedMap,
-          onCardDataUpdate,
+          cardDataMap,
           scryfallLang,
         )
+        const sizedMap = sized.resolved
+        for (const card of sized.fetched) onCardDataUpdate(card)
 
-        // Update resolvedMap with any added lands
-        for (const land of addedLands) {
-          const existing = resolvedMap.get(land.scryfallId)
-          if (existing) {
-            resolvedMap.set(land.scryfallId, {
-              card: existing.card,
-              quantity: existing.quantity + land.quantity,
-            })
-          } else if (land.scryfallCard) {
-            resolvedMap.set(land.scryfallId, {
-              card: land.scryfallCard,
-              quantity: land.quantity,
-            })
-          }
-        }
+        if (abortRef.current) return
 
-        // Diff current vs proposed. Lands added by fillLands are already in
-        // resolvedMap, so they show up in the diff like any other change.
-        const actualChanges = computeDeckDiff(cards, resolvedMap, cardDataMap)
+        // Diff current vs proposed. Lands the enforcer padded with are already
+        // in sizedMap, so they show up in the diff like any other change.
+        const actualChanges = computeDeckDiff(cards, sizedMap, cardDataMap)
 
         // targetSection rides this path too, and must: the classifier reads a
         // lane re-fill ("add N more cards to <lane>", naming no card) as a
-        // 'change', so gating it to the delta path would leave the re-fill it
+        // 'rebuild', so gating it to the delta path would leave the re-fill it
         // exists to serve routing by role. The prompt tells the model to keep
         // the existing cards, so the diff is normally the handful of adds the
         // lane asked for. A model that rebuilds instead funnels every add into
@@ -573,7 +544,7 @@ export function useDeckChat({ cards, cardDataMap, deckDescription, onDeckUpdate,
           description: deckResult.description,
           explanation: deckResult.explanation,
           changes: actualChanges,
-          resolvedCards: filledCards,
+          resolvedCards: sizedCards,
           targetSection: pendingTargetSection.current,
         })
         pendingTargetSection.current = undefined

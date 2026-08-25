@@ -608,7 +608,6 @@ export function buildScryfallQueriesFromTraits(
   traitIds: string[],
   colors: string[],
   options?: {
-    format?: string
     budgetMin?: number | null
     budgetMax?: number | null
     rarities?: string[]
@@ -616,9 +615,6 @@ export function buildScryfallQueriesFromTraits(
 ): string[] {
   const queries: string[] = []
   const colorFilter = colors.length > 0 ? ` c:${colors.join('').toLowerCase()}` : ''
-  const formatFilter = options?.format && options.format !== 'casual'
-    ? ` f:${options.format}`
-    : ''
   const budgetMinFilter = options?.budgetMin != null
     ? ` usd>=${options.budgetMin.toFixed(2)}`
     : ''
@@ -633,7 +629,7 @@ export function buildScryfallQueriesFromTraits(
     rarityFilter = ` (${options.rarities.map((r) => `r:${r}`).join(' OR ')})`
   }
 
-  const suffix = `${colorFilter}${formatFilter}${budgetFilter}${rarityFilter}`
+  const suffix = `${colorFilter}${budgetFilter}${rarityFilter}`
 
   for (const id of traitIds) {
     const trait = traitMap.get(id)
@@ -654,16 +650,12 @@ export function buildScryfallQueriesFromTraits(
 export function buildSearchFilterSuffix(
   colors: string[],
   options?: {
-    format?: string
     budgetMin?: number | null
     budgetMax?: number | null
     rarities?: string[]
   },
 ): string {
   const colorFilter = colors.length > 0 ? ` c<=${colors.join('').toLowerCase()}` : ''
-  const formatFilter = options?.format && options.format !== 'casual'
-    ? ` f:${options.format}`
-    : ''
   const budgetMinFilter = options?.budgetMin != null
     ? ` usd>=${options.budgetMin.toFixed(2)}`
     : ''
@@ -677,5 +669,5 @@ export function buildSearchFilterSuffix(
     rarityFilter = ` (${options.rarities.map((r) => `r:${r}`).join(' OR ')})`
   }
 
-  return `${colorFilter}${formatFilter}${budgetFilter}${rarityFilter}`
+  return `${colorFilter}${budgetFilter}${rarityFilter}`
 }

@@ -5,7 +5,10 @@ Manaschmiede is a Magic: The Gathering deck builder.
 **Hard requirements:**
 * Great recommendations that synergize and are fun to play
 * Decks are balanced and great to play against each other
-* 60-card casual only — no Commander, no Limited, no other format
+* 60-card casual only — no Commander, no Limited, no other format. The format
+  concept is deleted end to end (no `DeckFormat`, no legality filter, `DeckZone`
+  is `'main'` only); the rules are constants in `convex/lib/deckRules.ts`.
+  See `docs/adr/0001-60-card-casual-only.md` before reintroducing any of it.
 
 It has a distinct visual
 language called **Specimen**. Every UI decision must conform to it. Read this
@@ -136,19 +139,26 @@ Six primitives carry most of the UI:
   chip / tag / badge. Variants: `default` (hairline, inverts when selected),
   `ghost`. Has `selected` state and optional `indexLabel`.
 - **Shared visual language:** `src/components/ui/button-styles.ts` exports
-  `buttonLikeBase`, `buttonLikeVariants`, `buttonLikeSizes`. Both Button and
-  Pill consume these so they can't drift. Edit there to adjust Specimen
-  button visuals globally.
+  `buttonLikeBase`, `buttonLikeVariants`, `buttonLikeSizes`, and
+  `buttonLikeFocus`. Both Button and Pill consume these so they can't drift.
+  Edit there to adjust Specimen button visuals globally. A clickable element
+  that genuinely can't be a Button or a Pill (an icon square, a picker trigger)
+  takes `buttonLikeFocus` rather than a hand-written focus style, so the whole
+  app focuses the same way.
 - **Horizontal hairline primitive** = Stepper + Tabs + Breadcrumb.
 - **Floating hairline panel primitive** = Tooltip + Popover + Toast
   (margin variant).
 - **Drawer primitive** = Dropdown + Combobox + Date picker.
 - **Framed plate primitive** = Modal + Lightbox + confirmations.
 
+Every shipped primitive lives in `src/components/ui/`. Read that directory
+before building a new one — Tabs, Toast, EmptyState, ErrorBox, LoadingDots,
+Checkbox, Dropdown, RangeSlider and HoverTooltip are already there.
+
 ### Button vs. Pill — when to use which
 
 - **Action trigger** (verb — Save, Delete, Next, Back, Skip, Forge) → `<Button>`.
-- **Toggleable value** (noun — a trait, a filter, a format, a tag, a rarity)
+- **Toggleable value** (noun — a trait, a filter, a set, a tag, a rarity)
   → `<Pill>`.
 - Both look identical when unselected; selected Pill inverts to cream fill +
   ash label + ink-red border.
@@ -162,8 +172,8 @@ Six primitives carry most of the UI:
 2. **Checkbox glyph:** ✓ (check mark). An earlier spec called for X, but X
    on a cream fill read as a close/delete button in practice. Check mark
    reads unambiguously as "selected".
-3. **Dropdown:** drawer pattern for format/type/set selectors; marginal pile
-   pattern for dense in-context filters.
+3. **Dropdown:** drawer pattern for the card-type / CMC / keyword / set
+   selectors; marginal pile pattern for dense in-context filters.
 4. **Modal:** framed plate for card lightbox + destructive confirms; margin
    panel for informational details (e.g., "why did AI suggest this card?").
 5. **Toast:** bottom-left margin panel default; top banner only for genuine
@@ -234,9 +244,11 @@ Label in mono-label to the left.
 ### Tabs
 
 Share DNA with Stepper. Mono-label items along a horizontal hairline, vertical
-ink-red slab under current, cream-500 for inactive. **Not yet extracted** —
-the pattern exists inline in deck view, StepDeckFill, and the wizard stepper.
-When touching more than one of those, extract to `src/components/ui/Tabs.tsx`.
+ink-red slab under current, cream-500 for inactive. Extracted to
+`src/components/ui/Tabs.tsx`; `DeckEditor` is the sole consumer, and both the
+deck view and StepDeckFill get their tabs through it. The wizard stepper
+(`StepIndicator`) shares the DNA, not the code — it is a stepper, not tabs, and
+stays its own component.
 
 ### Modal / Overlay (framed plate)
 
@@ -253,19 +265,26 @@ content dims slightly.
 Tiny mono-tag label, hairline underline 1px above, no box, 6px offset,
 `click-soft @ 0.05` volume on mount.
 
+`src/components/ui/HoverTooltip.tsx` is the only tooltip in the app (the
+color-mode switch and the stats filter's LINKED yoke use it) and it meets that
+spec — the hairline is a top border on the label itself, so there is no frame
+and no fill. Use the component; don't hand-roll a second tooltip.
+
 ### Toast (default: margin variant)
 
 Bottom-left, slides up, hairline-framed panel, persists until dismissed.
 Top-banner full-width ink-red hairline slab only for errors, auto-dismiss 4s.
-**Not yet built.** Deck view "Copied" state and PDF generation currently have
-ad-hoc inline feedback. When adding notification-driven UX, build the shared
-hook + component.
+Built: `src/components/ui/Toast.tsx`. `<ToastProvider>` is mounted in
+`__root.tsx`; `useToast()` returns `success` / `info` / `error`. The deck
+view's copy-decklist and PDF feedback go through it and are its only callers
+so far — reach for it rather than an inline "Copied" flag.
 
 ### Loading states
 
 - **LoadingDots:** 3 bouncing cream squares, the one allowed `animate-bounce`
-  loop. Currently duplicated across AiChat, StepCoreCards, and StepDeckFill
-  with drifted sizes/colors. Extract to a shared primitive on next touch.
+  loop. `src/components/ui/LoadingDots.tsx` (`size` sm/md, `tone`
+  bright/muted) is the only file in the repo that uses that loop — five
+  callers, no duplicates. Keep it that way.
 - **Spinner (specimen sample):** 2×2 grid of cream squares filling clockwise,
   12×12px.
 - **Page skeleton:** ash-800 hairline rectangles; `animate-pulse` opacity
@@ -276,16 +295,19 @@ hook + component.
 ### Empty states
 
 Centered Cinzel display-section title, Geist body-small italic cream-400,
-single Pill CTA. No illustrations. **Not yet extracted** — used ad-hoc in
-Homepage, Deck view, StepDeckFill, DeckCardList, AiChat. Extract to shared
-`<EmptyState>` on next touch.
+optional caller-supplied action (Button or Pill — the component hardcodes no
+CTA styling). No illustrations. `src/components/ui/EmptyState.tsx`, four
+callers — use it instead of hand-rolling another centered block. Two sites are
+still hand-rolled and marked `TODO: migrate to <EmptyState>`: the AiChat
+sidebar and DeckCardList, both of which sit in narrow columns the centered
+block doesn't suit. Migrate them when you next touch either.
 
 ### Error states
 
-Same as empty but Cinzel title in ink-red. Mono-tag error code in margin if
-applicable. "TRY AGAIN" Pill. The ink-red hairline frame + body error + retry
-button shape is duplicated across StepCoreCards and StepDeckFill — extract to
-shared `<ErrorBox>` on next touch.
+Ink-red hairline frame, Cinzel display-eyebrow title in ink-red (defaults to
+`ERROR`), Geist body message, optional destructive "TRY AGAIN" Button.
+`src/components/ui/ErrorBox.tsx`, four callers — for section-level errors. A
+page-level failure goes to the Toast error banner instead.
 
 ### Divider / rule
 
@@ -297,7 +319,7 @@ shared `<ErrorBox>` on next touch.
 ### Badge / chip
 
 Same component as Pill at smaller size, uncommitted (non-interactive). Used
-for `RECOMMENDED`, `NEW`, format tags.
+for `RECOMMENDED`, `NEW`.
 
 ### Accordion
 
@@ -352,8 +374,10 @@ Inline code: JetBrains Mono cream-200, ash-800 fill, hairline border.
 
 ### Not yet designed (deferred)
 
-Avatar, date picker, file upload, slider, video/audio player, map, pagination,
-rich text editor.
+Avatar, date picker, file upload, video/audio player, map, rich text editor.
+Slider is done (`src/components/ui/RangeSlider.tsx`). Pagination has a design
+but no primitive — `HistoryNav` in StepCoreCards (hairline arrows + ink-red
+slab for current, never dots) is the reference if you need a second one.
 
 ## Mono tier discipline
 
@@ -435,6 +459,110 @@ quiet a busy area, instead ask: is this control in the right semantic place?
 A reset button next to the stepper is awkward because the stepper is
 orientation, not action. Moving it to the wizard nav (where BACK / NEXT
 already live) solves the noise problem without disguising the control.
+
+## Shared rules live in `convex/lib/`, dependency-free
+
+A rule both trees need — the actions in `convex/` and the components and tests
+in `src/` — goes in `convex/lib/` as pure TypeScript with **no runtime
+imports**: no `ActionCtx`, nothing from `_generated`, no `fetch`, no Convex
+runtime. Importing another module from the same dependency-free set is the only
+import allowed. Nine modules follow the rule today and each says so in its
+header: `basicLands`, `cardFilters`, `cardPoolQueries`, `deckRules`,
+`deltaPrompt`, `intentContext`, `jsonLadder`, `parseCardList`,
+`strategyQueries`.
+
+**Why it matters:** a single runtime import drags the Convex runtime into every
+node test that reaches the module from `src/`. The constraint is what keeps the
+whole suite running in ~1s with no network. If a rule needs `ctx`, split it —
+the pure part here, the `ctx` wrapper in the action (`strategyParse.ts` wrapping
+`strategyQueries.ts` is the worked example).
+
+### The `cardFilters.ts` pattern — one rule set, three adapters
+
+`convex/lib/cardFilters.ts` is the shape to copy when the same rule has to be
+expressed in more than one language. The excluded types / set types / layouts
+are declared once, then adapted three ways in the same file:
+`HARD_FILTER_SCRYFALL_QUERY` (Scryfall query string), `isPlayableCard` /
+`getHardFilterRejectionReason` (TS predicate), `HARD_FILTER_PROMPT_RULES` (LLM
+prose). Co-located, so adding an exclusion is one edit and the three cannot
+drift. `parseCardList.ts` is the second instance.
+
+**How to apply:** when you catch yourself writing the same rule once as a query
+string and again as a predicate — or once in code and again in a prompt — put
+the rule set and every adapter in one module instead of spreading them.
+
+### The `deckRules.ts` pattern — one rule set, opaque keys
+
+Same goal as `cardFilters.ts`, different reason the rule was duplicated. There
+the rule had to be said in three languages; here it had to work on two
+different key types. "A deck is 60 cards" was written six times with
+contradictory policies, so which deck you got depended on which path produced
+it (issue #28).
+
+`enforceDeck` now owns the merge, the 4-copy rule, both trim policies and the
+pad split, and it takes **opaque keys** — the server works in card names, the
+client in Scryfall ids, so the caller passes the predicates (`isBasic`,
+`isLand`) and the colour map (`basicForColor`), and the rules never look inside
+a key. That is what keeps `deckRules.ts` free of Scryfall knowledge and cheap
+to test. Because the adapting is per key type rather than per output language,
+the adapters sit at their call sites: `enforceDeckSize`
+(`convex/generateDeck.ts`, names), `enforceDeckCards` (`src/lib/deck-diff.ts`,
+ids), and `splitEvenly` on its own for the two land fills. Each is a few lines
+and does nothing but translate.
+
+The trim policies live in one `TRIM_POLICIES` record keyed by `TrimPolicy`, not
+as scattered `if (policy === 'rebuild')` branches, so a third policy can't be
+added to the trim order and forgotten at the clamp.
+
+**How to apply:** a new enforcement path calls `enforceDeck` with the policy
+that matches its situation — see `docs/adr/0002-two-trim-policies.md`. Never
+write a second trim loop, a second pad split, or a bare `60` / `4`; the
+constants are `TARGET_DECK_SIZE` and `MAX_COPIES`, and every basic-land fact
+(names, colours, canonical printings) lives in `convex/lib/basicLands.ts`.
+
+### The card-browser filter registry
+
+`src/components/card-filters/` is the same idea for UI state. One `FilterSpec`
+per filter — label, glyph, picker order, the URL params it owns, its codec, its
+Scryfall fragments and its control — in one file under `entries/`, listed once
+in `registry.ts`. Everything else (the picker, the active grid, the decoded
+state, the reset patches, the assembled query, the `filters` vocabulary) is
+derived from that list, so `FilterBar` holds no filter semantics at all and
+`buildScryfallQuery` is pure and testable without React.
+
+**How to apply:** adding a filter is a new file in `entries/`, one line in
+`registry.ts`, one parser in `params.ts`, one field in `FilterState`, and the
+i18n keys — and every one of those is a compile error when missed. Never
+reintroduce a per-filter prop on `FilterBar`, a hand-listed filter-name array,
+or a query clause outside an entry's `toQuery`.
+
+## One seam, two container adapters
+
+The wizard's fill step and the deck route render the same editing surface
+against two different state containers — `WizardState` via `dispatch`,
+`LocalDeck` via `setDeck`. Two modules define what they share as an interface
+and adapt each container onto it:
+
+- `src/lib/section-fill-intent.ts` — `SectionFillIntent`, consumed by
+  `useSectionFill`.
+- `src/lib/deck-surface.ts` — `DeckSurface`: the deck, its lanes, and the
+  mutators (`addCard`, `changeQuantity`, `removeCard`, `toggleLock`,
+  `applyProposal`, `setName`, `setDescription`). `DeckEditor` takes one
+  `surface` prop and cannot tell which container it is in; the chat ledger's
+  `onDeckUpdate` is `surface.applyProposal`.
+
+Both adapters are plain functions over already-computed values, not hooks, so
+every mutator is drivable from a node test with a fake `dispatch` / `setDeck`.
+Keep them free of `this`, since callers detach the methods.
+
+**How to apply:** a behaviour both surfaces need goes on the seam, and the
+adapters express the container's own idiom — the wizard dispatches reducer
+actions, the route writes functionally and reads `prev` (`useStagedRederive` is
+the other writer of `sectionPlan` / `sectionAssignments`, so a closure read
+there can silently undo an accepted plan). A genuine behavioural fork stays a
+separate prop: `fill` is the wizard's, `resolveLaneStatus` is the route's.
+Deliberate non-goals, both from issue #26: zone (every write targets `'main'`),
+and unified history storage (the wizard persists its stacks, the route does not).
 
 <!-- convex-ai-start -->
 This project uses [Convex](https://convex.dev) as its backend.

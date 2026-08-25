@@ -10,7 +10,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { validateProposedCards } from '../chat-validation'
-import { BASIC_LAND_IDS } from '../basic-lands'
+import { BASIC_LAND_ID_BY_COLOR } from '../../../convex/lib/basicLands'
 import type { DeckFilters } from '../card-validation'
 import type { ScryfallCard } from '../scryfall/types'
 import { makeCard, makeBasicLand } from './card-fixtures'
@@ -38,7 +38,7 @@ function toMap(entries: Array<{ card: ScryfallCard; quantity: number }>): Resolv
 
 /** 24 Forests plus 36 rare spells — the shape a change-intent proposal takes. */
 function fullProposal(): ResolvedMap {
-  const entries = [{ card: makeBasicLand(BASIC_LAND_IDS.G, 'Forest', ['G']), quantity: 24 }]
+  const entries = [{ card: makeBasicLand(BASIC_LAND_ID_BY_COLOR.G, 'Forest', ['G']), quantity: 24 }]
   for (let i = 0; i < 9; i++) {
     entries.push({ card: makeSpell(`rare-${i}`, 'rare'), quantity: 4 })
   }

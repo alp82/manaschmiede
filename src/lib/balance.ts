@@ -1,6 +1,7 @@
 import type { ScryfallCard } from './scryfall/types'
-import type { DeckCard, DeckFormat } from './deck-utils'
-import { FORMAT_RULES, getTotalCards, isBasicLand } from './deck-utils'
+import type { DeckCard } from './deck-utils'
+import { getTotalCards, isBasicLand } from './deck-utils'
+import { MAX_COPIES, TARGET_DECK_SIZE } from '../../convex/lib/deckRules'
 import type { TFn } from './i18n/types'
 import { COLOR_KEYS, MANA_COLORS, isManaColor } from './mana-colors'
 
@@ -20,9 +21,7 @@ export interface ColorCount {
 }
 
 export interface BalanceAnalysis {
-  totalCards: number
   maindeckSize: number
-  sideboardSize: number
   landCount: number
   nonLandCount: number
   averageCmc: number
@@ -34,31 +33,20 @@ export interface BalanceAnalysis {
   suggestions: string[]
 }
 
-const LAND_TARGETS: Record<DeckFormat, [number, number]> = {
-  standard: [22, 26],
-  modern: [20, 25],
-  casual: [22, 26],
-}
+/** Healthy maindeck land count for a 60-card casual deck. */
+const LAND_TARGET: [number, number] = [22, 26]
 
-const AVG_CMC_TARGETS: Record<DeckFormat, [number, number]> = {
-  standard: [2.0, 3.5],
-  modern: [1.5, 3.0],
-  casual: [2.0, 3.5],
-}
+/** Average non-land mana value the curve warning trips above. */
+const AVG_CMC_MAX = 3.5
 
 export function analyzeDeck(
   cards: DeckCard[],
   cardData: Map<string, ScryfallCard>,
-  format: DeckFormat,
   t: TFn,
 ): BalanceAnalysis {
-  const rules = FORMAT_RULES[format]
   const mainCards = cards.filter((c) => c.zone === 'main')
-  const sideCards = cards.filter((c) => c.zone === 'sideboard')
 
   const maindeckSize = getTotalCards(mainCards)
-  const sideboardSize = getTotalCards(sideCards)
-  const totalCards = maindeckSize + sideboardSize
 
   let landCount = 0
   let nonLandCount = 0
@@ -130,16 +118,16 @@ export function analyzeDeck(
   const suggestions: string[] = []
 
   // Deck size
-  if (maindeckSize < rules.minDeckSize) {
+  if (maindeckSize < TARGET_DECK_SIZE) {
     warnings.push({
       severity: 'error',
-      message: t('balance.warning.tooFewCards', { count: maindeckSize, min: rules.minDeckSize }),
+      message: t('balance.warning.tooFewCards', { count: maindeckSize, min: TARGET_DECK_SIZE }),
     })
   }
 
   // Land count
-  const [minLand, maxLand] = LAND_TARGETS[format]
-  if (maindeckSize >= rules.minDeckSize * 0.5) {
+  const [minLand, maxLand] = LAND_TARGET
+  if (maindeckSize >= TARGET_DECK_SIZE * 0.5) {
     if (landCount < minLand) {
       warnings.push({
         severity: 'warning',
@@ -154,8 +142,7 @@ export function analyzeDeck(
   }
 
   // Average CMC
-  const [, maxCmc] = AVG_CMC_TARGETS[format]
-  if (nonLandCount >= 10 && averageCmc > maxCmc) {
+  if (nonLandCount >= 10 && averageCmc > AVG_CMC_MAX) {
     warnings.push({
       severity: 'warning',
       message: t('balance.warning.highCmc', { cmc: averageCmc.toFixed(1) }),
@@ -171,22 +158,14 @@ export function analyzeDeck(
     counts.set(dc.scryfallId, current + dc.quantity)
   }
   for (const [scryfallId, qty] of counts) {
-    if (qty > rules.maxCopies) {
+    if (qty > MAX_COPIES) {
       const card = cardData.get(scryfallId)
       const name = card?.printed_name || card?.name || scryfallId
       warnings.push({
         severity: 'error',
-        message: t('balance.warning.tooManyCopies', { name, count: qty, max: rules.maxCopies }),
+        message: t('balance.warning.tooManyCopies', { name, count: qty, max: MAX_COPIES }),
       })
     }
-  }
-
-  // Sideboard check
-  if (sideboardSize > rules.sideboardSize) {
-    warnings.push({
-      severity: 'error',
-      message: t('balance.warning.sideboardTooLarge', { count: sideboardSize, max: rules.sideboardSize }),
-    })
   }
 
   // Color mismatch
@@ -248,9 +227,7 @@ export function analyzeDeck(
   }
 
   return {
-    totalCards,
     maindeckSize,
-    sideboardSize,
     landCount,
     nonLandCount,
     averageCmc,

@@ -75,7 +75,6 @@ export async function generateCombos(
 
   // Build Scryfall queries from trait mappings
   const traitQueries = buildScryfallQueriesFromTraits(allTraitIds, activeColors, {
-    format: intent.format,
     budgetMin: intent.budgetMin,
     budgetMax: intent.budgetMax,
     rarities: intent.rarityFilter,
@@ -105,7 +104,6 @@ export async function generateCombos(
         client.action(api.suggestCombos.parseStrategy, {
           customStrategy: intent.customStrategy,
           selectedColors,
-          format: intent.format,
           language: locale,
         }).catch(() => ({ queries: [] as string[] })),
         new Promise<{ queries: string[] }>((resolve) =>
@@ -114,12 +112,11 @@ export async function generateCombos(
       ])
     : { queries: [] as string[] }
 
-  // Scope strategy fragments to the deck's colors/format/budget/rarity. Note
+  // Scope strategy fragments to the deck's colors/budget/rarity. Note
   // the suffix uses c<= (identity-within, "playable in these colors") — this is
   // intentionally more permissive than buildScryfallQueriesFromTraits' c:, so
   // the strategy pool stays broad; the suggest model makes the final pick.
   const suffix = buildSearchFilterSuffix(activeColors, {
-    format: intent.format,
     budgetMin: intent.budgetMin,
     budgetMax: intent.budgetMax,
     rarities: intent.rarityFilter,
@@ -166,7 +163,6 @@ export async function generateCombos(
     requiredKeywords: oracleTerms.length > 0 ? oracleTerms : undefined,
     pinnedCard: pinnedCard || undefined,
     customStrategy: intent.customStrategy || undefined,
-    format: intent.format,
     budgetLimit: intent.budgetMax ?? undefined,
     rejectedCards: rejectedCards && rejectedCards.length > 0 ? rejectedCards : undefined,
     rejectedCombos: rejectedCombos && rejectedCombos.length > 0 ? rejectedCombos : undefined,
@@ -177,7 +173,6 @@ export async function generateCombos(
   // Resolve card images and validate
   const deckFilters: DeckFilters = {
     colors: activeColors,
-    format: intent.format,
     budgetMin: intent.budgetMin,
     budgetMax: intent.budgetMax,
     rarities: intent.rarityFilter,

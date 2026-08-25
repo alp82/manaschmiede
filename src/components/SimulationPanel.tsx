@@ -5,9 +5,8 @@ import type { PerPlayerRate, SimulationResult } from '../lib/simulation/types'
 import { Button } from './ui/Button'
 import { useSimulation } from '../lib/simulation/use-simulation'
 import { loadDecks, type LocalDeck } from '../lib/deck-storage'
-import { getLocalizedCardData } from '../lib/scryfall/client'
+import { cardSupply } from '../lib/scryfall/card-supply'
 import { useI18n } from '../lib/i18n'
-import { FORMAT_LABELS } from '../lib/deck-utils'
 
 interface SimulationPanelProps {
   deckId: string
@@ -42,23 +41,27 @@ export function SimulationPanel({ deckId, deckName, cards, cardDataMap }: Simula
     setOpponentDeck(selected)
     setLoadingOpponent(true)
 
-    const newMap = new Map<string, ScryfallCard>()
-    let cancelled = false
+    // One batched request for the whole opponent deck. This used to be a
+    // sequential await per card, i.e. 60 x the Scryfall rate-limit floor
+    // before a single point of the simulation could be set up.
+    const controller = new AbortController()
 
-    async function fetchAll() {
-      for (const dc of selected!.cards) {
-        if (cancelled) return
-        const card = await getLocalizedCardData(undefined, dc.scryfallId, undefined, undefined, scryfallLang)
-        if (card) newMap.set(dc.scryfallId, card)
-      }
-      if (!cancelled) {
-        setOpponentCardData(newMap)
-        setLoadingOpponent(false)
-      }
-    }
+    cardSupply
+      .cardsById(
+        selected.cards.map((dc) => dc.scryfallId),
+        scryfallLang,
+        { signal: controller.signal },
+      )
+      .then((cards) => {
+        if (controller.signal.aborted) return
+        setOpponentCardData(new Map(cards))
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadingOpponent(false)
+      })
 
-    fetchAll()
-    return () => { cancelled = true }
+    return () => { controller.abort() }
   }, [opponentId, savedDecks, scryfallLang])
 
   const isMirror = opponentId === 'mirror'
@@ -153,7 +156,7 @@ export function SimulationPanel({ deckId, deckName, cards, cardDataMap }: Simula
           <option value="mirror">MIRROR MATCH</option>
           {savedDecks.map((d) => (
             <option key={d.id} value={d.id}>
-              {d.name} — {FORMAT_LABELS[d.format]} — {d.cards.reduce((s, c) => s + c.quantity, 0)} cards
+              {d.name} — {d.cards.reduce((s, c) => s + c.quantity, 0)} cards
             </option>
           ))}
         </select>

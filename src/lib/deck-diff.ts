@@ -10,13 +10,12 @@
  * the delta arm of useDeckChat stays thin.
  */
 import type { DeckCard } from './deck-utils'
+import { MAX_COPIES, enforceDeck, type TrimPolicy } from '../../convex/lib/deckRules'
 import type { ScryfallCard } from './scryfall/types'
 import { getCardName } from './scryfall/types'
 import type { CardChange } from './deck-chat-types'
-import { BASIC_LAND_IDS, BASIC_LAND_ID_SET } from './basic-lands'
+import { BASIC_LAND_ID_BY_COLOR, isBasicLandId } from '../../convex/lib/basicLands'
 
-const TARGET_DECK_SIZE = 60
-const MAX_COPIES = 4
 
 /**
  * Diff the current deck against a resolved deck map, producing the change
@@ -166,65 +165,59 @@ export function resolveRemoveIds(
   return ids
 }
 
+export interface EnforceDeckCardsOptions {
+  /** How this deck came to be. Decides the trim order - see `TrimPolicy`. */
+  trimPolicy: TrimPolicy
+  /** Deck colours as W/U/B/R/G letters. Picks the basics an undersized deck grows by. */
+  colors: string[]
+  /** Ids the enforcer may not touch, on top of each card's own `locked` flag. */
+  lockedIds?: ReadonlySet<string>
+  /** True when the id is any land. Defaults to "basic land only". */
+  isLand?: (id: string) => boolean
+}
+
 /**
- * Force a resolved deck to EXACTLY 60 cards.
+ * Force a deck to EXACTLY 60 cards.
  *
- * - Already 60 (swap): returned unchanged.
- * - Under 60 (remove-N): pad basic lands across `colors` (same proportional
- *   split fillLands uses), falling back to Forest when no colors resolve.
- * - Over 60 (add-N): decrement a basic land copy first; if no basic land is
- *   trimmable, decrement the last non-locked card deterministically.
+ * The Scryfall-id adapter for `enforceDeck` (issue #28): the split formula, the
+ * 4-copy rule, and both trim orders live in `convex/lib/deckRules.ts` and are
+ * shared with the server. This function supplies the id predicates and puts
+ * `zone` and `locked` back on the entries the rules hand out.
  *
- * Any trim/pad is surfaced downstream by computeDeckDiff (current -> final), so
- * this function has no special return channel - it just returns the 60-card list.
+ * Any trim or pad is surfaced downstream by computeDeckDiff (current -> final),
+ * so there is no special return channel - just the 60-card list.
+ */
+export function enforceDeckCards(
+  cards: DeckCard[],
+  options: EnforceDeckCardsOptions,
+): DeckCard[] {
+  const byId = new Map(cards.map((c) => [c.scryfallId, c]))
+  const locked = new Set(cards.filter((c) => c.locked).map((c) => c.scryfallId))
+  for (const id of options.lockedIds ?? []) locked.add(id)
+
+  const sized = enforceDeck(
+    cards.map((c) => ({ key: c.scryfallId, quantity: c.quantity })),
+    {
+      trimPolicy: options.trimPolicy,
+      isBasic: isBasicLandId,
+      isLand: options.isLand,
+      colors: options.colors,
+      basicForColor: (color) => BASIC_LAND_ID_BY_COLOR[color],
+      locked,
+    },
+  )
+
+  return sized.map(({ key, quantity }) => {
+    const existing = byId.get(key)
+    return existing ? { ...existing, quantity } : { scryfallId: key, quantity, zone: 'main' }
+  })
+}
+
+/**
+ * Force a resolved delta to EXACTLY 60 cards: shed basic land copies before
+ * anything the user did not mention, pad with basics across `colors`. The
+ * delta arm's one-liner over `enforceDeckCards`.
  */
 export function enforceDeltaSize(cards: DeckCard[], colors: string[]): DeckCard[] {
-  const result = cards.map((c) => ({ ...c }))
-  let total = result.reduce((s, c) => s + c.quantity, 0)
-
-  if (total === TARGET_DECK_SIZE) return result
-
-  if (total < TARGET_DECK_SIZE) {
-    const deficit = TARGET_DECK_SIZE - total
-    const deckColors = colors.length > 0 ? colors : ['G']
-    const perColor = Math.floor(deficit / deckColors.length)
-    const remainder = deficit % deckColors.length
-
-    for (let i = 0; i < deckColors.length; i++) {
-      const landId = BASIC_LAND_IDS[deckColors[i]]
-      if (!landId) continue
-      const qty = perColor + (i < remainder ? 1 : 0)
-      if (qty <= 0) continue
-      const idx = result.findIndex((c) => c.scryfallId === landId)
-      if (idx >= 0) {
-        result[idx] = { ...result[idx], quantity: result[idx].quantity + qty }
-      } else {
-        result.push({ scryfallId: landId, quantity: qty, zone: 'main' })
-      }
-    }
-
-    return result
-  }
-
-  // Over 60: shed copies, basic lands first.
-  let excess = total - TARGET_DECK_SIZE
-
-  const trimAt = (idx: number) => {
-    const reduce = Math.min(result[idx].quantity, excess)
-    result[idx] = { ...result[idx], quantity: result[idx].quantity - reduce }
-    excess -= reduce
-  }
-
-  // Pass 1: basic land copies (the existing over-60 trim skips lands; this is
-  // the new decrement path the delta needs).
-  for (let i = result.length - 1; i >= 0 && excess > 0; i--) {
-    if (BASIC_LAND_ID_SET.has(result[i].scryfallId) && !result[i].locked) trimAt(i)
-  }
-
-  // Pass 2: last non-locked cards, from the end.
-  for (let i = result.length - 1; i >= 0 && excess > 0; i--) {
-    if (!result[i].locked) trimAt(i)
-  }
-
-  return result.filter((c) => c.quantity > 0)
+  return enforceDeckCards(cards, { trimPolicy: 'delta', colors })
 }

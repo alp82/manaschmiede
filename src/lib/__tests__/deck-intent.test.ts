@@ -38,7 +38,6 @@ function defaultWizardState(): WizardState {
     maxStepReached: 1,
     seedCard: null,
     colors: { W: 'unselected', U: 'unselected', B: 'unselected', R: 'unselected', G: 'unselected' },
-    format: 'casual',
     selectedArchetypes: [],
     selectedTraits: [],
     customStrategy: '',

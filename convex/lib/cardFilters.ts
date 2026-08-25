@@ -7,7 +7,7 @@
  * Un-sets, no playtest cards, no oversized commander cards, no Alchemy-only
  * digital cards, no tokens, no emblems, no planes, etc.
  *
- * Soft filters (color identity, budget, format legality, rarity) live in
+ * Soft filters (color identity, budget, rarity) live in
  * src/lib/card-validation.ts and depend on the user's deck preferences.
  *
  * This module is intentionally zero-dependency pure TypeScript so it can be

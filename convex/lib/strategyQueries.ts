@@ -23,7 +23,7 @@ const MAX_TOTAL_QUERIES = 10
 const MAX_FRAGMENT_LENGTH = 80
 
 /**
- * Matches a whole scoping token the app applies itself (color / format / rarity
+ * Matches a whole scoping token the app must not receive from the model (color / format / rarity
  * / budget), so the model's theme stays clean. Anchored start-to-end against a
  * single space-delimited token:
  *   - color:  c:..  c<=..  c>=..

@@ -1,24 +1,11 @@
 import { queryOptions } from '@tanstack/react-query'
-import {
-  searchCards,
-  autocompleteCards,
-  getCardById,
-  getLocalizedCardData,
-  listSets,
-} from './client'
+import { searchCards, listSets } from './client'
+import { cardSupply } from './card-supply'
+import { scryfallKeys } from './keys'
 import type { ScryfallCard } from './types'
 
-const STALE_24H = 1000 * 60 * 60 * 24
 
-export const scryfallKeys = {
-  all: ['scryfall'] as const,
-  search: (query: string, page: number) =>
-    [...scryfallKeys.all, 'search', query, page] as const,
-  autocomplete: (partial: string) =>
-    [...scryfallKeys.all, 'autocomplete', partial] as const,
-  card: (id: string, lang: string) => [...scryfallKeys.all, 'card', id, lang] as const,
-  sets: () => [...scryfallKeys.all, 'sets'] as const,
-}
+const STALE_24H = 1000 * 60 * 60 * 24
 
 export function cardSearchOptions(query: string, page = 1) {
   return queryOptions({
@@ -26,24 +13,6 @@ export function cardSearchOptions(query: string, page = 1) {
     queryFn: () => searchCards(query, page),
     staleTime: STALE_24H,
     enabled: query.length >= 1,
-  })
-}
-
-export function cardAutocompleteOptions(partial: string) {
-  return queryOptions({
-    queryKey: scryfallKeys.autocomplete(partial),
-    queryFn: () => autocompleteCards(partial),
-    staleTime: STALE_24H,
-    enabled: partial.length >= 1,
-  })
-}
-
-export function cardByIdOptions(id: string, lang = 'en') {
-  return queryOptions({
-    queryKey: scryfallKeys.card(id, lang),
-    queryFn: () => getCardById(id, lang),
-    staleTime: STALE_24H,
-    enabled: !!id,
   })
 }
 
@@ -56,17 +25,41 @@ export function localizedCardOptions(params: {
 }) {
   return queryOptions({
     queryKey: scryfallKeys.card(params.id, params.lang),
-    queryFn: () =>
-      getLocalizedCardData(
-        params.existing,
-        params.id,
-        params.set,
-        params.collectorNumber,
-        params.lang,
-      ),
+    queryFn: async (): Promise<ScryfallCard | null> => {
+      // One-element call: the payoff here isn't batching, it's the supply's
+      // in-flight registry — several of these mounting alongside a deck-wide
+      // `cardsById` collapse into that one request instead of N.
+      const have = params.existing
+        ? new Map([[params.id, withPrint(params.existing, params.set, params.collectorNumber)]])
+        : undefined
+      try {
+        return await cardSupply.cardById(params.id, params.lang, { have })
+      } catch {
+        // This hook's callers render a placeholder for missing art and have
+        // never seen this query fail; keep it that way.
+        return params.existing ?? null
+      }
+    },
     staleTime: STALE_24H,
     enabled: !!params.id,
   })
+}
+
+/**
+ * Callers may know a print (set + collector number) that the `existing` card
+ * object doesn't carry. Fold it in so the supply can take the fast path.
+ */
+function withPrint(
+  card: ScryfallCard,
+  set: string | undefined,
+  collectorNumber: string | undefined,
+): ScryfallCard {
+  if (!set && !collectorNumber) return card
+  return {
+    ...card,
+    set: set ?? card.set,
+    collector_number: collectorNumber ?? card.collector_number,
+  }
 }
 
 export function setsListOptions() {

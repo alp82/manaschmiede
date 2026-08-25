@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import type { DeckCard } from './deck-utils'
 import { loadWizardAux, persistWizardAux } from './wizard-state'
 
@@ -127,11 +127,21 @@ export function useDeckHistory(
     if (cards) applyCards(cards)
   }, [core, currentCards, applyCards])
 
-  return {
-    snapshot,
-    undo,
-    redo,
-    canUndo: core.state.past.length > 0,
-    canRedo: core.state.future.length > 0,
-  }
+  // Stable identity between renders that changed nothing, so consumers can
+  // memoize on it — `deckSurfaceFromWizard` / `deckSurfaceFromLocalDeck` both
+  // take the history object and would otherwise be rebuilt every render. The
+  // stack lengths are read off the mutable core, so they belong in the deps:
+  // every push or pop happens alongside a state change that re-renders.
+  const pastLength = core.state.past.length
+  const futureLength = core.state.future.length
+  return useMemo(
+    () => ({
+      snapshot,
+      undo,
+      redo,
+      canUndo: pastLength > 0,
+      canRedo: futureLength > 0,
+    }),
+    [snapshot, undo, redo, pastLength, futureLength],
+  )
 }

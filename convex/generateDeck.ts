@@ -1,9 +1,11 @@
 import { action } from './_generated/server'
 import type { ActionCtx } from './_generated/server'
 import { v } from 'convex/values'
-import { callAnthropic, callHaiku, isTruncated, TRUNCATED_RESPONSE_MESSAGE } from './lib/anthropic'
+import { MODELS, callAnthropic, callHaiku, isTruncated, TRUNCATED_RESPONSE_MESSAGE } from './lib/anthropic'
 import { startLlmLog, completeLlmLog, failLlmLog, parseAndLog } from './lib/logLlmUsage'
-import { parseJsonLadder } from './lib/jsonLadder'
+import { cardEntry, parseCardList } from './lib/parseCardList'
+import { enforceDeck } from './lib/deckRules'
+import { BASIC_LAND_NAMES, BASIC_LAND_NAME_BY_COLOR } from './lib/basicLands'
 import {
   HARD_FILTER_PROMPT_RULES,
   HARD_FILTER_SCRYFALL_QUERY,
@@ -224,15 +226,15 @@ async function buildCardPool(
   return buildCardPoolBlock(queries, 50)
 }
 
-type ChatIntent = 'change' | 'question' | 'delta'
+type ChatIntent = 'rebuild' | 'question' | 'delta'
 
 export const INTENT_CLASSIFIER_PROMPT = `Classify the user's latest message about their Magic: The Gathering deck into one of these intents:
 
 - "delta": A small, targeted edit that names 1-3 specific cards to add, remove, or swap (e.g. "swap Lightning Bolt for Shock", "add 2 Counterspell", "cut Craw Wurm"). The deck stays the same except for those few cards.
-- "change": A broader rebuild or a vague direction with no specific cards (e.g. "make it more aggressive", "rebuild this as a control deck", "improve the mana base", "build me an Elf deck").
+- "rebuild": A broader rebuild or a vague direction with no specific cards (e.g. "make it more aggressive", "rebuild this as a control deck", "improve the mana base", "build me an Elf deck").
 - "question": The user is asking a question about their deck, a card, rules, strategy, or MTG in general. They do NOT want the deck modified.
 
-Respond with ONLY the intent word: "delta", "change", or "question". Nothing else.`
+Respond with ONLY the intent word: "delta", "rebuild", or "question". Nothing else.`
 
 export const QUESTION_SYSTEM_PROMPT = `You are an expert Magic: The Gathering advisor helping a player understand their 60-card casual deck.
 
@@ -243,51 +245,33 @@ RULES:
 - If asked about something completely unrelated to MTG or the deck, politely redirect: "I'm here to help with your deck! Ask me about cards, strategy, or rules."
 - Respond in the same language the user writes in`
 
-/** The deck object, anchored on the `cards` key so prose objects don't match. */
-const DECK_OBJECT_PATTERN = /\{[\s\S]*"cards"\s*:\s*\[[\s\S]*\][\s\S]*\}/
-
 /**
- * Parse a deck response into a GeneratedDeck, dropping malformed cards and
- * clamping non-basics to the 4-copy rule.
+ * Parse a deck response into a GeneratedDeck, dropping malformed cards.
+ *
+ * Quantities are NOT clamped here - `enforceDeckSize` owns the 4-copy rule for
+ * a whole deck, because it also has to dedupe and re-balance to exactly 60.
  *
  * Throws 'Could not parse AI response as JSON' when no rung of the ladder
  * yields JSON, and 'AI response has an invalid format' when it yields
  * something that isn't a deck.
  */
 export function parseResponse(text: string): GeneratedDeck {
-  const deck = parseJsonLadder<GeneratedDeck>(text, DECK_OBJECT_PATTERN)
-
-  if (!deck.name || !deck.cards || !Array.isArray(deck.cards)) {
-    throw new Error('AI response has an invalid format')
-  }
-
-  deck.cards = deck.cards.filter(
-    (c) =>
-      typeof c.name === 'string' &&
-      c.name.length > 0 &&
-      typeof c.quantity === 'number' &&
-      c.quantity > 0,
-  )
+  const parsed = parseCardList<{ cards: GeneratedCard }>(text, {
+    lists: { cards: { entry: cardEntry(), required: true } },
+    // Anchored on the `cards` key so an object in surrounding prose can't match.
+    bareObjectAnchor: 'cards',
+    scalars: { name: undefined, description: '', explanation: undefined },
+    requiredScalars: ['name'],
+    onFailure: 'throw',
+  })
 
   return {
-    name: deck.name,
-    description: deck.description || '',
-    explanation: deck.explanation,
-    cards: deck.cards,
+    // requiredScalars guarantees a non-empty name; the ?? is for the type only.
+    name: parsed.scalars.name ?? '',
+    description: parsed.scalars.description ?? '',
+    explanation: parsed.scalars.explanation,
+    cards: parsed.lists.cards,
   }
-}
-
-const BASIC_LAND_NAMES = new Set(['Plains', 'Island', 'Swamp', 'Mountain', 'Forest'])
-const TARGET_SIZE = 60
-const MAX_COPIES = 4
-
-/** Color letter -> the basic land that produces it, for padding an undersized deck. */
-const COLOR_BASIC_LAND: Record<string, string> = {
-  W: 'Plains',
-  U: 'Island',
-  B: 'Swamp',
-  R: 'Mountain',
-  G: 'Forest',
 }
 
 export interface EnforceDeckSizeOptions {
@@ -304,149 +288,57 @@ export interface EnforceDeckSizeOptions {
 
 /**
  * Layer 2: Programmatic enforcement - force deck to exactly 60 cards.
- * Respects locked cards and the 4-copy rule.
  *
- * Trim order is spells, then lands, then locked cards - and within each group
- * the biggest stacks shrink first, so a 4-of drops to a 3-of before a 1-of
- * disappears. Once every card sits at its floor a second pass deletes whole
- * entries in the same order, which is what makes 70 distinct singletons come
- * back as exactly 60. A locked card is never deleted, so a deck of 61+ locked
- * cards stays oversized; nothing else can.
+ * The name adapter for `enforceDeck`: the rules work in opaque keys, so this
+ * supplies the type-line predicates, the locked floors, and the colour -> basic
+ * name map, and hands back a GeneratedDeck. The trim order, the 4-copy rule and
+ * the pad split all live in `convex/lib/deckRules.ts` under the `'rebuild'`
+ * policy, shared with the client (issue #28).
  */
 export function enforceDeckSize(
   deck: GeneratedDeck,
   lockedCards?: Array<{ name: string; quantity: number }>,
   options?: EnforceDeckSizeOptions,
 ): GeneratedDeck {
-  const lockedSet = new Map<string, number>()
-  if (lockedCards) {
-    for (const c of lockedCards) lockedSet.set(c.name, c.quantity)
-  }
+  const lockedQuantities = new Map<string, number>()
+  for (const c of lockedCards ?? []) lockedQuantities.set(c.name, c.quantity)
 
   const cardTypes = options?.cardTypes ?? {}
   const typeLineOf = (name: string) => (cardTypes[name] ?? '').toLowerCase()
   // Whole-word match: `includes('land')` would also fire on "island", the
   // subtype every blue basic and dual carries.
-  const isBasicLand = (name: string) => {
+  const isBasic = (name: string) => {
     if (BASIC_LAND_NAMES.has(name)) return true
     const type = typeLineOf(name)
     return /\bbasic\b/.test(type) && /\bland\b/.test(type)
   }
-  const isLand = (name: string) => isBasicLand(name) || /\bland\b/.test(typeLineOf(name))
+  const isLand = (name: string) => isBasic(name) || /\bland\b/.test(typeLineOf(name))
+  const basicForColor = (color: string) => BASIC_LAND_NAME_BY_COLOR[color]
 
-  // Step 1: Enforce 4-copy rule (except basic lands)
-  for (const card of deck.cards) {
-    if (!isBasicLand(card.name)) {
-      card.quantity = Math.min(card.quantity, MAX_COPIES)
-    }
-    card.quantity = Math.max(card.quantity, 1)
-  }
+  // The deck's declared colors are the truth about which basics belong here; a
+  // mono-blue deck the model returned with no lands must pad with Islands. When
+  // none of them name a basic, fall back to the colors of the basics the deck
+  // already runs, and let deckRules take it from there.
+  const declared = (options?.colors ?? []).filter((c) => basicForColor(c.toUpperCase()))
+  const colors =
+    declared.length > 0
+      ? declared
+      : Object.entries(BASIC_LAND_NAME_BY_COLOR)
+          .filter(([, name]) => deck.cards.some((c) => c.name === name))
+          .map(([color]) => color)
 
-  // Step 2: Deduplicate (AI sometimes lists the same card twice)
-  const merged = new Map<string, number>()
-  for (const card of deck.cards) {
-    merged.set(card.name, (merged.get(card.name) || 0) + card.quantity)
-  }
-  deck.cards = Array.from(merged, ([name, quantity]) => {
-    // Re-enforce max copies after merge
-    if (!isBasicLand(name)) {
-      quantity = Math.min(quantity, MAX_COPIES)
-    }
-    return { name, quantity }
-  })
-
-  let total = deck.cards.reduce((s, c) => s + c.quantity, 0)
-
-  // Step 3: Trim if over 60
-  if (total > TARGET_SIZE) {
-    // Priority 0 = unlocked spells, 1 = unlocked lands, 2 = locked cards.
-    // Locked cards come down to their locked quantity only, and only after
-    // everything else has hit its floor.
-    const trimOrder = deck.cards
-      .map((c, index) => ({
-        index,
-        quantity: c.quantity,
-        priority: lockedSet.has(c.name) ? 2 : isLand(c.name) ? 1 : 0,
-        minQty: lockedSet.get(c.name) ?? 1,
-      }))
-      .sort((a, b) => a.priority - b.priority || b.quantity - a.quantity)
-
-    let excess = total - TARGET_SIZE
-
-    // Pass 1: shrink stacks down to each card's floor.
-    for (const entry of trimOrder) {
-      if (excess <= 0) break
-      const deckCard = deck.cards[entry.index]
-      const canRemove = Math.min(deckCard.quantity - entry.minQty, excess)
-      if (canRemove > 0) {
-        deckCard.quantity -= canRemove
-        excess -= canRemove
-      }
-    }
-
-    // Pass 2: still over 60 with everything at its floor - delete unlocked
-    // entries outright, spells before lands. Deletion order is the mirror of
-    // pass 1: smallest surviving stack first, then latest-listed, so a 4-of
-    // the model asked for twice over doesn't get deleted ahead of a random
-    // 1-of. (Trimming from the end matches enforceDeltaSize in
-    // src/lib/deck-diff.ts.)
-    const deleteOrder = trimOrder
-      .filter((entry) => entry.priority !== 2)
-      .sort(
-        (a, b) =>
-          a.priority - b.priority ||
-          deck.cards[a.index].quantity - deck.cards[b.index].quantity ||
-          b.index - a.index,
-      )
-
-    for (const entry of deleteOrder) {
-      if (excess <= 0) break
-      const deckCard = deck.cards[entry.index]
-      const canRemove = Math.min(deckCard.quantity, excess)
-      deckCard.quantity -= canRemove
-      excess -= canRemove
-    }
-
-    deck.cards = deck.cards.filter((c) => c.quantity > 0)
-    total = deck.cards.reduce((s, c) => s + c.quantity, 0)
-  }
-
-  // Step 4: Pad if under 60 - add basic lands proportionally
-  if (total < TARGET_SIZE) {
-    const deficit = TARGET_SIZE - total
-    // The deck's declared colors are the truth about which basics belong here;
-    // a mono-blue deck the model returned with no lands must pad with Islands.
-    // Without colors, fall back to the basics the deck already runs, then to
-    // Forest so the deck still reaches 60.
-    const fromColors = [
-      ...new Set(
-        (options?.colors ?? [])
-          .map((c) => COLOR_BASIC_LAND[c.toUpperCase()])
-          .filter((name): name is string => name !== undefined),
-      ),
-    ]
-    const existingLands = [...BASIC_LAND_NAMES].filter((l) =>
-      deck.cards.some((c) => c.name === l),
-    )
-    const landsToUse =
-      fromColors.length > 0 ? fromColors : existingLands.length > 0 ? existingLands : ['Forest']
-
-    const perLand = Math.floor(deficit / landsToUse.length)
-    const remainder = deficit % landsToUse.length
-
-    for (let i = 0; i < landsToUse.length; i++) {
-      const landName = landsToUse[i]
-      const addQty = perLand + (i < remainder ? 1 : 0)
-      if (addQty <= 0) continue
-
-      const existing = deck.cards.find((c) => c.name === landName)
-      if (existing) {
-        existing.quantity += addQty
-      } else {
-        deck.cards.push({ name: landName, quantity: addQty })
-      }
-    }
-  }
+  deck.cards = enforceDeck(
+    deck.cards.map((c) => ({ key: c.name, quantity: c.quantity })),
+    {
+      trimPolicy: 'rebuild',
+      isBasic,
+      isLand,
+      colors,
+      basicForColor,
+      locked: new Set(lockedQuantities.keys()),
+      lockedFloor: (name) => lockedQuantities.get(name) ?? 1,
+    },
+  ).map(({ key, quantity }) => ({ name: key, quantity }))
 
   return deck
 }
@@ -458,7 +350,9 @@ async function generateWithEnforcement(
   lockedCards?: Array<{ name: string; quantity: number }>,
   options?: EnforceDeckSizeOptions,
 ): Promise<GeneratedDeck> {
-  const model = 'claude-haiku-4-5-20251001'
+  // Quality tier (#46): deciding what 60 cards belong together IS the product.
+  // One call per deck build, so the tier costs little in aggregate.
+  const model = MODELS.main
   const logId = await startLlmLog(ctx, 'chat.generate', model, systemPrompt, messages)
   const result = await callAnthropic(systemPrompt, messages, { model, maxTokens: 4096 })
   const deck = await parseAndLog(ctx, logId, result, parseResponse)
@@ -469,7 +363,7 @@ async function generateWithEnforcement(
 
 interface ChatResult {
   intent: ChatIntent
-  // Present when intent === 'change'
+  // Present when intent === 'rebuild'
   deck?: GeneratedDeck
   // Present when intent === 'question'
   answer?: string
@@ -479,24 +373,24 @@ interface ChatResult {
 
 async function classifyIntent(ctx: ActionCtx, messages: Array<{ role: string; content: string }>): Promise<ChatIntent> {
   const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user')
-  if (!lastUserMsg) return 'change'
+  if (!lastUserMsg) return 'rebuild'
 
   const inputMessages = [{ role: 'user', content: lastUserMsg.content }]
-  const logId = await startLlmLog(ctx, 'chat.classify', 'claude-haiku-4-5-20251001', INTENT_CLASSIFIER_PROMPT, inputMessages)
+  const logId = await startLlmLog(ctx, 'chat.classify', MODELS.fast, INTENT_CLASSIFIER_PROMPT, inputMessages)
   try {
     const result = await callHaiku(INTENT_CLASSIFIER_PROMPT, inputMessages)
     await completeLlmLog(ctx, logId, result)
     // Truncation needs no special handling here: the answer is one word, and a
-    // cut-off one falls through to 'change' like any other unexpected label.
+    // cut-off one falls through to 'rebuild' like any other unexpected label.
     const intent = result.text.trim().toLowerCase()
     if (intent === 'question') return 'question'
     if (intent === 'delta') return 'delta'
-    return 'change'
+    return 'rebuild'
   } catch (err) {
-    // Default to change on classification failure. The log entry is marked
+    // Default to a rebuild on classification failure. The log entry is marked
     // errored rather than left pending forever.
     await failLlmLog(ctx, logId, err instanceof Error ? err.message : String(err))
-    return 'change'
+    return 'rebuild'
   }
 }
 
@@ -564,7 +458,6 @@ interface ChatArgs {
   customStrategy?: string
   budgetMin?: number
   budgetMax?: number
-  format?: string
 }
 
 // Add/remove/swap verbs that hint the delta op for prompt framing and let a
@@ -619,7 +512,6 @@ async function generateDelta(ctx: ActionCtx, args: ChatArgs): Promise<DeltaResul
     archetypes: args.archetypes ?? [],
     traits: args.traits ?? [],
     customStrategy: args.customStrategy,
-    format: args.format,
     budgetMin: args.budgetMin,
     budgetMax: args.budgetMax,
   })
@@ -634,7 +526,7 @@ async function generateDelta(ctx: ActionCtx, args: ChatArgs): Promise<DeltaResul
   }
 
   const inputMessages = [{ role: 'user', content: buildDeltaUserMessage(op, userText) }]
-  const model = 'claude-haiku-4-5-20251001'
+  const model = MODELS.fast
   const logId = await startLlmLog(ctx, 'chat.delta', model, systemPrompt, inputMessages)
   const result = await callAnthropic(systemPrompt, inputMessages, { model, maxTokens: 1024 })
 
@@ -684,7 +576,6 @@ export const chat = action({
     customStrategy: v.optional(v.string()),
     budgetMin: v.optional(v.number()),
     budgetMax: v.optional(v.number()),
-    format: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<ChatResult> => {
     const intent = await classifyIntent(ctx, args.messages)
@@ -696,7 +587,7 @@ export const chat = action({
 
     if (intent === 'question') {
       const systemPrompt = QUESTION_SYSTEM_PROMPT + deckContext
-      const qModel = 'claude-haiku-4-5-20251001'
+      const qModel = MODELS.fast
       const logId = await startLlmLog(ctx, 'chat.question', qModel, systemPrompt, args.messages)
       const result = await callAnthropic(systemPrompt, args.messages, { model: qModel, maxTokens: 1024 })
       // Free text has no parse step to fail, so truncation is checked here.
@@ -715,7 +606,7 @@ export const chat = action({
       return { intent: 'delta', delta }
     }
 
-    // intent === 'change'
+    // intent === 'rebuild'
     const lastUserMsg = [...args.messages].reverse().find((m) => m.role === 'user')
     const searchContext = [
       args.deckDescription || '',
@@ -739,7 +630,6 @@ export const chat = action({
       archetypes: args.archetypes ?? [],
       traits: args.traits ?? [],
       customStrategy: args.customStrategy,
-      format: args.format,
       budgetMin: args.budgetMin,
       budgetMax: args.budgetMax,
     })
@@ -764,7 +654,7 @@ export const chat = action({
       colors: args.colors,
       cardTypes: cardPool.cardTypes,
     })
-    return { intent: 'change', deck }
+    return { intent: 'rebuild', deck }
   },
 })
 
@@ -801,34 +691,20 @@ interface SectionFillResult {
 
 /**
  * Parse a section-fill response, dropping malformed cards and clamping
- * non-basics to the 4-copy rule. No embedded-object rung: the fill prompt asks
- * for JSON only, so a response that needs one is malformed either way.
+ * non-basics to the 4-copy rule. A fill never runs `enforceDeckSize`, so the
+ * clamp has to happen here. No embedded-object rung: the fill prompt asks for
+ * JSON only, so a response that needs one is malformed either way.
  */
 export function parseSectionResponse(text: string): SectionFillResult {
-  const result = parseJsonLadder<SectionFillResult>(text)
-
-  if (!result.cards || !Array.isArray(result.cards)) {
-    throw new Error('AI response has an invalid format')
-  }
-
-  result.cards = result.cards.filter(
-    (c) =>
-      typeof c.name === 'string' &&
-      c.name.length > 0 &&
-      typeof c.quantity === 'number' &&
-      c.quantity > 0,
-  )
-
-  // Enforce 4-copy rule
-  for (const card of result.cards) {
-    if (!BASIC_LAND_NAMES.has(card.name)) {
-      card.quantity = Math.min(card.quantity, MAX_COPIES)
-    }
-  }
+  const parsed = parseCardList<{ cards: GeneratedCard }>(text, {
+    lists: { cards: { entry: cardEntry({ clampCopies: true }), required: true } },
+    scalars: { explanation: '' },
+    onFailure: 'throw',
+  })
 
   return {
-    cards: result.cards,
-    explanation: result.explanation || '',
+    cards: parsed.lists.cards,
+    explanation: parsed.scalars.explanation ?? '',
   }
 }
 
@@ -872,7 +748,6 @@ export const fillSection = action({
     archetypes: v.array(v.string()),
     traits: v.array(v.string()),
     customStrategy: v.optional(v.string()),
-    format: v.optional(v.string()),
     budgetLimit: v.optional(v.number()),
     deckComposition: v.optional(v.string()),
     rejectedCards: v.optional(
@@ -897,7 +772,6 @@ export const fillSection = action({
       archetypes: args.archetypes,
       traits: args.traits,
       customStrategy: args.customStrategy,
-      format: args.format,
       budgetMax: args.budgetLimit,
     })
 
@@ -918,7 +792,7 @@ export const fillSection = action({
     const userMessage = `Fill the "${args.sectionName}" section with exactly ${args.targetCount} cards total (sum of quantities = ${args.targetCount}).\n\nSection description: ${args.sectionDescription}`
 
     const inputMessages = [{ role: 'user', content: userMessage }]
-    const fillModel = 'claude-haiku-4-5-20251001'
+    const fillModel = MODELS.fast
     const logId = await startLlmLog(ctx, 'fillSection', fillModel, systemPrompt, inputMessages)
     const llmResult = await callAnthropic(systemPrompt, inputMessages, { model: fillModel, maxTokens: 1024 })
     const result = await parseAndLog(ctx, logId, llmResult, parseSectionResponse)

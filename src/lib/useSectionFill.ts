@@ -1,11 +1,13 @@
 import { useState, useCallback, useRef } from 'react'
-import { getCardByName, getLocalizedCardData } from './scryfall/client'
+import { getCardByName } from './scryfall/client'
+import { cardSupply } from './scryfall/card-supply'
 import { useI18n } from './i18n'
 import type { ScryfallCard } from './scryfall/types'
 import { getCardName } from './scryfall/types'
 import type { DeckCard } from './deck-utils'
 import { mergeSectionFill } from './section-assignment'
-import { BASIC_LAND_IDS, BASIC_LAND_ID_SET } from './basic-lands'
+import { BASIC_LAND_ID_BY_COLOR, isBasicLandId } from '../../convex/lib/basicLands'
+import { padKeysForColors, splitEvenly } from '../../convex/lib/deckRules'
 import type { DeckSection } from './section-plan'
 import type { SectionFillIntent } from './section-fill-intent'
 import { getTraitById } from './trait-mappings'
@@ -91,7 +93,6 @@ async function callFillSection(
     archetypes: archetypeLabels,
     traits: traitLabels,
     customStrategy: intent.customStrategy || undefined,
-    format: intent.format !== 'casual' ? intent.format : undefined,
     budgetLimit: intent.budgetMax ?? undefined,
     deckComposition: options.deckComposition,
     rejectedCards: options.rejectedCards && options.rejectedCards.length > 0
@@ -148,7 +149,7 @@ function buildCompositionFromDeck(
  *   1. Hard filter (stickers, Un-sets, oversized, digital-only, etc.) — a
  *      non-playable card is rejected before anything else, because no
  *      user preference can legalize a card the app refuses to ship.
- *   2. Filter compliance (color identity, format, budget, rarity) — an
+ *   2. Filter compliance (color identity, budget, rarity) — an
  *      off-color card is rejected before any synergy reasoning, because
  *      no amount of synergy can legalize a color violation. Cards the user
  *      locked bypass this gate, matching the chat path: the user pinned them,
@@ -244,7 +245,7 @@ export function useSectionFill({
       additions,
       assignments: priorAssignments ?? assignmentsRef.current,
       sectionId,
-      isBasicLandId: (id) => BASIC_LAND_ID_SET.has(id),
+      isBasicLandId,
     })
     onDeckUpdate(merged)
     replaceSectionAssignment(sectionId, assignedIds)
@@ -286,7 +287,6 @@ export function useSectionFill({
     if (!fill.ready || !fill.colors) return null
     return {
       colors: fill.colors,
-      format: intent.format,
       budgetMin: intent.budgetMin,
       budgetMax: intent.budgetMax,
       rarities: intent.rarityFilter,
@@ -395,23 +395,25 @@ export function useSectionFill({
     const activeColors = filters?.colors ?? []
     if (activeColors.length === 0) return
 
-    const landsPerColor = Math.floor(targetCount / activeColors.length)
-    const remainder = targetCount % activeColors.length
+    // Same split the two size enforcers use: even shares, remainder to the
+    // leading colors. It lives in convex/lib/deckRules.ts so a lane fill and a
+    // chat rebuild pad a deck identically (issue #28).
+    const landIds = padKeysForColors(activeColors, (color) => BASIC_LAND_ID_BY_COLOR[color])
+    const additions = splitEvenly(targetCount, landIds).map(({ slot, quantity }) => ({
+      scryfallId: slot,
+      quantity,
+    }))
 
-    const additions: Array<{ scryfallId: string; quantity: number }> = []
-
-    for (let i = 0; i < activeColors.length; i++) {
-      const color = activeColors[i]
-      const landId = BASIC_LAND_IDS[color]
-      if (!landId) continue
-
-      const qty = landsPerColor + (i < remainder ? 1 : 0)
-      if (qty <= 0) continue
-
-      additions.push({ scryfallId: landId, quantity: qty })
-
-      const landCard = await getLocalizedCardData(undefined, landId, undefined, undefined, scryfallLang)
-      if (landCard) onCardDataUpdate(landCard)
+    // One batched lookup for up to five basics instead of one await each.
+    // A failure here costs card art, not the fill, so it's swallowed.
+    try {
+      const lands = await cardSupply.cardsById(
+        additions.map((a) => a.scryfallId),
+        scryfallLang,
+      )
+      for (const landCard of lands.values()) onCardDataUpdate(landCard)
+    } catch {
+      // Lands still get added; their data arrives with the next deck load.
     }
 
     mergeAndAssign('lands', deckCardsRef.current, additions)

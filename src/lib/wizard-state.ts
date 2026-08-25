@@ -1,6 +1,6 @@
 import { MANA_COLORS, type ManaColor } from './mana-colors'
 import { RARITIES } from './rarity'
-import type { DeckCard, DeckFormat } from './deck-utils'
+import type { DeckCard } from './deck-utils'
 import type { ScryfallCard } from './scryfall/types'
 import type { DeckSection } from './section-plan'
 
@@ -30,7 +30,6 @@ export interface WizardState {
   seedCard: ScryfallCard | null
   // Step 1: Traits & Strategy
   colors: Record<ManaColor, ManaColorState>
-  format: DeckFormat
   // Step 2: Colors
   selectedArchetypes: string[]
   selectedTraits: string[]
@@ -56,7 +55,6 @@ export type WizardAction =
   | { type: 'CLEAR_SEED_CARD' }
   | { type: 'SET_COLOR'; color: ManaColor; state: ManaColorState }
   | { type: 'CLEAR_COLORS' }
-  | { type: 'SET_FORMAT'; format: DeckFormat }
   | { type: 'TOGGLE_ARCHETYPE'; traitId: string }
   | { type: 'TOGGLE_TRAIT'; traitId: string }
   | { type: 'SET_CUSTOM_STRATEGY'; text: string }
@@ -85,7 +83,6 @@ function defaultState(): WizardState {
     maxStepReached: 1,
     seedCard: null,
     colors: { W: 'unselected', U: 'unselected', B: 'unselected', R: 'unselected', G: 'unselected' },
-    format: 'casual',
     selectedArchetypes: [],
     selectedTraits: [],
     customStrategy: '',
@@ -104,7 +101,11 @@ function defaultState(): WizardState {
   }
 }
 
-type StoredWizardState = Partial<WizardState> & { budgetLimit?: number | null }
+type StoredWizardState = Partial<WizardState> & {
+  budgetLimit?: number | null
+  /** Retired by the 60-card-casual-only decision; evicted on hydrate. */
+  format?: string
+}
 
 /** Coerce an arbitrary stored value into a renderable step. */
 function clampStep(value: unknown): 1 | 2 | 3 | 4 {
@@ -125,6 +126,9 @@ function clampStep(value: unknown): 1 | 2 | 3 | 4 {
  *   wholesale, leaving `colors.G` undefined — a hole `getSelectedColors` and
  *   StepColors both read straight through. It is merged over the default now,
  *   as is `sectionAssignments`, whose `null` would crash every consumer.
+ * - `format` is a retired key (the app is 60-card casual only). Like
+ *   `budgetLimit` it is evicted rather than spread back into WizardState, or
+ *   the persist effect would rewrite it on every change forever.
  * - The legacy `budgetLimit` key only migrated when `budgetMax` was ABSENT, so
  *   a state carrying both spread the legacy key into WizardState, where the
  *   persist effect wrote it back on every change — forever. It is now always
@@ -140,7 +144,7 @@ export function hydrateWizardState(parsed: unknown): WizardState {
   const base = defaultState()
   if (!parsed || typeof parsed !== 'object') return base
 
-  const { budgetLimit, colors, sectionAssignments, step, maxStepReached, ...rest } =
+  const { budgetLimit, format: _retiredFormat, colors, sectionAssignments, step, maxStepReached, ...rest } =
     parsed as StoredWizardState
   const merged: WizardState = {
     ...base,
@@ -352,9 +356,6 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
         colors: { W: 'unselected', U: 'unselected', B: 'unselected', R: 'unselected', G: 'unselected' },
       }
 
-    case 'SET_FORMAT':
-      return { ...state, format: action.format }
-
     case 'TOGGLE_ARCHETYPE': {
       const has = state.selectedArchetypes.includes(action.traitId)
       if (has) {
@@ -512,7 +513,6 @@ export function isWizardStateDirty(state: WizardState): boolean {
   if (state.selectedTraits.length > 0) return true
   if (state.customStrategy.trim() !== '') return true
   if (state.budgetMin != null || state.budgetMax != null) return true
-  if (state.format !== 'casual') return true
   // Any color touched counts.
   for (const v of Object.values(state.colors)) {
     if (v !== 'unselected') return true

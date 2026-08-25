@@ -13,7 +13,7 @@ export interface ProposalRejection {
 export interface ValidateProposedCardsOptions {
   /** The full proposed deck. Always the composition the synergy check sees. */
   resolvedMap: ResolvedCardMap
-  /** Color/format/budget/rarity intent. Omit to run only the synergy check. */
+  /** Color/budget/rarity intent. Omit to run only the synergy check. */
   intentFilters?: DeckFilters | null
   /** Cards the user pinned. They bypass both gates. */
   lockedCardIds?: ReadonlySet<string>
@@ -31,7 +31,7 @@ export interface ValidateProposedCardsOptions {
  *
  * Two gates run in order, both against the composition of the whole proposal:
  *
- *   1. Intent (color, format, budget, rarity) - no amount of synergy can
+ *   1. Intent (color, budget, rarity) - no amount of synergy can
  *      legalize an off-intent card, so this runs first. Basic lands are exempt
  *      from budget and rarity; see getFilterRejectionReason.
  *   2. Synergy (tribal payoffs, triggered abilities, keyword gates) - catches

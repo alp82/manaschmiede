@@ -13,7 +13,6 @@
  *     archetypes: string[]
  *     traits: string[]
  *     customStrategy?: string
- *     format?: string
  *     budgetMin?: number | null
  *     budgetMax?: number | null
  *   }
@@ -104,7 +103,7 @@ describe('buildIntentContextPrompt — structural checks', () => {
 // ─── buildIntentContextPrompt — returns empty string ─────────────────────
 
 describe('buildIntentContextPrompt — empty return', () => {
-  it('returns empty string when colors empty AND archetypes/traits/strategy/budget/format all empty', () => {
+  it('returns empty string when colors empty AND archetypes/traits/strategy/budget all empty', () => {
     const result = buildIntentContextPrompt({
       colors: [],
       archetypes: [],
@@ -119,7 +118,6 @@ describe('buildIntentContextPrompt — empty return', () => {
       archetypes: [],
       traits: [],
       customStrategy: '',
-      format: undefined,
       budgetMin: null,
       budgetMax: null,
     })
@@ -238,35 +236,21 @@ describe('buildIntentContextPrompt — budget', () => {
   })
 })
 
-// ─── buildIntentContextPrompt — format ───────────────────────────────────
+// ─── buildIntentContextPrompt — no format concept ────────────────────────
+//
+// The app is 60-card casual only (docs/adr/0001-60-card-casual-only.md), so
+// IntentContext carries no format and the prompt must never emit a Format
+// line — not even from a deck saved before the concept was deleted.
 
-describe('buildIntentContextPrompt — format', () => {
-  it("format 'modern' -> contains 'Format: modern'", () => {
+describe('buildIntentContextPrompt — no format line', () => {
+  it('never emits a Format line, whatever else is set', () => {
     const result = buildIntentContextPrompt({
       colors: ['W'],
-      archetypes: [],
-      traits: [],
-      format: 'modern',
-    })
-    expect(result).toContain('Format: modern')
-  })
-
-  it("format 'casual' -> NO Format line (casual is the default, not emitted)", () => {
-    const result = buildIntentContextPrompt({
-      colors: ['W'],
-      archetypes: [],
-      traits: [],
-      format: 'casual',
-    })
-    expect(result).not.toContain('Format:')
-  })
-
-  it('format undefined -> NO Format line', () => {
-    const result = buildIntentContextPrompt({
-      colors: ['W'],
-      archetypes: [],
-      traits: [],
-      format: undefined,
+      archetypes: ['aggro'],
+      traits: ['tribal'],
+      customStrategy: 'Go wide',
+      budgetMin: 0.25,
+      budgetMax: 2.5,
     })
     expect(result).not.toContain('Format:')
   })
@@ -290,7 +274,6 @@ describe('buildIntentContextPrompt — format', () => {
 //   if (args.archetypes.length > 0) systemPrompt += `\nArchetypes: ${args.archetypes.join(', ')}`
 //   if (args.traits.length > 0) systemPrompt += `\nTraits: ${args.traits.join(', ')}`
 //   if (args.customStrategy) systemPrompt += `\nStrategy: ${args.customStrategy}`
-//   if (args.format && args.format !== 'casual') systemPrompt += `\nFormat: ${args.format}`
 //   if (args.budgetLimit != null) systemPrompt += `\nBudget: max $${args.budgetLimit.toFixed(2)} per card`
 //
 // NOTE: The inline code uses `args.budgetLimit` (single field, max only).
@@ -301,14 +284,13 @@ describe('buildIntentContextPrompt — format', () => {
 describe('buildIntentContextPrompt — BYTE-PARITY B4 guard', () => {
   it('reproduces the exact inline fillSection string for a known input', () => {
     // Input: colors=['W','U'], archetypes=['aggro'], traits=['tribal'],
-    //        customStrategy='Go wide', format='modern', budgetMax=2.50
+    //        customStrategy='Go wide', budgetMax=2.50
     // (no budgetMin — matches the inline shape which has no min concept)
     const args = {
       colors: ['W', 'U'],
       archetypes: ['aggro'],
       traits: ['tribal'],
       customStrategy: 'Go wide',
-      format: 'modern',
       budgetMax: 2.50,
     }
 
@@ -325,7 +307,6 @@ describe('buildIntentContextPrompt — BYTE-PARITY B4 guard', () => {
     expected += `\nArchetypes: ${args.archetypes.join(', ')}`
     expected += `\nTraits: ${args.traits.join(', ')}`
     expected += `\nStrategy: ${args.customStrategy}`
-    expected += `\nFormat: ${args.format}`
     expected += `\nBudget: max $${args.budgetMax.toFixed(2)} per card`
 
     // The extracted function must produce the identical string.
@@ -334,7 +315,6 @@ describe('buildIntentContextPrompt — BYTE-PARITY B4 guard', () => {
       archetypes: args.archetypes,
       traits: args.traits,
       customStrategy: args.customStrategy,
-      format: args.format,
       budgetMax: args.budgetMax,
     })
 
@@ -343,7 +323,7 @@ describe('buildIntentContextPrompt — BYTE-PARITY B4 guard', () => {
 
   it('parity: no colors, one archetype only — matches inline conditional output', () => {
     // When colors is empty the inline block emits nothing for colors,
-    // then falls through to archetypes/traits/strategy/format/budget.
+    // then falls through to archetypes/traits/strategy/budget.
     const expected =
       '\n\nDECK CONTEXT:' +
       '\nArchetypes: midrange'
@@ -357,13 +337,8 @@ describe('buildIntentContextPrompt — BYTE-PARITY B4 guard', () => {
     expect(result).toBe(expected)
   })
 
-  it('parity: format casual -> no Format line (matches inline !== casual guard)', () => {
-    const args = {
-      colors: ['R'],
-      archetypes: [],
-      traits: [],
-      format: 'casual',
-    }
+  it('parity: colors only — the whole block is the color constraint', () => {
+    const args = { colors: ['R'], archetypes: [], traits: [] }
     const colorNames: Record<string, string> = {
       W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green',
     }
@@ -372,13 +347,11 @@ describe('buildIntentContextPrompt — BYTE-PARITY B4 guard', () => {
     const colorCodes = args.colors.join('')
     expected += `\nAllowed colors (HARD CONSTRAINT): ${colorList} [${colorCodes}]`
     expected += `\nOnly suggest cards whose color identity is a subset of {${colorCodes}}. Anything outside this set - including multicolor cards that touch other colors - will be rejected.`
-    // format === 'casual' -> NOT appended in inline block
 
     const result = buildIntentContextPrompt({
       colors: args.colors,
       archetypes: [],
       traits: [],
-      format: args.format,
     })
 
     expect(result).toBe(expected)

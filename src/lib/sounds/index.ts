@@ -39,6 +39,12 @@ export function useSoundEnabled(): [boolean, (enabled: boolean) => void] {
 const DEFAULT_VOLUME = 0.3
 const TYPING_VOLUME = 0.12
 const TYPING_DEBOUNCE_MS = 40
+/**
+ * Hover ticks are the most frequent sound in the app - a tooltip fires one
+ * every time the pointer crosses a control - so they play far under everything
+ * else and share the standard debounce.
+ */
+const HOVER_VOLUME = 0.05
 
 const lastPlayed = new Map<string, number>()
 function debounced(key: string, fn: () => void, ms = DEBOUNCE_MS) {
@@ -70,6 +76,11 @@ export function useDeckSounds() {
   const playFlourish = useSoundGroup(FLOURISH_SOUNDS, opts)
   const playDismiss = useSoundGroup(DISMISS_SOUNDS, opts)
   const playTyping = useSoundGroup(UI_CLICK_SOUNDS, typingOpts)
+  const playHoverTick = useSoundGroup(UI_CLICK_SOUNDS, {
+    volume: HOVER_VOLUME,
+    soundEnabled: enabled,
+    interrupt: true,
+  })
 
   return {
     uiClick: useCallback(() => debounced('click', playUiClick), [playUiClick]),
@@ -79,5 +90,7 @@ export function useDeckSounds() {
     aiShuffle: useCallback(() => debounced('shuffle', playShuffle), [playShuffle]),
     deckComplete: useCallback(() => debounced('flourish', playFlourish), [playFlourish]),
     typing: useCallback(() => debounced('typing', playTyping, TYPING_DEBOUNCE_MS), [playTyping]),
+    /** The tooltip's hover tick. Rate-limited like every other sound here. */
+    hoverTick: useCallback(() => debounced('hover', playHoverTick), [playHoverTick]),
   }
 }

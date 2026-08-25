@@ -12,7 +12,6 @@ import { useT } from '../../lib/i18n'
 import type { ManaColor } from '../../lib/mana-colors'
 import { RARITIES, RARITY_KEYS } from '../../lib/rarity'
 import type { ManaColorState, WizardAction } from '../../lib/wizard-state'
-import type { DeckFormat } from '../../lib/deck-utils'
 import type { TranslationKey } from '../../lib/i18n/types'
 
 interface StepTraitsProps {
@@ -23,7 +22,6 @@ interface StepTraitsProps {
   budgetMin: number | null
   budgetMax: number | null
   rarityFilter: string[]
-  format: DeckFormat
   dispatch: React.Dispatch<WizardAction>
   onNext: () => void
   onBack?: () => void
@@ -41,12 +39,6 @@ function formatBudgetRange(
   if (min == null && max == null) return unlimitedLabel
   return `${minStr} \u2013 ${maxStr}`
 }
-
-const FORMATS: { value: DeckFormat; key: TranslationKey }[] = [
-  { value: 'casual', key: 'colors.formatCasual' },
-  { value: 'modern', key: 'colors.formatModern' },
-  { value: 'standard', key: 'colors.formatStandard' },
-]
 
 // Scryfall art_crop URLs for each archetype (iconic cards)
 export const ARCHETYPE_ART: Record<string, string> = {
@@ -82,7 +74,6 @@ export function StepTraits({
   budgetMin,
   budgetMax,
   rarityFilter,
-  format,
   dispatch,
   onNext,
   onBack,
@@ -349,30 +340,6 @@ export function StepTraits({
                   )
                 })}
               </div>
-            </div>
-
-            {/* Format selector — moved from the Colors step */}
-            <div>
-              <h3 className="mb-2 font-mono text-mono-label uppercase tracking-mono-label text-cream-300">
-                {t('colors.format')}
-              </h3>
-              <div className="flex flex-wrap items-center gap-2">
-                {FORMATS.map((f) => (
-                  <Pill
-                    key={f.value}
-                    size="sm"
-                    selected={format === f.value}
-                    onClick={() => dispatch({ type: 'SET_FORMAT', format: f.value })}
-                  >
-                    {t(f.key)}
-                  </Pill>
-                ))}
-              </div>
-              <p className="mt-2 font-body text-sm italic text-cream-400">
-                {format === 'casual' && t('colors.descCasual')}
-                {format === 'modern' && t('colors.descModern')}
-                {format === 'standard' && t('colors.descStandard')}
-              </p>
             </div>
           </div>
         )}

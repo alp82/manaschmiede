@@ -1,16 +1,7 @@
 import { query, mutation } from './_generated/server'
 import { v } from 'convex/values'
 
-const formatValidator = v.union(
-  v.literal('standard'),
-  v.literal('modern'),
-  v.literal('casual'),
-)
-
-const zoneValidator = v.union(
-  v.literal('main'),
-  v.literal('sideboard'),
-)
+const zoneValidator = v.literal('main')
 
 export const listByUser = query({
   args: { userId: v.string() },
@@ -34,7 +25,6 @@ export const create = mutation({
   args: {
     userId: v.string(),
     name: v.string(),
-    format: formatValidator,
     description: v.optional(v.string()),
     isPublic: v.optional(v.boolean()),
   },
@@ -53,7 +43,6 @@ export const update = mutation({
     deckId: v.id('decks'),
     name: v.optional(v.string()),
     description: v.optional(v.string()),
-    format: v.optional(formatValidator),
     tags: v.optional(v.array(v.string())),
     isPublic: v.optional(v.boolean()),
   },

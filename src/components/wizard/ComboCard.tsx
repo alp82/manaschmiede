@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import type { CoreCombo } from '../../lib/wizard-state'
 import type { ScryfallCard } from '../../lib/scryfall/types'
-import { getLocalizedCardData } from '../../lib/scryfall/client'
+import { cardSupply } from '../../lib/scryfall/card-supply'
 import { CardImage } from '../CardImage'
 import { CardLightbox } from '../CardLightbox'
 import { ManaSymbol } from '../ManaSymbol'
@@ -32,29 +32,33 @@ export function ComboCard({ combo, selected, onSelect, renderLightboxActions }: 
   const { scryfallLang } = useI18n()
   const [localizedCards, setLocalizedCards] = useState<Map<string, ScryfallCard>>(new Map())
 
-  // Re-fetch cards when locale doesn't match
+  // Re-fetch cards when locale doesn't match. The combo already carries a
+  // print for each card, so `have` sends every request straight down the
+  // localized-print fast path — no collection hop at all.
   useEffect(() => {
-    let cancelled = false
-    async function fetchLocalized() {
-      for (const card of combo.cards) {
-        if (!card.scryfallId || !card.scryfallCard) continue
-        if (card.scryfallCard.lang === scryfallLang) continue
-        if (localizedCards.get(card.scryfallId)?.lang === scryfallLang) continue
-        const localized = await getLocalizedCardData(
-          card.scryfallCard,
-          card.scryfallId,
-          card.scryfallCard.set,
-          card.scryfallCard.collector_number,
-          scryfallLang,
-        )
-        if (cancelled) return
-        if (localized && localized.lang === scryfallLang) {
-          setLocalizedCards((prev) => new Map(prev).set(card.scryfallId!, localized))
-        }
-      }
+    const have = new Map<string, ScryfallCard>()
+    for (const card of combo.cards) {
+      if (!card.scryfallId || !card.scryfallCard) continue
+      have.set(card.scryfallId, localizedCards.get(card.scryfallId) ?? card.scryfallCard)
     }
-    fetchLocalized()
-    return () => { cancelled = true }
+    if ([...have.values()].every((c) => c.lang === scryfallLang)) return
+
+    const controller = new AbortController()
+    cardSupply
+      .cardsById([...have.keys()], scryfallLang, { have, signal: controller.signal })
+      .then((cards) => {
+        if (controller.signal.aborted) return
+        setLocalizedCards((prev) => {
+          const next = new Map(prev)
+          for (const [id, card] of cards) {
+            if (card.lang === scryfallLang) next.set(id, card)
+          }
+          return next
+        })
+      })
+      .catch(() => {})
+
+    return () => { controller.abort() }
   }, [scryfallLang, combo.cards])
 
   const colors = getComboColors(combo)
