@@ -466,16 +466,16 @@ A rule both trees need — the actions in `convex/` and the components and tests
 in `src/` — goes in `convex/lib/` as pure TypeScript with **no runtime
 imports**: no `ActionCtx`, nothing from `_generated`, no `fetch`, no Convex
 runtime. Importing another module from the same dependency-free set is the only
-import allowed. Nine modules follow the rule today and each says so in its
+import allowed. Eleven modules follow the rule today and each says so in its
 header: `basicLands`, `cardFilters`, `cardPoolQueries`, `deckRules`,
-`deltaPrompt`, `intentContext`, `jsonLadder`, `parseCardList`,
-`strategyQueries`.
+`deltaPrompt`, `intentContext`, `jsonLadder`, `mechanicalGate`,
+`parseCardList`, `responseShapes`, `strategyQueries`.
 
 **Why it matters:** a single runtime import drags the Convex runtime into every
 node test that reaches the module from `src/`. The constraint is what keeps the
-whole suite running in ~1s with no network. If a rule needs `ctx`, split it —
-the pure part here, the `ctx` wrapper in the action (`strategyParse.ts` wrapping
-`strategyQueries.ts` is the worked example).
+whole suite running in ~1s with no network. If a rule needs `ctx` or `fetch`,
+split it — the pure part here, the wrapper beside it (`strategyParse.ts` wrapping
+`strategyQueries.ts`, `mechanicalGateCheck.ts` wrapping `mechanicalGate.ts`).
 
 ### The `cardFilters.ts` pattern — one rule set, three adapters
 

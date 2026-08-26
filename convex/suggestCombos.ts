@@ -3,7 +3,11 @@ import { v } from 'convex/values'
 import { MODELS, callAnthropic } from './lib/anthropic'
 import { startLlmLog, parseAndLog } from './lib/logLlmUsage'
 import { parseStrategyQueries } from './lib/strategyParse'
-import { isNonEmptyString, parseCardList } from './lib/parseCardList'
+import { parseComboResponse, type ComboResult } from './lib/responseShapes'
+
+// The combo parser lives in convex/lib/responseShapes.ts so the mechanical
+// gate can call it; re-exported for the tests.
+export { parseComboResponse, type Combo, type ComboResult } from './lib/responseShapes'
 import { HARD_FILTER_PROMPT_RULES } from './lib/cardFilters'
 /**
  * The combo system prompt. Exported so the hard-filter wiring is testable in
@@ -64,50 +68,6 @@ OUTPUT FORMAT (JSON ONLY):
 }
 
 Respond ONLY with the JSON object.`
-}
-
-interface Combo {
-  name: string
-  cards: string[]
-  explanation: string
-}
-
-interface ComboResult {
-  combos: Combo[]
-}
-
-/**
- * Coerce one raw combo. A combo needs a name, at least two named cards, and an
- * explanation - anything else is dropped. The shape is local to this action, so
- * the adapter is too; only the name rule comes from the shared module.
- */
-function comboEntry(raw: unknown): Combo | null {
-  if (raw === null || typeof raw !== 'object') return null
-  const { name, cards, explanation } = raw as {
-    name?: unknown
-    cards?: unknown
-    explanation?: unknown
-  }
-  if (!isNonEmptyString(name)) return null
-  if (typeof explanation !== 'string') return null
-  if (!Array.isArray(cards) || cards.length < 2) return null
-  // Every element has to be a real card name - a null in here would reach
-  // Scryfall as a lookup.
-  if (!cards.every(isNonEmptyString)) return null
-  return { name, cards: [...cards], explanation }
-}
-
-/**
- * Parse a combo response and drop malformed combos. No embedded-object rung:
- * the prompt asks for JSON only, so a response that needs one is malformed
- * either way.
- */
-export function parseComboResponse(text: string): ComboResult {
-  const parsed = parseCardList<{ combos: Combo }>(text, {
-    lists: { combos: { entry: comboEntry, required: true } },
-    onFailure: 'throw',
-  })
-  return { combos: parsed.lists.combos }
 }
 
 export const suggest = action({

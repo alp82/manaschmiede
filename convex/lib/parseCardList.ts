@@ -19,7 +19,12 @@
  * jsonLadder.ts and deckRules.ts, are pure and zero-dependency themselves.
  */
 
-import { ANY_OBJECT_PATTERN, UNPARSEABLE_RESPONSE_MESSAGE, parseJsonLadder } from './jsonLadder'
+import {
+  ANY_OBJECT_PATTERN,
+  UNPARSEABLE_RESPONSE_MESSAGE,
+  climbJsonLadder,
+  type JsonLadderRung,
+} from './jsonLadder'
 import { clampCopies } from './deckRules'
 
 /** Thrown when the ladder yielded JSON, but not JSON of the requested shape. */
@@ -84,6 +89,11 @@ export interface ParsedCardList<L> {
   scalars: Record<string, string | undefined>
   /** True when the response was unusable and `onFailure: 'empty'` swallowed it. */
   failed: boolean
+  /**
+   * The ladder rung that yielded JSON, or undefined when none did. Rung 3 means
+   * the model wrapped its JSON in prose; the mechanical gate scores on it.
+   */
+  rung?: JsonLadderRung
 }
 
 /**
@@ -106,7 +116,9 @@ export function parseCardList<L extends Record<string, unknown>>(
     if (typeof text !== 'string' || text.trim() === '') {
       throw new Error(UNPARSEABLE_RESPONSE_MESSAGE)
     }
-    return coerce(parseJsonLadder<unknown>(text, embeddedPattern(opts)), opts)
+    const climbed = climbJsonLadder<unknown>(text, embeddedPattern(opts))
+    if (climbed === null) throw new Error(UNPARSEABLE_RESPONSE_MESSAGE)
+    return { ...coerce(climbed.value, opts), rung: climbed.rung }
   } catch (err) {
     if (opts.onFailure === 'throw') throw err
     return emptyResult(opts)

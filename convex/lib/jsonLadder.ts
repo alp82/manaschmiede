@@ -39,9 +39,27 @@ export const ANY_OBJECT_PATTERN = /\{[\s\S]*\}/
  * is unvalidated - it is whatever the model wrote, cast to T.
  */
 export function parseJsonLadder<T>(text: string, embeddedPattern?: RegExp): T {
+  const climbed = climbJsonLadder<T>(text, embeddedPattern)
+  if (climbed === null) throw new Error(UNPARSEABLE_RESPONSE_MESSAGE)
+  return climbed.value
+}
+
+/** Which rung of the ladder yielded JSON: 1 plain, 2 fenced, 3 embedded in prose. */
+export type JsonLadderRung = 1 | 2 | 3
+
+/**
+ * The same climb as `parseJsonLadder`, but reporting the rung that succeeded
+ * and returning null instead of throwing. Rung 3 is a reliability signal: the
+ * model was asked for JSON and wrote prose around it. The mechanical gate
+ * scores on it; product code goes through `parseJsonLadder`.
+ */
+export function climbJsonLadder<T>(
+  text: string,
+  embeddedPattern?: RegExp,
+): { value: T; rung: JsonLadderRung } | null {
   // 1. Plain JSON.
   try {
-    return JSON.parse(text) as T
+    return { value: JSON.parse(text) as T, rung: 1 }
   } catch {
     // fall through
   }
@@ -50,7 +68,7 @@ export function parseJsonLadder<T>(text: string, embeddedPattern?: RegExp): T {
   const fenceMatch = text.match(FENCE_PATTERN)
   if (fenceMatch) {
     try {
-      return JSON.parse(fenceMatch[1].trim()) as T
+      return { value: JSON.parse(fenceMatch[1].trim()) as T, rung: 2 }
     } catch {
       // fall through
     }
@@ -61,12 +79,12 @@ export function parseJsonLadder<T>(text: string, embeddedPattern?: RegExp): T {
     const objectMatch = text.match(embeddedPattern)
     if (objectMatch) {
       try {
-        return JSON.parse(objectMatch[0]) as T
+        return { value: JSON.parse(objectMatch[0]) as T, rung: 3 }
       } catch {
         // fall through
       }
     }
   }
 
-  throw new Error(UNPARSEABLE_RESPONSE_MESSAGE)
+  return null
 }
