@@ -3,15 +3,15 @@ import type { ActionCtx } from './_generated/server'
 import { v } from 'convex/values'
 import { MODELS, callAnthropic, callHaiku, isTruncated, TRUNCATED_RESPONSE_MESSAGE } from './lib/anthropic'
 import { startLlmLog, completeLlmLog, failLlmLog, parseAndLog } from './lib/logLlmUsage'
-import { cardEntry, parseCardList } from './lib/parseCardList'
+import { DECK_SHAPE_PROMPT_RULES, DEFAULT_LAND_COUNT, MAX_COPIES, TARGET_DECK_SIZE } from './lib/deckRules'
 import {
-  DECK_SHAPE_PROMPT_RULES,
-  DEFAULT_LAND_COUNT,
-  MAX_COPIES,
-  TARGET_DECK_SIZE,
-  enforceDeck,
-} from './lib/deckRules'
-import { BASIC_LAND_NAMES, BASIC_LAND_NAME_BY_COLOR } from './lib/basicLands'
+  enforceDeckSize,
+  parseDeckResponse,
+  parseSectionResponse,
+  type EnforceDeckSizeOptions,
+  type GeneratedDeck,
+  type SectionFillResult,
+} from './lib/responseShapes'
 import {
   HARD_FILTER_PROMPT_RULES,
   HARD_FILTER_SCRYFALL_QUERY,
@@ -28,6 +28,18 @@ import {
   type DeltaOp,
   type DeltaResult,
 } from './lib/deltaPrompt'
+// The response parsers and the 60-card name adapter live in
+// convex/lib/responseShapes.ts so the mechanical gate can call them without
+// this module's Convex imports. Re-exported for the tests and call sites.
+export {
+  enforceDeckSize,
+  parseDeckResponse as parseResponse,
+  parseSectionResponse,
+  type EnforceDeckSizeOptions,
+  type GeneratedCard,
+  type GeneratedDeck,
+} from './lib/responseShapes'
+
 export const SYSTEM_PROMPT = `You are an expert Magic: The Gathering casual deck builder.
 
 RULES:
@@ -56,18 +68,6 @@ OUTPUT FORMAT (JSON ONLY, no other text):
 }
 
 Respond ONLY with the JSON object. No explanatory text before or after.`
-
-interface GeneratedCard {
-  name: string
-  quantity: number
-}
-
-interface GeneratedDeck {
-  name: string
-  description: string
-  explanation?: string
-  cards: GeneratedCard[]
-}
 
 /**
  * The slice of a Scryfall search hit the pool needs: the prompt fields, plus
@@ -249,104 +249,6 @@ RULES:
 - If asked about something completely unrelated to MTG or the deck, politely redirect: "I'm here to help with your deck! Ask me about cards, strategy, or rules."
 - Respond in the same language the user writes in`
 
-/**
- * Parse a deck response into a GeneratedDeck, dropping malformed cards.
- *
- * Quantities are NOT clamped here - `enforceDeckSize` owns the 4-copy rule for
- * a whole deck, because it also has to dedupe and re-balance to exactly 60.
- *
- * Throws 'Could not parse AI response as JSON' when no rung of the ladder
- * yields JSON, and 'AI response has an invalid format' when it yields
- * something that isn't a deck.
- */
-export function parseResponse(text: string): GeneratedDeck {
-  const parsed = parseCardList<{ cards: GeneratedCard }>(text, {
-    lists: { cards: { entry: cardEntry(), required: true } },
-    // Anchored on the `cards` key so an object in surrounding prose can't match.
-    bareObjectAnchor: 'cards',
-    scalars: { name: undefined, description: '', explanation: undefined },
-    requiredScalars: ['name'],
-    onFailure: 'throw',
-  })
-
-  return {
-    // requiredScalars guarantees a non-empty name; the ?? is for the type only.
-    name: parsed.scalars.name ?? '',
-    description: parsed.scalars.description ?? '',
-    explanation: parsed.scalars.explanation,
-    cards: parsed.lists.cards,
-  }
-}
-
-export interface EnforceDeckSizeOptions {
-  /** Deck color identity as W/U/B/R/G letters. Picks the basics used for padding. */
-  colors?: string[]
-  /**
-   * Card name -> Scryfall `type_line`, for the cards the prompt's card pool
-   * knows about. Lets the trim step tell a dual land from a spell. Names that
-   * are absent fall back to the basic-land name check, which is what the whole
-   * function did before.
-   */
-  cardTypes?: Record<string, string>
-}
-
-/**
- * Layer 2: Programmatic enforcement - force deck to exactly 60 cards.
- *
- * The name adapter for `enforceDeck`: the rules work in opaque keys, so this
- * supplies the type-line predicates, the locked floors, and the colour -> basic
- * name map, and hands back a GeneratedDeck. The trim order, the 4-copy rule and
- * the pad split all live in `convex/lib/deckRules.ts` under the `'rebuild'`
- * policy, shared with the client (issue #28).
- */
-export function enforceDeckSize(
-  deck: GeneratedDeck,
-  lockedCards?: Array<{ name: string; quantity: number }>,
-  options?: EnforceDeckSizeOptions,
-): GeneratedDeck {
-  const lockedQuantities = new Map<string, number>()
-  for (const c of lockedCards ?? []) lockedQuantities.set(c.name, c.quantity)
-
-  const cardTypes = options?.cardTypes ?? {}
-  const typeLineOf = (name: string) => (cardTypes[name] ?? '').toLowerCase()
-  // Whole-word match: `includes('land')` would also fire on "island", the
-  // subtype every blue basic and dual carries.
-  const isBasic = (name: string) => {
-    if (BASIC_LAND_NAMES.has(name)) return true
-    const type = typeLineOf(name)
-    return /\bbasic\b/.test(type) && /\bland\b/.test(type)
-  }
-  const isLand = (name: string) => isBasic(name) || /\bland\b/.test(typeLineOf(name))
-  const basicForColor = (color: string) => BASIC_LAND_NAME_BY_COLOR[color]
-
-  // The deck's declared colors are the truth about which basics belong here; a
-  // mono-blue deck the model returned with no lands must pad with Islands. When
-  // none of them name a basic, fall back to the colors of the basics the deck
-  // already runs, and let deckRules take it from there.
-  const declared = (options?.colors ?? []).filter((c) => basicForColor(c.toUpperCase()))
-  const colors =
-    declared.length > 0
-      ? declared
-      : Object.entries(BASIC_LAND_NAME_BY_COLOR)
-          .filter(([, name]) => deck.cards.some((c) => c.name === name))
-          .map(([color]) => color)
-
-  deck.cards = enforceDeck(
-    deck.cards.map((c) => ({ key: c.name, quantity: c.quantity })),
-    {
-      trimPolicy: 'rebuild',
-      isBasic,
-      isLand,
-      colors,
-      basicForColor,
-      locked: new Set(lockedQuantities.keys()),
-      lockedFloor: (name) => lockedQuantities.get(name) ?? 1,
-    },
-  ).map(({ key, quantity }) => ({ name: key, quantity }))
-
-  return deck
-}
-
 async function generateWithEnforcement(
   ctx: ActionCtx,
   systemPrompt: string,
@@ -359,7 +261,7 @@ async function generateWithEnforcement(
   const model = MODELS.main
   const logId = await startLlmLog(ctx, 'chat.generate', model, systemPrompt, messages)
   const result = await callAnthropic(systemPrompt, messages, { model, maxTokens: 4096 })
-  const deck = await parseAndLog(ctx, logId, result, parseResponse)
+  const deck = await parseAndLog(ctx, logId, result, parseDeckResponse)
 
   // Programmatic enforcement: force exactly 60 cards, 4-copy rule, land padding
   return enforceDeckSize(deck, lockedCards, options)
@@ -687,30 +589,6 @@ OUTPUT FORMAT (JSON ONLY, no other text):
 }
 
 Respond ONLY with the JSON object. No explanatory text before or after.`
-
-interface SectionFillResult {
-  cards: GeneratedCard[]
-  explanation: string
-}
-
-/**
- * Parse a section-fill response, dropping malformed cards and clamping
- * non-basics to the 4-copy rule. A fill never runs `enforceDeckSize`, so the
- * clamp has to happen here. No embedded-object rung: the fill prompt asks for
- * JSON only, so a response that needs one is malformed either way.
- */
-export function parseSectionResponse(text: string): SectionFillResult {
-  const parsed = parseCardList<{ cards: GeneratedCard }>(text, {
-    lists: { cards: { entry: cardEntry({ clampCopies: true }), required: true } },
-    scalars: { explanation: '' },
-    onFailure: 'throw',
-  })
-
-  return {
-    cards: parsed.lists.cards,
-    explanation: parsed.scalars.explanation ?? '',
-  }
-}
 
 async function buildSectionCardPool(
   ctx: ActionCtx,
