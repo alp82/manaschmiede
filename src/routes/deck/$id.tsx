@@ -3,6 +3,7 @@ import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Layout } from '../../components/Layout'
 import { DeckCardList } from '../../components/DeckCardList'
+import { DeckCardSkeleton } from '../../components/ui/DeckCardSkeleton'
 import { SimulationPanel } from '../../components/SimulationPanel'
 import { DeckEditor } from '../../components/deck/DeckEditor'
 import { DeckIntentPanel } from '../../components/deck/DeckIntentPanel'
@@ -47,15 +48,26 @@ function DeckPage() {
   const { scryfallLang } = useI18n()
   const queryClient = useQueryClient()
   const { id } = Route.useParams()
-  // One storage read for all three: `deckStore.load` parses the whole stored
-  // list, and the name and description initializers used to repeat it. Reading
-  // `deck` here is safe — a `useState` initializer runs during this render, so
-  // the line above has already produced it.
-  const [deck, setDeck] = useState<Deck | null>(() => deckStore.load(id))
-  const [deckName, setDeckName] = useState(() => deck?.name ?? '')
-  const [deckDescription, setDeckDescription] = useState(() => deck?.description ?? '')
+  // `undefined` = not yet read from storage, `null` = read and there's no such
+  // deck. Reading `deckStore.load` in a `useState` initializer would run it
+  // during SSR too, where `localStorage` doesn't exist, so the server would
+  // always render "not found" while the client's first render (which does
+  // have `localStorage`) renders the real deck — a hydration mismatch. Instead
+  // both server and client render the `undefined` (loading) branch, and the
+  // actual read happens client-only in the effect below.
+  const [deck, setDeck] = useState<Deck | null | undefined>(undefined)
+  const [deckName, setDeckName] = useState('')
+  const [deckDescription, setDeckDescription] = useState('')
   const [cardDataMap, setCardDataMap] = useState<Map<string, ScryfallCard>>(new Map())
   const [pdfGenerating, setPdfGenerating] = useState(false)
+
+  // Client-only load, keyed on `id` so navigating between decks re-reads.
+  useEffect(() => {
+    const loaded = deckStore.load(id)
+    setDeck(loaded)
+    setDeckName(loaded?.name ?? '')
+    setDeckDescription(loaded?.description ?? '')
+  }, [id])
 
   // In-memory undo/redo for edit mode (no aux persistence - `persist: false`).
   const history = useDeckHistory(
@@ -182,6 +194,15 @@ function DeckPage() {
     [],
   )
 
+  // `deck` carries a third, load-pending `undefined` state that these two
+  // callers (and their `Deck | null` prop types) predate — narrow it here
+  // rather than widen every downstream consumer for a state that's gone by
+  // the time a user can interact with them.
+  const setDeckOrNull = useCallback(
+    (updater: (prev: Deck | null) => Deck | null) => setDeck((prev) => updater(prev ?? null)),
+    [],
+  )
+
   const {
     stagedPlan,
     stagedAssignments,
@@ -193,7 +214,7 @@ function DeckPage() {
   } = useStagedRederive({
     displayCards: deckDisplay,
     t,
-    setDeck,
+    setDeck: setDeckOrNull,
     committedPlan,
     initialPlan: deckPending.stagedPlan,
     onStagedChange: setStagedPlan,
@@ -239,8 +260,8 @@ function DeckPage() {
 
   const surface = useMemo(
     () => deckSurfaceFromSavedDeck({
-      deck,
-      setDeck,
+      deck: deck ?? null,
+      setDeck: setDeckOrNull,
       history,
       lockedCardIds,
       sections: localizedPlan,
@@ -374,7 +395,21 @@ function DeckPage() {
     [forgeWithCard, t],
   )
 
-  if (!deck) {
+  if (deck === undefined) {
+    return (
+      <Layout>
+        <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-4 border-b border-hairline pb-6">
+            <div className="h-8 w-2/3 animate-pulse bg-ash-800" aria-hidden="true" />
+            <div className="h-4 w-1/3 animate-pulse bg-ash-800" aria-hidden="true" />
+          </div>
+          <DeckCardSkeleton />
+        </div>
+      </Layout>
+    )
+  }
+
+  if (deck === null) {
     return (
       <Layout>
         <EmptyState title={t('deck.deckNotFound')} className="py-24" />
