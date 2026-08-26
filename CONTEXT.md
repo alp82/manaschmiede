@@ -49,3 +49,25 @@ target, not the spell slots.
 The average mana value of a deck's non-land cards. Advised, not enforced - see
 `docs/adr/0005-land-count-planned-curve-advised.md`. Prose says "mana value";
 `averageCmc` survives as a field name on `BalanceAnalysis`.
+
+**Mechanical gate**:
+The automated first stage of the model quality ladder. Runs on a model's raw
+output, before any repair, and decides whether a candidate earns human review.
+_Avoid_: validator, filter
+
+**Check profile**:
+The set of gate checks that applies to one output shape (deck, card list,
+combos, delta, label, query fragments, prose). One gate, one profile per shape.
+
+**Hard fail**:
+A gate check that disqualifies a run outright: no JSON, schema mismatch,
+truncation, a card that does not exist, latency over the ceiling.
+
+**Repair distance**:
+How much `enforceDeck` had to change a raw deck to make it legal: copies
+clamped, cards trimmed, lands padded. Scored, never a hard fail.
+
+**Clears the gate**:
+A candidate whose runs are at least 90% hard-fail-free across the scenario set,
+with no scenario failing more than once, and whose projected cost per build is
+under the ceiling.
