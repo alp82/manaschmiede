@@ -11,8 +11,8 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as DecksRouteImport } from './routes/decks'
 import { Route as CardsRouteImport } from './routes/cards'
+import { Route as BenchRouteImport } from './routes/bench'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as PrototypeBenchRouteImport } from './routes/prototype.bench'
 import { Route as DeckNewRouteImport } from './routes/deck/new'
 import { Route as DeckIdRouteImport } from './routes/deck/$id'
 
@@ -26,14 +26,14 @@ const CardsRoute = CardsRouteImport.update({
   path: '/cards',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BenchRoute = BenchRouteImport.update({
+  id: '/bench',
+  path: '/bench',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PrototypeBenchRoute = PrototypeBenchRouteImport.update({
-  id: '/prototype/bench',
-  path: '/prototype/bench',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DeckNewRoute = DeckNewRouteImport.update({
@@ -49,57 +49,51 @@ const DeckIdRoute = DeckIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/bench': typeof BenchRoute
   '/cards': typeof CardsRoute
   '/decks': typeof DecksRoute
   '/deck/$id': typeof DeckIdRoute
   '/deck/new': typeof DeckNewRoute
-  '/prototype/bench': typeof PrototypeBenchRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/bench': typeof BenchRoute
   '/cards': typeof CardsRoute
   '/decks': typeof DecksRoute
   '/deck/$id': typeof DeckIdRoute
   '/deck/new': typeof DeckNewRoute
-  '/prototype/bench': typeof PrototypeBenchRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/bench': typeof BenchRoute
   '/cards': typeof CardsRoute
   '/decks': typeof DecksRoute
   '/deck/$id': typeof DeckIdRoute
   '/deck/new': typeof DeckNewRoute
-  '/prototype/bench': typeof PrototypeBenchRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths:
-    | '/'
-    | '/cards'
-    | '/decks'
-    | '/deck/$id'
-    | '/deck/new'
-    | '/prototype/bench'
+  fullPaths: '/' | '/bench' | '/cards' | '/decks' | '/deck/$id' | '/deck/new'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/cards' | '/decks' | '/deck/$id' | '/deck/new' | '/prototype/bench'
+  to: '/' | '/bench' | '/cards' | '/decks' | '/deck/$id' | '/deck/new'
   id:
     | '__root__'
     | '/'
+    | '/bench'
     | '/cards'
     | '/decks'
     | '/deck/$id'
     | '/deck/new'
-    | '/prototype/bench'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  BenchRoute: typeof BenchRoute
   CardsRoute: typeof CardsRoute
   DecksRoute: typeof DecksRoute
   DeckIdRoute: typeof DeckIdRoute
   DeckNewRoute: typeof DeckNewRoute
-  PrototypeBenchRoute: typeof PrototypeBenchRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -118,18 +112,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CardsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/bench': {
+      id: '/bench'
+      path: '/bench'
+      fullPath: '/bench'
+      preLoaderRoute: typeof BenchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/prototype/bench': {
-      id: '/prototype/bench'
-      path: '/prototype/bench'
-      fullPath: '/prototype/bench'
-      preLoaderRoute: typeof PrototypeBenchRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/deck/new': {
@@ -151,11 +145,11 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  BenchRoute: BenchRoute,
   CardsRoute: CardsRoute,
   DecksRoute: DecksRoute,
   DeckIdRoute: DeckIdRoute,
   DeckNewRoute: DeckNewRoute,
-  PrototypeBenchRoute: PrototypeBenchRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

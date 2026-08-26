@@ -63,9 +63,22 @@ export interface LlmResult {
 export const TRUNCATED_RESPONSE_MESSAGE =
   'The AI response was cut off before it finished. Try again with a shorter request.'
 
+/**
+ * The stop reasons that mean "ran out of output tokens": Anthropic's
+ * `max_tokens` (and its 4.5+ sibling), and `length`, which is what OpenRouter
+ * normalizes every provider's truncation to (#54). One predicate reads both so
+ * a bench run through the gateway and an app call through Anthropic are
+ * judged by the same rule; a truncated deck that looks complete is the hazard.
+ */
+const TRUNCATION_STOP_REASONS: ReadonlySet<string> = new Set([
+  'max_tokens',
+  'model_context_window_exceeded',
+  'length',
+])
+
 /** True when the model ran out of output tokens and the text is incomplete. */
 export function isTruncated(result: Pick<LlmResult, 'stopReason'>): boolean {
-  return result.stopReason === 'max_tokens'
+  return result.stopReason !== null && TRUNCATION_STOP_REASONS.has(result.stopReason)
 }
 
 /**
