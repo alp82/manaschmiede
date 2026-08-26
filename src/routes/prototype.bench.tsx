@@ -15,7 +15,7 @@
  *                gate shown after scoring; standings table at the end.
  */
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useQuery } from 'convex/react'
+import { useConvexConnectionState, useQuery } from 'convex/react'
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '../../convex/_generated/api'
 import { Layout } from '../components/Layout'
@@ -23,9 +23,14 @@ import { PrototypeSwitcher } from '../components/prototype/PrototypeSwitcher'
 import { Button } from '../components/ui/Button'
 import { Pill } from '../components/ui/Pill'
 import { cn } from '../lib/utils'
+import { ManaSymbol } from '../components/ManaSymbol'
+import { CardLightbox } from '../components/CardLightbox'
+import { isManaColor, type ManaColor } from '../lib/mana-colors'
+import { getCardImageUri, type ScryfallCard } from '../lib/scryfall/types'
 
 const VARIANTS = [
-  { key: 'A', name: 'Plates — side by side, gate first' },
+  { key: 'D', name: 'Board — scenario, scoreboard, card art' },
+  { key: 'A', name: 'Plates — prompt + two candidates, gate first' },
   { key: 'B', name: 'Duel — pairwise, gate last' },
   { key: 'C', name: 'Folio — one at a time, keyboard score' },
 ]
@@ -34,7 +39,7 @@ type Site = (typeof SITES)[number]
 
 export const Route = createFileRoute('/prototype/bench')({
   validateSearch: (s: Record<string, unknown>) => ({
-    variant: typeof s.variant === 'string' ? s.variant : 'A',
+    variant: typeof s.variant === 'string' ? s.variant : 'D',
     site: (SITES as readonly string[]).includes(String(s.site)) ? (s.site as Site) : 'suggestCombos',
   }),
   component: BenchPrototype,
@@ -68,6 +73,8 @@ interface Candidate {
   lines: string[] // what the reviewer reads
   names: Set<string> // for the duel diff
   gate: Gate
+  combos: Array<{ name: string; cards: string[]; explanation: string }>
+  cards: Array<{ name: string; quantity: number }>
 }
 
 interface Gate {
@@ -100,6 +107,8 @@ function toCandidate(row: LogRow, index: number, site: Site): Candidate {
   const scored: string[] = []
   const lines: string[] = []
   const names = new Set<string>()
+  const combos: Candidate['combos'] = []
+  const cards: Candidate['cards'] = []
 
   if (row.stopReason === 'max_tokens') hard.push('TRUNCATED')
   if (!parsed) hard.push('NO JSON')
@@ -110,6 +119,7 @@ function toCandidate(row: LogRow, index: number, site: Site): Candidate {
       const q = c.quantity ?? 1
       total += q
       if (c.name) names.add(c.name)
+      cards.push({ name: c.name ?? '?', quantity: q })
       lines.push(`${String(q).padStart(2)}  ${c.name ?? '?'}`)
       if (q > 4 && !/^(Plains|Island|Swamp|Mountain|Forest)$/.test(c.name ?? '')) scored.push(`>4× ${c.name}`)
     }
@@ -117,6 +127,7 @@ function toCandidate(row: LogRow, index: number, site: Site): Candidate {
     if (site !== 'chat.generate') scored.push(`${total} cards`)
   } else if (parsed && Array.isArray(parsed.combos)) {
     for (const combo of parsed.combos as Array<{ name?: string; cards?: string[]; explanation?: string }>) {
+      combos.push({ name: combo.name ?? '?', cards: combo.cards ?? [], explanation: combo.explanation ?? '' })
       lines.push(`§ ${combo.name ?? '?'}`)
       for (const n of combo.cards ?? []) {
         names.add(n)
@@ -146,6 +157,8 @@ function toCandidate(row: LogRow, index: number, site: Site): Candidate {
     raw,
     lines,
     names,
+    combos,
+    cards,
     gate: { hard, scored, latencyMs, costUsd: row.estimatedCostUsd ?? 0, outTokens: row.outputTokens ?? 0 },
   }
 }
@@ -211,29 +224,318 @@ function ResponseBody({ c, highlight, dense }: { c: Candidate; highlight?: Set<s
   )
 }
 
+function StructuredBody({ c }: { c: Candidate }) {
+  if (c.combos.length) {
+    return (
+      <ol className="divide-y divide-hairline/40">
+        {c.combos.map((k, i) => (
+          <li key={i} className="py-3">
+            <div className="flex items-baseline gap-3">
+              <Mono>{String(i + 1).padStart(2, '0')}</Mono>
+              <span className="font-mono text-mono-label uppercase tracking-mono-label text-cream-100">{k.name}</span>
+            </div>
+            <div className="mt-1 flex flex-wrap gap-x-3 font-mono text-mono-marginal tracking-mono-marginal text-cream-300">
+              {k.cards.map((n) => (
+                <span key={n}>{n}</span>
+              ))}
+            </div>
+            <p className="mt-1.5 font-body text-body-small text-cream-300">{k.explanation}</p>
+          </li>
+        ))}
+      </ol>
+    )
+  }
+  if (c.cards.length) {
+    const groups = [4, 3, 2, 1].map((q) => ({ q, rows: c.cards.filter((x) => x.quantity === q) })).filter((g) => g.rows.length)
+    const odd = c.cards.filter((x) => x.quantity > 4)
+    return (
+      <div className="columns-2 gap-6 font-mono text-mono-label text-cream-200">
+        {[...groups, ...(odd.length ? [{ q: 0, rows: odd }] : [])].map((g) => (
+          <div key={g.q} className="mb-3 break-inside-avoid">
+            <Mono className="block border-b border-hairline pb-1">{g.q ? `${g.q}×` : 'lands / other'}</Mono>
+            {g.rows.map((r) => (
+              <div key={r.name} className="flex justify-between gap-2 py-0.5">
+                <span className="truncate">{r.name}</span>
+                {!g.q && <span className="text-cream-500">{r.quantity}</span>}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    )
+  }
+  return <ResponseBody c={c} dense />
+}
+
+// ---------- D: Board ----------
+
+/** Rough scenario extraction from the prompt text — prototype only. */
+function readScenario(prompt: string) {
+  const colors = Array.from(new Set((prompt.match(/\(([WUBRG])\)/g) ?? []).map((m) => m[1]))).filter(isManaColor) as ManaColor[]
+  const archetypes = (prompt.match(/^- ([A-Za-z][^(\n]*?)\s*\(/gm) ?? []).map((m) => m.replace(/^- /, '').replace(/\s*\($/, ''))
+  const idea = prompt.match(/described their deck as:\s*"([^"]+)"/)?.[1] ?? prompt.split('\n')[0]
+  return { colors, archetypes, idea }
+}
+
+function useCardArt(names: string[]) {
+  const [art, setArt] = useState<Record<string, ScryfallCard>>({})
+  const key = names.join('|')
+  useEffect(() => {
+    const missing = Array.from(new Set(names)).filter((n) => !art[n.toLowerCase()])
+    if (missing.length === 0) return
+    let cancelled = false
+    ;(async () => {
+      const found: Record<string, ScryfallCard> = {}
+      for (let i = 0; i < missing.length; i += 75) {
+        const res = await fetch('https://api.scryfall.com/cards/collection', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ identifiers: missing.slice(i, i + 75).map((name) => ({ name: name.split(' // ')[0] })) }),
+        })
+        const json = (await res.json()) as { data?: ScryfallCard[] }
+        for (const c of json.data ?? []) { found[c.name.toLowerCase()] = c; found[c.name.split(' // ')[0].toLowerCase()] = c }
+      }
+      if (!cancelled) setArt((a) => ({ ...a, ...found }))
+    })()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key])
+  return art
+}
+
+function Bar({ value, max, className }: { value: number; max: number; className?: string }) {
+  const pct = max > 0 ? Math.max(2, Math.round((value / max) * 100)) : 0
+  return (
+    <span className="inline-block h-[6px] w-24 align-middle bg-ash-700">
+      <span className={cn('block h-full bg-cream-300', className)} style={{ width: `${pct}%` }} />
+    </span>
+  )
+}
+
+function CardArt({ name, card, missing, onOpen }: { name: string; card?: ScryfallCard; missing?: boolean; onOpen?: (card: ScryfallCard) => void }) {
+  const uri = card ? getCardImageUri(card, 'small') : undefined
+  return (
+    <figure className={cn('w-[110px] shrink-0', missing && 'outline outline-1 outline-ink-red')}>
+      {uri ? (
+        <img src={uri} alt={name} className="block w-full cursor-pointer transition-transform hover:-translate-y-1" onClick={() => card && onOpen?.(card)} />
+      ) : (
+        <div className="flex aspect-[5/7] w-full items-end bg-ash-800 p-1 font-mono text-[10px] text-cream-400">
+          {missing ? `✗ ${name}` : name}
+        </div>
+      )}
+    </figure>
+  )
+}
+
+function VariantD({ cands, reveal, prompt }: { cands: Candidate[]; reveal: boolean; prompt: string }) {
+  const scenario = useMemo(() => readScenario(prompt), [prompt])
+  const [rank, setRank] = useState<Record<string, number>>({})
+  const [picked, setPicked] = useState<string[]>(() => cands.slice(0, 2).map((c) => c.id))
+  const [why, setWhy] = useState(false)
+  const [showPrompt, setShowPrompt] = useState(false)
+  const n = cands.length
+  const shown = cands.filter((c) => picked.includes(c.id))
+  const names = shown.flatMap((c) => [...c.names])
+  const art = useCardArt(names)
+  const max = {
+    lat: Math.max(...cands.map((c) => c.gate.latencyMs), 1),
+    cost: Math.max(...cands.map((c) => c.gate.costUsd), 0.0001),
+    out: Math.max(...cands.map((c) => c.gate.outTokens), 1),
+  }
+  const pick = (id: string) =>
+    setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : p.length < 2 ? [...p, id] : [p[1], id]))
+  const isMissing = (name: string) => Object.keys(art).length > 0 && !art[name.toLowerCase()]
+  const [lightbox, setLightbox] = useState<{ cards: ScryfallCard[]; index: number } | null>(null)
+  const open = (group: string[]) => (card: ScryfallCard) => {
+    const cards = group.map((nm) => art[nm.toLowerCase()]).filter(Boolean)
+    setLightbox({ cards, index: Math.max(0, cards.indexOf(card)) })
+  }
+
+  return (
+    <div>
+      {/* scenario strip */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-cream-500 pb-3">
+        <Mono>scenario</Mono>
+        <div className="flex gap-1">
+          {scenario.colors.map((c) => (
+            <ManaSymbol key={c} color={c} size="sm" />
+          ))}
+        </div>
+        <div className="flex gap-1">
+          {scenario.archetypes.map((a) => (
+            <Pill key={a} size="sm">
+              {a}
+            </Pill>
+          ))}
+        </div>
+        <span className="min-w-0 flex-1 truncate font-body text-body-small italic text-cream-300">“{scenario.idea}”</span>
+        <Pill size="sm" variant="ghost" selected={showPrompt} onClick={() => setShowPrompt(!showPrompt)}>
+          {showPrompt ? '− prompt' : '+ prompt'}
+        </Pill>
+      </div>
+      {showPrompt && (
+        <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap border-b border-hairline py-2 font-mono text-[11px] text-cream-400">{prompt}</pre>
+      )}
+
+      {/* scoreboard */}
+      <table className="mt-4 w-full font-mono text-mono-label tabular-nums">
+        <thead>
+          <tr className="text-left text-cream-500">
+            <th className="w-8 py-1 font-normal" />
+            <th className="py-1 pr-4 font-normal">GATE</th>
+            <th className="pr-4 font-normal">LATENCY</th>
+            <th className="pr-4 font-normal">COST</th>
+            <th className="pr-4 font-normal">OUTPUT</th>
+            <th className="pr-4 font-normal">YOUR RANK</th>
+            <th className="font-normal">MODEL</th>
+          </tr>
+        </thead>
+        <tbody>
+          {cands.map((c) => {
+            const on = picked.includes(c.id)
+            const fail = c.gate.hard.length > 0
+            return (
+              <tr
+                key={c.id}
+                onClick={() => pick(c.id)}
+                className={cn(
+                  'cursor-pointer border-t border-hairline/20 text-cream-200 hover:bg-ash-800',
+                  on && 'border-l-2 border-l-ink-red bg-ash-800',
+                )}
+              >
+                <td className="py-2 pl-2 font-display text-display-eyebrow text-cream-100">{c.label}</td>
+                <td className="pr-4">
+                  {fail ? (
+                    <span className="text-ink-red">✗ {c.gate.hard.join(' · ')}</span>
+                  ) : (
+                    <span className="text-cream-300">✓ pass</span>
+                  )}
+                </td>
+                <td className="pr-4">
+                  <Bar value={c.gate.latencyMs} max={max.lat} className={c.gate.latencyMs > 60_000 ? 'bg-ink-red' : undefined} />
+                  <span className="ml-2 text-cream-400">{(c.gate.latencyMs / 1000).toFixed(0)}s</span>
+                </td>
+                <td className="pr-4">
+                  <Bar value={c.gate.costUsd} max={max.cost} className={c.gate.costUsd > 0.05 ? 'bg-ink-red' : undefined} />
+                  <span className="ml-2 text-cream-400">{(c.gate.costUsd * 100).toFixed(1)}¢</span>
+                </td>
+                <td className="pr-4">
+                  <Bar value={c.gate.outTokens} max={max.out} />
+                  <span className="ml-2 text-cream-400">{c.gate.outTokens}</span>
+                </td>
+                <td className="pr-4" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex gap-1">
+                    {Array.from({ length: n }, (_, i) => i + 1).map((r) => (
+                      <Pill key={r} size="sm" selected={rank[c.id] === r} onClick={() => setRank({ ...rank, [c.id]: r })}>
+                        {r}
+                      </Pill>
+                    ))}
+                  </div>
+                </td>
+                <td className="text-cream-500">{reveal ? c.model : '████████'}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+      <div className="mt-1 flex items-center gap-4">
+        <Mono>click a row to put it on the table · two at a time · red outline = card not on scryfall</Mono>
+        <Pill size="sm" variant="ghost" selected={why} onClick={() => setWhy(!why)} className="ml-auto">
+          {why ? '− reasoning' : '+ reasoning'}
+        </Pill>
+      </div>
+
+      {/* table: card art */}
+      <div className={cn('mt-6 grid gap-8', shown.length === 2 ? 'grid-cols-2' : 'grid-cols-1')}>
+        {shown.map((c) => (
+          <section key={c.id} className="border-t-2 border-cream-500 pt-2">
+            <Identity c={c} reveal={reveal} />
+            {c.combos.length > 0 ? (
+              <ol className="mt-3 space-y-4">
+                {c.combos.map((k, i) => (
+                  <li key={i}>
+                    <div className="flex items-baseline gap-3">
+                      <Mono>{String(i + 1).padStart(2, '0')}</Mono>
+                      <span className="font-mono text-mono-label uppercase tracking-mono-label text-cream-100">{k.name}</span>
+                    </div>
+                    <div className="mt-2 flex gap-2 overflow-x-auto">
+                      {k.cards.map((nm) => (
+                        <CardArt key={nm} name={nm} card={art[nm.toLowerCase()]} missing={isMissing(nm)} onOpen={open(k.cards)} />
+                      ))}
+                    </div>
+                    {why && <p className="mt-2 max-w-prose font-body text-body-small text-cream-300">{k.explanation}</p>}
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {c.cards.map((r) => (
+                  <div key={r.name} className="relative">
+                    <CardArt name={r.name} card={art[r.name.toLowerCase()]} missing={isMissing(r.name)} onOpen={open(c.cards.map((x) => x.name))} />
+                    <span className="absolute left-0 top-0 bg-ash-900 px-1 font-mono text-[11px] text-cream-100">{r.quantity}×</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        ))}
+      </div>
+      {lightbox && (
+        <CardLightbox
+          cards={lightbox.cards}
+          currentIndex={lightbox.index}
+          onClose={() => setLightbox(null)}
+          onNavigate={(index) => setLightbox({ ...lightbox, index })}
+        />
+      )}
+    </div>
+  )
+}
+
 // ---------- A: Plates ----------
 
-function VariantA({ cands, reveal }: { cands: Candidate[]; reveal: boolean }) {
+function VariantA({ cands, reveal, prompt }: { cands: Candidate[]; reveal: boolean; prompt: string }) {
   const [rank, setRank] = useState<Record<string, number>>({})
+  const [shown, setShown] = useState<string[]>(() => cands.slice(0, 2).map((c) => c.id))
   const n = cands.length
+  const visible = cands.filter((c) => shown.includes(c.id))
+  const swap = (id: string) =>
+    setShown((s) => (s.includes(id) ? s.filter((x) => x !== id) : s.length < 2 ? [...s, id] : [s[1], id]))
   return (
-    <div className="overflow-x-auto">
-      <div className="grid gap-x-6" style={{ gridTemplateColumns: `repeat(${n}, minmax(260px, 1fr))` }}>
+    <div>
+      <div className="mb-3 flex items-center gap-2">
+        <Mono>on the table</Mono>
         {cands.map((c) => (
-          <section key={c.id} className="border-t border-cream-500 pt-2">
-            <Identity c={c} reveal={reveal} />
+          <Pill key={c.id} size="sm" selected={shown.includes(c.id)} onClick={() => swap(c.id)}>
+            {c.label}
+          </Pill>
+        ))}
+        <Mono className="ml-2">two at a time · click to swap in</Mono>
+      </div>
+      <div className="grid grid-cols-12 gap-6">
+        <aside className="col-span-3 border-t border-cream-500 pt-2">
+          <Mono>prompt</Mono>
+          <pre className="mt-2 max-h-[75vh] overflow-y-auto whitespace-pre-wrap font-body text-body-small text-cream-300">{prompt}</pre>
+        </aside>
+        {visible.map((c) => (
+          <section key={c.id} className="col-span-4 border-t border-cream-500 pt-2">
+            <div className="flex items-baseline justify-between">
+              <Identity c={c} reveal={reveal} />
+              <div className="flex gap-1">
+                {Array.from({ length: n }, (_, i) => i + 1).map((r) => (
+                  <Pill key={r} size="sm" selected={rank[c.id] === r} onClick={() => setRank({ ...rank, [c.id]: r })}>
+                    {r}
+                  </Pill>
+                ))}
+              </div>
+            </div>
             <div className="mt-2 border-b border-hairline pb-2">
               <GateStrip gate={c.gate} />
             </div>
-            <div className="mt-2 flex gap-1">
-              {Array.from({ length: n }, (_, i) => i + 1).map((r) => (
-                <Pill key={r} size="sm" selected={rank[c.id] === r} onClick={() => setRank({ ...rank, [c.id]: r })}>
-                  {r}
-                </Pill>
-              ))}
-            </div>
-            <div className={cn('mt-3 max-h-[70vh] overflow-y-auto', c.gate.hard.length && 'opacity-40')}>
-              <ResponseBody c={c} dense />
+            <div className={cn('mt-1 max-h-[75vh] overflow-y-auto', c.gate.hard.length && 'opacity-40')}>
+              <StructuredBody c={c} />
             </div>
           </section>
         ))}
@@ -299,7 +601,7 @@ function VariantB({ cands, reveal }: { cands: Candidate[]; reveal: boolean }) {
               <GateStrip gate={c.gate} hidden />
             </div>
             <div className="mt-2 max-h-[62vh] overflow-y-auto">
-              <ResponseBody c={c} highlight={k === 0 ? r.names : l.names} />
+              <StructuredBody c={c} />
             </div>
           </section>
         ))}
@@ -359,8 +661,8 @@ function VariantC({ cands, reveal }: { cands: Candidate[]; reveal: boolean }) {
         ))}
         <Button variant="ghost" className="ml-auto" onClick={() => setI(i + 1)}>NEXT →</Button>
       </div>
-      <div className="mt-4 columns-2 gap-8">
-        <ResponseBody c={c} />
+      <div className="mt-4">
+        <StructuredBody c={c} />
       </div>
     </div>
   )
@@ -423,6 +725,7 @@ function BenchPrototype() {
     navigate({ to: '/prototype/bench', search: { variant, site, ...patch }, replace: true })
 
   const rows = useQuery(api.llmUsageLogs.list, { limit: 500 }) as LogRow[] | undefined
+  const conn = useConvexConnectionState()
   const [reveal, setReveal] = useState(false)
   const [off, setOff] = useState<Set<string>>(new Set())
 
@@ -477,10 +780,10 @@ function BenchPrototype() {
               </Pill>
             ))}
           </div>
-          <Mono>{all.length === 0 ? (rows ? 'no completed rows for this site' : 'loading') : `${cands.length} of ${all.length} on`}</Mono>
+          <Mono>{all.length === 0 ? (rows ? 'no completed rows for this site' : `loading · ws ${conn.isWebSocketConnected ? 'connected' : 'NOT connected'} · ${conn.hasEverConnected ? 'has connected before' : 'never connected'} · ${import.meta.env.VITE_CONVEX_URL}`) : `${cands.length} of ${all.length} on`}</Mono>
         </div>
 
-        {prompt && (
+        {prompt && variant !== 'D' && (
           <details className="mt-3 border-b border-hairline pb-3">
             <summary className="cursor-pointer font-mono text-mono-marginal uppercase tracking-mono-marginal text-cream-500">
               prompt (first candidate's user turn — replay rows differ per call)
@@ -490,7 +793,8 @@ function BenchPrototype() {
         )}
 
         <div className="mt-6">
-          {cands.length > 0 && variant === 'A' && <VariantA cands={cands} reveal={reveal} />}
+          {cands.length > 0 && variant === 'D' && <VariantD cands={cands} reveal={reveal} prompt={prompt} />}
+          {cands.length > 0 && variant === 'A' && <VariantA cands={cands} reveal={reveal} prompt={prompt} />}
           {cands.length > 0 && variant === 'B' && <VariantB cands={cands} reveal={reveal} />}
           {cands.length > 0 && variant === 'C' && <VariantC cands={cands} reveal={reveal} />}
         </div>
