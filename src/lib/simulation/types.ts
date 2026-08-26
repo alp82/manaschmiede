@@ -131,6 +131,12 @@ export interface SimCard {
   keywords: Set<Keyword>
   producesColors: ManaColor[]
   effects: CardEffect[]
+  /**
+   * Whether some of the card's oracle text is beyond the sim. The card still
+   * plays - as a vanilla body or a do-nothing spell - but its share of the
+   * win rate is a guess. Always false for lands. Feeds `SimulationResult.coverage`.
+   */
+  unparsed: boolean
   isBasicLand: boolean
   /** Read off the type line. Only a land's snowness reaches the game, via `{S}`. */
   isSnow: boolean
@@ -275,6 +281,20 @@ export interface SimulationResult {
    * percentages use, so the headline number always sits inside its interval.
    */
   winRateCI95: [number, number]
+  /**
+   * Simulation coverage per deck: the share of nonland cards with no
+   * `unparsed` text. What the win rate is worth depends on this number - a
+   * deck of cards the sim can't read wins or loses for reasons that aren't
+   * the deck's.
+   */
+  coverage: PerPlayer<number>
+  /**
+   * Whether `wins` may be read as a win rate. False when either deck's
+   * coverage is under `COVERAGE_THRESHOLD`; the numbers are still reported so
+   * the caller can see which archetype the sim is blind to, but a display
+   * must say "unmeasured" rather than quote them.
+   */
+  winRateMeasured: boolean
   elapsed: number
   /** Games indexed by the round they ended on; index 0 is always empty. */
   roundDistribution: number[]
@@ -312,6 +332,7 @@ export interface SerializedSimCard {
   keywords: Keyword[]
   producesColors: ManaColor[]
   effects: CardEffect[]
+  unparsed: boolean
   isBasicLand: boolean
   isSnow: boolean
 }

@@ -4,24 +4,7 @@ import type { CardType, Keyword, SimCard } from './types'
 import { isBasicLand } from '../deck-utils'
 import { isBasicLandId } from '../../../convex/lib/basicLands'
 import { parseCost, parseLandColors } from './mana'
-import { parseEffects } from './effects'
-
-const KEYWORD_MAP: Record<string, Keyword> = {
-  flying: 'flying',
-  reach: 'reach',
-  'first strike': 'first_strike',
-  'double strike': 'double_strike',
-  deathtouch: 'deathtouch',
-  trample: 'trample',
-  lifelink: 'lifelink',
-  menace: 'menace',
-  vigilance: 'vigilance',
-  indestructible: 'indestructible',
-  defender: 'defender',
-  haste: 'haste',
-  flash: 'flash',
-  hexproof: 'hexproof',
-}
+import { isFullyParsed, KEYWORD_MAP, parseEffects } from './effects'
 
 function getMainType(typeLine: string): CardType {
   const lower = typeLine.toLowerCase()
@@ -96,8 +79,36 @@ export function parseScryfallCard(card: ScryfallCard): SimCard {
     keywords,
     producesColors,
     effects: parseEffects(oracleText, cardType),
+    // A land's whole job - tapping for its colors - is modelled, so only
+    // nonland text can leave the sim guessing.
+    unparsed: !isLand && !isFullyParsed(oracleText, cardType),
     isBasicLand: isBasicLand(card) || isBasicLandId(card.id),
     isSnow: typeLine.toLowerCase().includes('snow'),
+  }
+}
+
+/**
+ * The stand-in for a deck entry whose Scryfall data is missing.
+ *
+ * Dropping the entry used to shrink the library silently, so a deck with ten
+ * unknown cards simulated as a tighter fifty. The stand-in keeps the library
+ * honest: it has no cost, so the AI never casts it and it sits in hand like
+ * the unknown card it is, and it is `unparsed`, so coverage counts it.
+ */
+function unknownCard(id: string): SimCard {
+  return {
+    id,
+    name: id,
+    cardType: 'other',
+    cost: null,
+    power: 0,
+    toughness: 0,
+    keywords: new Set(),
+    producesColors: [],
+    effects: [],
+    unparsed: true,
+    isBasicLand: false,
+    isSnow: false,
   }
 }
 
@@ -110,8 +121,7 @@ export function parseDeck(
   for (const dc of cards) {
     if (dc.zone !== 'main') continue
     const card = cardDataMap.get(dc.scryfallId)
-    if (!card) continue
-    const simCard = parseScryfallCard(card)
+    const simCard = card ? parseScryfallCard(card) : unknownCard(dc.scryfallId)
     for (let i = 0; i < dc.quantity; i++) {
       result.push(simCard)
     }

@@ -70,6 +70,24 @@ export function metricRate(results: readonly GameResult[], metric: MetricField):
   ]
 }
 
+/**
+ * The coverage under which a win rate is reported as unmeasured. Decided in
+ * #56; the number is a judgement about how much guessing a ranking can carry,
+ * not a measurement.
+ */
+export const COVERAGE_THRESHOLD = 0.85
+
+/**
+ * Simulation coverage: the share of `deck`'s nonland cards the parser fully
+ * read. A deck with no nonland cards is fully covered - there is nothing the
+ * sim could have misread.
+ */
+export function simulationCoverage(deck: readonly SimCard[]): number {
+  const nonland = deck.filter((c) => c.cardType !== 'land')
+  if (nonland.length === 0) return 1
+  return nonland.filter((c) => !c.unparsed).length / nonland.length
+}
+
 const swap = <T,>([a, b]: PerPlayer<T>): PerPlayer<T> => [b, a]
 
 /**
@@ -104,7 +122,7 @@ export function runSimulation(
   deckB: SimCard[],
   games: number,
   seed: number,
-  onProgress: (completed: number) => void,
+  onProgress: (completed: number) => void = () => {},
 ): SimulationResult {
   const rng = xorshift128(seed)
   const start = performance.now()
@@ -149,6 +167,7 @@ export function runSimulation(
     : 0
 
   const elapsed = performance.now() - start
+  const coverage: PerPlayer<number> = [simulationCoverage(deckA), simulationCoverage(deckB)]
 
   return {
     totalGames: games,
@@ -162,6 +181,8 @@ export function runSimulation(
     manaFloodRate: metricRate(results, 'manaFlood'),
     curveHitRate: metricRate(results, 'curveHit'),
     winRateCI95: wilsonCI(wins[0], games),
+    coverage,
+    winRateMeasured: coverage.every((c) => c >= COVERAGE_THRESHOLD),
     elapsed,
     roundDistribution,
   }
