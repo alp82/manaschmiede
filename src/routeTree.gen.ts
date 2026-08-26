@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as DecksRouteImport } from './routes/decks'
 import { Route as CardsRouteImport } from './routes/cards'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as PrototypeBenchRouteImport } from './routes/prototype.bench'
 import { Route as DeckNewRouteImport } from './routes/deck/new'
 import { Route as DeckIdRouteImport } from './routes/deck/$id'
 
@@ -28,6 +29,11 @@ const CardsRoute = CardsRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrototypeBenchRoute = PrototypeBenchRouteImport.update({
+  id: '/prototype/bench',
+  path: '/prototype/bench',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DeckNewRoute = DeckNewRouteImport.update({
@@ -47,6 +53,7 @@ export interface FileRoutesByFullPath {
   '/decks': typeof DecksRoute
   '/deck/$id': typeof DeckIdRoute
   '/deck/new': typeof DeckNewRoute
+  '/prototype/bench': typeof PrototypeBenchRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -54,6 +61,7 @@ export interface FileRoutesByTo {
   '/decks': typeof DecksRoute
   '/deck/$id': typeof DeckIdRoute
   '/deck/new': typeof DeckNewRoute
+  '/prototype/bench': typeof PrototypeBenchRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -62,13 +70,27 @@ export interface FileRoutesById {
   '/decks': typeof DecksRoute
   '/deck/$id': typeof DeckIdRoute
   '/deck/new': typeof DeckNewRoute
+  '/prototype/bench': typeof PrototypeBenchRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/cards' | '/decks' | '/deck/$id' | '/deck/new'
+  fullPaths:
+    | '/'
+    | '/cards'
+    | '/decks'
+    | '/deck/$id'
+    | '/deck/new'
+    | '/prototype/bench'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/cards' | '/decks' | '/deck/$id' | '/deck/new'
-  id: '__root__' | '/' | '/cards' | '/decks' | '/deck/$id' | '/deck/new'
+  to: '/' | '/cards' | '/decks' | '/deck/$id' | '/deck/new' | '/prototype/bench'
+  id:
+    | '__root__'
+    | '/'
+    | '/cards'
+    | '/decks'
+    | '/deck/$id'
+    | '/deck/new'
+    | '/prototype/bench'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -77,6 +99,7 @@ export interface RootRouteChildren {
   DecksRoute: typeof DecksRoute
   DeckIdRoute: typeof DeckIdRoute
   DeckNewRoute: typeof DeckNewRoute
+  PrototypeBenchRoute: typeof PrototypeBenchRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -102,6 +125,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/prototype/bench': {
+      id: '/prototype/bench'
+      path: '/prototype/bench'
+      fullPath: '/prototype/bench'
+      preLoaderRoute: typeof PrototypeBenchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/deck/new': {
       id: '/deck/new'
       path: '/deck/new'
@@ -125,6 +155,7 @@ const rootRouteChildren: RootRouteChildren = {
   DecksRoute: DecksRoute,
   DeckIdRoute: DeckIdRoute,
   DeckNewRoute: DeckNewRoute,
+  PrototypeBenchRoute: PrototypeBenchRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
