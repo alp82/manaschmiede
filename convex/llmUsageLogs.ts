@@ -33,6 +33,10 @@ export const complete = internalMutation({
     estimatedCostUsd: v.optional(v.number()),
     stopReason: v.optional(v.string()),
     error: v.optional(v.string()),
+    reasoningTokens: v.optional(v.number()),
+    cachedTokens: v.optional(v.number()),
+    cacheWriteTokens: v.optional(v.number()),
+    cacheDiscount: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const { id, ...fields } = args

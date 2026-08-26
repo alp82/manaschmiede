@@ -83,3 +83,30 @@ clamped, cards trimmed, lands padded. Scored, never a hard fail.
 A candidate whose runs are at least 90% hard-fail-free across the scenario set,
 with no scenario failing more than once, and whose projected cost per build is
 under the ceiling.
+
+**Bench**:
+The repo's harness for choosing models by evidence: scenarios fanned out live
+through the gateway to every candidate, measured, gated, and ranked blind by
+the reviewer on the board at `/bench`. See
+`docs/adr/0006-bench-runs-live-replay-seeds.md`.
+_Avoid_: eval, playground
+
+**Scenario**:
+One real prompt, kept verbatim from an `llmUsageLogs` row, that every
+candidate answers, plus the facts the gate needs to judge an answer to it
+(colors, archetype, requested count). Replay seeds a scenario; it never
+supplies a candidate's answer.
+
+**Candidate**:
+One model configuration the bench runs: a gateway slug, an optional pinned
+host, a structured-output mode, an effort level, and a token budget. Two
+efforts on one model are two candidates.
+
+**Run**:
+One candidate's answer to one scenario, with the gateway's measurements
+(cost, tokens, reasoning, cache, host, stop reason), the gate's verdict, and
+the reviewer's rank. Runs fanned out together share a **batch**.
+
+**Blind label**:
+The letter a run is shown under while the model is hidden. Shuffled per
+batch so row order cannot leak the model; stable across reloads.

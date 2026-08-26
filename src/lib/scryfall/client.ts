@@ -193,3 +193,24 @@ export async function getCardsCollection(ids: string[]): Promise<ScryfallCard[]>
   )
   return results.flatMap((r) => r.data)
 }
+
+/**
+ * Batch-fetch cards by exact English name via `/cards/collection`, the same
+ * chunking as `getCardsCollection`. A name Scryfall does not know is absent
+ * from the result; the bench uses that absence to outline a card the model
+ * invented. Split-card names are looked up by their front face.
+ */
+export async function getCardsByNames(names: string[]): Promise<ScryfallCard[]> {
+  const unique = [...new Set(names.map((n) => n.split(' // ')[0]))]
+  if (unique.length === 0) return []
+  const chunks: string[][] = []
+  for (let i = 0; i < unique.length; i += 75) chunks.push(unique.slice(i, i + 75))
+  const results = await Promise.all(
+    chunks.map((chunk) =>
+      scryfallFetchPost<{ data: ScryfallCard[]; not_found: unknown[] }>('/cards/collection', {
+        identifiers: chunk.map((name) => ({ name })),
+      }),
+    ),
+  )
+  return results.flatMap((r) => r.data)
+}
