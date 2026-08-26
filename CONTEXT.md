@@ -50,6 +50,18 @@ The average mana value of a deck's non-land cards. Advised, not enforced - see
 `docs/adr/0005-land-count-planned-curve-advised.md`. Prose says "mana value";
 `averageCmc` survives as a field name on `BalanceAnalysis`.
 
+**Simulation signal**:
+The second stage of the model quality ladder: a candidate deck's win rate
+against a fixed reference set of house decks, plus its mana-screw and flood
+rates. Shown beside the human blind review; it informs and never decides.
+Rewards closeness to a 40-60% band, not strength.
+
+**Simulation coverage**:
+The share of a deck's nonland cards whose oracle text the simulation parser
+fully consumed. Below the coverage threshold (85%) the simulation signal is
+reported as unmeasured, never as a number.
+_Avoid_: parse rate, fidelity
+
 **Mechanical gate**:
 The automated first stage of the model quality ladder. Runs on a model's raw
 output, before any repair, and decides whether a candidate earns human review.
