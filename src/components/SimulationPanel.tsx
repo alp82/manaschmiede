@@ -4,6 +4,7 @@ import type { ScryfallCard } from '../lib/scryfall/types'
 import type { PerPlayerRate, SimulationResult } from '../lib/simulation/types'
 import { Button } from './ui/Button'
 import { useSimulation } from '../lib/simulation/use-simulation'
+import { COVERAGE_THRESHOLD } from '../lib/simulation/runner'
 import type { Deck } from '../lib/deck'
 import { deckStore } from '../lib/storage/deck-store'
 import { cardSupply } from '../lib/scryfall/card-supply'
@@ -192,21 +193,38 @@ export function SimulationPanel({ deckId, deckName, cards, cardDataMap }: Simula
 
       {state.status === 'done' && state.result && (
         <>
-          {/* Win rates */}
+          {/*
+            Win rates. Below the coverage threshold the sim was guessing at
+            too many cards for the number to mean anything, so the boxes say
+            so instead of quoting it (CONTEXT.md, "Simulation coverage").
+          */}
           <div className="grid grid-cols-3 divide-x divide-hairline/60">
             <StatBox
               label={isMirror ? 'COPY A' : deckName.toUpperCase()}
-              value={`${((state.result.wins[0] / state.result.totalGames) * 100).toFixed(1)}%`}
+              value={state.result.winRateMeasured ? `${((state.result.wins[0] / state.result.totalGames) * 100).toFixed(1)}%` : 'UNMEASURED'}
             />
             <StatBox
               label="DRAWS"
-              value={`${((state.result.draws / state.result.totalGames) * 100).toFixed(1)}%`}
+              value={state.result.winRateMeasured ? `${((state.result.draws / state.result.totalGames) * 100).toFixed(1)}%` : '—'}
             />
             <StatBox
               label={isMirror ? 'COPY B' : opponentName.toUpperCase()}
-              value={`${((state.result.wins[1] / state.result.totalGames) * 100).toFixed(1)}%`}
+              value={state.result.winRateMeasured ? `${((state.result.wins[1] / state.result.totalGames) * 100).toFixed(1)}%` : 'UNMEASURED'}
             />
           </div>
+
+          <div className="grid grid-cols-1">
+            <SplitStatBox
+              label="SIM COVERAGE"
+              sides={sideLabels}
+              rates={state.result.coverage}
+            />
+          </div>
+          {!state.result.winRateMeasured && (
+            <p className="px-4 pb-3 font-mono text-mono-marginal tracking-mono-marginal text-cream-400">
+              WIN RATE UNMEASURED — under {Math.round(COVERAGE_THRESHOLD * 100)}% of a deck's nonland cards are modelled.
+            </p>
+          )}
 
           <div className="grid grid-cols-3 divide-x divide-hairline/60">
             <SplitStatBox

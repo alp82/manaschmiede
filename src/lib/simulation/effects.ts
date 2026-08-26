@@ -1,4 +1,27 @@
-import type { CardEffect, CardType, EffectAction, EffectTrigger } from './types'
+import type { CardEffect, CardType, EffectAction, EffectTrigger, Keyword } from './types'
+
+/**
+ * Scryfall keyword -> the keyword the sim plays. Lives here, not in the
+ * parser, because coverage needs to know that a line reading "Flying, trample"
+ * is fully understood, and that judgement belongs beside the effect patterns
+ * that make the same call for the other lines.
+ */
+export const KEYWORD_MAP: Record<string, Keyword> = {
+  flying: 'flying',
+  reach: 'reach',
+  'first strike': 'first_strike',
+  'double strike': 'double_strike',
+  deathtouch: 'deathtouch',
+  trample: 'trample',
+  lifelink: 'lifelink',
+  menace: 'menace',
+  vigilance: 'vigilance',
+  indestructible: 'indestructible',
+  defender: 'defender',
+  haste: 'haste',
+  flash: 'flash',
+  hexproof: 'hexproof',
+}
 
 function defaultTrigger(cardType: CardType): EffectTrigger {
   if (cardType === 'creature') return 'etb'
@@ -122,20 +145,66 @@ const PATTERNS: Pattern[] = [
   },
 ]
 
-export function parseEffects(oracleText: string, cardType: CardType): CardEffect[] {
-  if (!oracleText) return []
-
+function matchEffects(text: string, cardType: CardType): CardEffect[] {
   const effects: CardEffect[] = []
 
   for (const pattern of PATTERNS) {
-    const match = oracleText.match(pattern.re)
+    const match = text.match(pattern.re)
     if (match) {
       const trigger = pattern.trigger
-        ? pattern.trigger(cardType, oracleText)
+        ? pattern.trigger(cardType, text)
         : defaultTrigger(cardType)
       effects.push({ trigger, action: pattern.action(match) })
     }
   }
 
   return effects
+}
+
+export function parseEffects(oracleText: string, cardType: CardType): CardEffect[] {
+  if (!oracleText) return []
+  return matchEffects(oracleText, cardType)
+}
+
+/**
+ * Whether an emitted effect ever changes a game. Mirrors the inert variants
+ * documented on `EffectAction` and `EffectTrigger`: a line the parser matched
+ * but the game never plays counts as not understood, because the deck's
+ * measured strength does not include it.
+ */
+function isLive(effect: CardEffect): boolean {
+  if (effect.trigger === 'static') return false
+  if (effect.action.type === 'pump' && effect.action.target === 'self') return false
+  return true
+}
+
+/** Reminder text - the italic parentheses - explains a keyword; it is never a rule of its own. */
+const REMINDER_TEXT = /\([^)]*\)/g
+
+/**
+ * Whether one line of oracle text is fully understood by the sim: empty after
+ * stripping reminder text, a list of supported keywords, or a sentence at
+ * least one live effect pattern reads.
+ */
+function isLineUnderstood(line: string, cardType: CardType): boolean {
+  const text = line.replace(REMINDER_TEXT, '').trim()
+  if (text === '') return true
+
+  const words = text.replace(/\.$/, '').split(/,\s*/)
+  if (words.every((w) => KEYWORD_MAP[w.trim().toLowerCase()] !== undefined)) return true
+
+  return matchEffects(text, cardType).some(isLive)
+}
+
+/**
+ * Whether the sim plays every line of `oracleText`. Any line that is neither
+ * a supported keyword list nor a live effect leaves the card `unparsed`: the
+ * game still runs it as a vanilla body or a do-nothing spell, but its
+ * contribution to the win rate is a guess, and coverage reports the share of
+ * such cards so the win rate can be declared unmeasured (see CONTEXT.md,
+ * "Simulation coverage").
+ */
+export function isFullyParsed(oracleText: string, cardType: CardType): boolean {
+  if (!oracleText) return true
+  return oracleText.split('\n').every((line) => isLineUnderstood(line, cardType))
 }

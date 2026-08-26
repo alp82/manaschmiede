@@ -203,6 +203,7 @@ function applyEffect(
           keywords: new Set(),
           producesColors: [],
           effects: [],
+          unparsed: false,
           isBasicLand: false,
           isSnow: false,
         }

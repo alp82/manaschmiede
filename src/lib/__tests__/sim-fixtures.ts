@@ -54,6 +54,7 @@ export function simCard(overrides: Partial<SimCard> & { id: string }): SimCard {
     keywords: new Set<Keyword>(),
     producesColors: [],
     effects: [],
+    unparsed: false,
     isBasicLand: false,
     isSnow: false,
     ...overrides,
